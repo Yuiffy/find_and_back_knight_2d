@@ -83,6 +83,33 @@ ok，你来创作这个理想的游戏！当然我们可以分批次，你可以
 - 增加背包内旋转物品、拆分堆叠与丢弃操作。
 - 给二维房间增加更完整的墙体、门、隐藏支路与下劈反弹。
 
+## 2026-07-17 · 细节打磨（进行中）
+
+- 新一轮目标：全面审计剧情引导、物品操作、战斗、成长与收集体验；重点修复旋转、跨容器落点、自动放置、堆叠、买卖和突兀结局。
+- 已完成物品底层第一批：GridItem 增加向后兼容的 rotated；所有碰撞、占格、自动放置与存档校验统一读取实例朝向。
+- 基地物品支持完整占格预览、抓取格偏移、右键/R 旋转、双击快速转移、同类堆叠合并、落点冲突自动找空位以及合并并整理。
+- 新增羽币、拾荒交易台、阶段性货品解锁、仓库安全出售；购买物自动合并/入库。
+- “任务与地图”改为线索簿和逐步显形的房间图；已验证记录会变灰归档，环境回声将持久记录；移除基地直接播放结局的按钮。
+- 新增物品图鉴进度。下一步：远征内旋转与补给使用、线索持久化、墓园现场结局、战斗反馈及自动化回归。
+- 已完成远征细节：远征背包加入可点击旋转控件与抓取偏移；便携修补片按 R 消耗并恢复 1 点蓝甲；小猫帽受击后获得短时 28% 移速；伤害与击破显示浮字。
+- 环境回声、导航羽片、电梯、守卫和终端线索会随撤离或死亡结算持久化；关键物会进入图鉴。
+- 结局改为带回核心后再次前往天线墓园，在终端旁保持 3.5 秒锁定频道；离开会取消，连接期间防止敌人击退打断。修复了 3.5 秒进度条沿用 2.5 秒分母导致负数 repeat 的运行时错误。
+- 调整机房基座为 700px 宽并右移 50px，消除其与裂谷岩台的 75px 实体重叠/隐性竖墙，保留 25px 可见断口；两轮深层路线稳定通过。
+- 新增 `tests/detail-polish-flow.mjs` 与 `tests/combat-polish-flow.mjs`；新版 `tests/deep-flow.mjs` 验证现场结局而非基地按钮。
+
+### 本轮最终验证
+
+- `npm run build` 通过；仅保留 Phaser 动态 chunk 体积提示，无类型或构建错误。
+- `detail-polish-flow`：旋转、购买合堆、出售单件、双击转移、线索簿均通过。
+- `combat-polish-flow`：远征修补片消耗/蓝甲恢复、远征背包旋转均通过。
+- `v2-base-inventory`、`raid-inventory-flow`、`v2-two-axis-navigation`、`lost-echo-flow`、`save-roundtrip` 全部通过且浏览器控制台无错误。
+- `deep-flow` 连续完成电梯深层路线、Boss、核心撤离、第二次前往墓园、现场发信号与 ending 文本状态，结果 `endingTriggeredOnSite: true`。
+- 已检查基地、交易台、线索簿、远征整备与结局截图；正式素材目录未改动。
+
+### 后续可选（不阻塞当前目标）
+
+- 增加音效、手柄/移动端输入、堆叠拆分数量弹窗；扩展第二张地图与更多商人动态报价。
+
 ## 2026-07-17 · 远征现场整备
 
 - 用户要求：远征中打开背包后，可把背包物品拖到地面、列出附近地面物品，并能随时将新武器或护甲直接换上。
@@ -120,3 +147,32 @@ ok，你来创作这个理想的游戏！当然我们可以分批次，你可以
 - 修正飞行敌人的追逐边界：会在本区域内追击，但不会跨生态区一路进入竖井，避免破坏垂直路线节奏。
 - `tests/v2-two-axis-navigation.mjs` 以四次实体侧跳从 y=2033 到 y=1375，净爬升 658 像素；`tests/deep-flow.mjs` 完成前庭到机房、Boss、撤离和结局。
 - 基地背包、远征整备、死亡回声、存档往返测试全部通过；`npm run build` 与官方浏览器客户端最终核对通过，无浏览器错误。
+
+## 2026-07-17 · 细节打磨第二轮
+
+- 基地与远征背包均新增堆叠拆分：数量大于 1 时可一键拆成两组；若没有完整空位则保持原状并明确提示。
+- 交易台新增 ×5 批量购买、单件出售与整组出售；批量收货仍走事务式自动合堆/找空位，不会出现扣钱后只收到部分物品。
+- 远征新增 Esc / P 暂停页；轻按 Q 只打开确认页，不再立即丢失装备和战利品。必须在暂停页持续按住 Q 1.2 秒才会按死亡结算。
+- 修复暂停后放弃时 Phaser 场景时钟可能不执行结算回调的问题，死亡退场改用浏览器计时器完成 React 侧存档结算。
+- 信号守卫新增巡逻→蓄势→冲锋状态机。蓄势期间不会造成接触伤害，并显示名称变化、全身高亮和面向冲锋方向的紫色扇区；文本状态同步输出 `patrol / telegraph / charge`。
+- `tests/detail-polish-flow.mjs` 扩展覆盖拆分、×5 购买、整组出售和单件出售；新增 `tests/pause-guard-flow.mjs` 覆盖轻按保护、恢复与长按确认。
+- `tests/deep-flow.mjs` 增加 Boss 状态与预警画面断言；`tests/lost-echo-flow.mjs` 改为长按 Q 的新交互。
+
+### 本轮验证
+
+- `npm run build` 通过，仅保留既有 Phaser 动态 chunk 体积提示。
+- `detail-polish-flow`、`pause-guard-flow`、`combat-polish-flow`、`deep-flow`、`v2-base-inventory`、`raid-inventory-flow`、`v2-two-axis-navigation`、`lost-echo-flow`、`save-roundtrip` 全部通过，浏览器控制台无错误。
+- 已人工检查批量交易、暂停确认、长按死亡和 Boss 蓄势截图；预警扇区首次角度偏下的问题已据截图修正并重新验证。
+- 官方 `web_game_playwright_client` 再次运行，基地状态与截图正常。
+
+### 后续候选
+
+- 拆分数量输入弹窗、商店购买数量选择器、手柄/移动端长按确认。
+- 音效与震动反馈、Boss 第二招式、第二张地图和额外结局。
+
+## 2026-07-17 · Drag rotation
+
+- Added R-key rotation while dragging grid items in base storage and field bags. The preview and final drop now share the rotated footprint and preserve the grabbed-cell offset.
+- Added the same R-key behavior for active drags in the raid inventory; its drag ghost reports the new dimensions.
+- Added `tests/drag-rotate-flow.mjs`, which verifies a 1×2 item previews and lands as 2×1 after R during a drag.
+- Verified with `npm run build`, the official Playwright game client, `drag-rotate-flow`, and `combat-polish-flow`; no browser errors.

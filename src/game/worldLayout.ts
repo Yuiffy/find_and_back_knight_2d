@@ -64,7 +64,8 @@ export const TERRAIN_SEGMENTS: TerrainSegment[] = [
   { x: 2660, y: 1300, width: 480, style: 'cistern', massDepth: 140 },
 
   // 静默机房与 Boss 大厅：一整块厚重机器基座作为竞技场地面。
-  { x: 3250, y: 830, width: 800, style: 'machine', massDepth: 100 },
+  // 与左侧裂谷岩台保留 25px 可见断口，避免两块实体重叠形成吞输入的隐性竖墙。
+  { x: 3300, y: 830, width: 700, style: 'machine', massDepth: 100 },
 
   // 天线墓园：Boss 大厅外的一整段世界边界。
   { x: 3925, y: 620, width: 550, style: 'graveyard', massDepth: 240, edge: 'right' },

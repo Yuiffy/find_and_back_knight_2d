@@ -68,9 +68,10 @@ function normalizeGrid(raw: unknown, size: GridSize): GridItem[] {
       && Number.isFinite(candidate.y);
   }).map((item) => ({
     ...item,
-    quantity: Math.max(1, Math.floor(item.quantity)),
+    quantity: Math.min(ITEMS[item.itemId].stackLimit, Math.max(1, Math.floor(item.quantity))),
     x: Math.max(0, Math.floor(item.x)),
     y: Math.max(0, Math.floor(item.y)),
+    rotated: Boolean(item.rotated),
   }));
   if (validateGrid(items, size)) return cloneGridItems(items);
   return packStacks(gridItemsToStacks(items), size);
@@ -99,6 +100,9 @@ export function createDefaultProfile(): PlayerProfile {
     raidsStarted: 0,
     successfulExtractions: 0,
     deaths: 0,
+    credits: 45,
+    discoveredItems: ['rust_nail', 'stream_shell', 'cat_cap', 'soft_boots', 'field_pack', 'echo_dust', 'repair_patch'],
+    discoveredClues: ['arrival'],
     mapUnlocked: false,
     shortcutUnlocked: false,
     bossDefeated: false,
@@ -149,6 +153,15 @@ function normalizeProfile(value: unknown): PlayerProfile {
     raidsStarted: Math.max(0, Number(candidate.raidsStarted ?? 0)),
     successfulExtractions: Math.max(0, Number(candidate.successfulExtractions ?? 0)),
     deaths: Math.max(0, Number(candidate.deaths ?? 0)),
+    credits: Math.max(0, Math.floor(Number(candidate.credits ?? 45))),
+    discoveredItems: Array.from(new Set(
+      (Array.isArray(candidate.discoveredItems) ? candidate.discoveredItems : defaults.discoveredItems)
+        .filter((itemId): itemId is string => typeof itemId === 'string' && Boolean(ITEMS[itemId])),
+    )),
+    discoveredClues: Array.from(new Set(
+      (Array.isArray(candidate.discoveredClues) ? candidate.discoveredClues : defaults.discoveredClues)
+        .filter((clueId): clueId is string => typeof clueId === 'string'),
+    )),
     mapUnlocked: Boolean(candidate.mapUnlocked),
     shortcutUnlocked: Boolean(candidate.shortcutUnlocked),
     bossDefeated: Boolean(candidate.bossDefeated),

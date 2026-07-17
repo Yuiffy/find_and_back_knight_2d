@@ -2,9 +2,13 @@ import Phaser from 'phaser';
 import {
   addStacks,
   cloneGridItems,
+  getGridItemSize,
   insertGridStack,
-  moveGridItem,
+  moveOrMergeGridItem,
   occupiedGridCells,
+  removeGridQuantity,
+  rotateGridItem,
+  splitGridItem,
 } from './inventory';
 import { getArmorMaximum, getCurrentObjective, ITEMS, RARITY_NAMES, SLOT_NAMES } from './items';
 import { DEMO_MAP } from './maps';
@@ -49,7 +53,10 @@ interface RaidKeys {
   backpack: Phaser.Input.Keyboard.Key;
   backpackAlt: Phaser.Input.Keyboard.Key;
   fullscreen: Phaser.Input.Keyboard.Key;
+  pause: Phaser.Input.Keyboard.Key;
+  pauseAlt: Phaser.Input.Keyboard.Key;
   abort: Phaser.Input.Keyboard.Key;
+  usePatch: Phaser.Input.Keyboard.Key;
 }
 
 interface EnemyEntity {
@@ -65,6 +72,12 @@ interface EnemyEntity {
   baseY?: number;
   boss?: boolean;
   label?: Phaser.GameObjects.Text;
+  combatState?: 'patrol' | 'telegraph' | 'charge';
+  attackReadyAt?: number;
+  telegraphUntil?: number;
+  chargeUntil?: number;
+  chargeDirection?: -1 | 1;
+  warning?: Phaser.GameObjects.Arc;
 }
 
 interface LootEntity {
@@ -86,6 +99,9 @@ interface RaidInventoryDrag {
   source: 'backpack' | 'ground';
   uid?: string;
   lootId?: string;
+  rotated?: boolean;
+  grabOffsetX?: number;
+  grabOffsetY?: number;
 }
 
 interface StoryEchoEntity extends StoryEchoDefinition {
@@ -137,6 +153,7 @@ export class RaidScene extends Phaser.Scene {
   private promptText!: Phaser.GameObjects.Text;
   private extractionText!: Phaser.GameObjects.Text;
   private extractingUntil = 0;
+  private extractionDuration = 2500;
   private extractionPoint: { x: number; y: number } | null = null;
   private nearbyInteraction: string | null = null;
   private lastZoneName = '';
@@ -152,10 +169,16 @@ export class RaidScene extends Phaser.Scene {
   private attackGraphics: Phaser.GameObjects.Rectangle | null = null;
   private lastTextStateAt = 0;
   private overlay: Phaser.GameObjects.Container | null = null;
-  private overlayMode: 'map' | 'backpack' | null = null;
+  private overlayMode: 'map' | 'backpack' | 'pause' | null = null;
   private overlayNotice = '';
   private activeInventoryDrag: RaidInventoryDrag | null = null;
   private inventoryDragGhost: Phaser.GameObjects.Text | null = null;
+  private discoveredItems = new Set<string>();
+  private discoveredClues = new Set<string>();
+  private endingTriggered = false;
+  private hasteUntil = 0;
+  private abortHoldStartedAt = 0;
+  private pauseAbortText: Phaser.GameObjects.Text | null = null;
 
   constructor({ profile, entryId, onResult }: RaidSceneOptions) {
     super('raid');
@@ -176,6 +199,8 @@ export class RaidScene extends Phaser.Scene {
     this.mapUnlocked = this.profile.mapUnlocked;
     this.shortcutUnlocked = this.profile.shortcutUnlocked;
     this.bossDefeated = this.profile.bossDefeated;
+    this.discoveredItems = new Set(this.profile.discoveredItems ?? []);
+    this.discoveredClues = new Set(this.profile.discoveredClues ?? []);
     this.backpack = cloneGridItems(this.profile.backpack.items);
     this.createTextures();
     this.createBackdrop();
@@ -204,7 +229,7 @@ export class RaidScene extends Phaser.Scene {
     }
 
     this.cameras.main.fadeIn(480, 4, 15, 19);
-    this.showHint('A / D 移动 · Space 跳跃 · J 或鼠标左键攻击', 3800);
+    this.showHint('A / D 移动 · Space 跳跃 · J 攻击 · E 互动 · Tab 背包', 4200);
     this.publishTextState(true);
   }
 
@@ -215,10 +240,14 @@ export class RaidScene extends Phaser.Scene {
       if (this.scale.isFullscreen) this.scale.stopFullscreen();
       else this.scale.startFullscreen();
     }
-    if (Phaser.Input.Keyboard.JustDown(this.keys.abort)) {
-      this.finishRaid('died');
+    if (Phaser.Input.Keyboard.JustDown(this.keys.pause) || Phaser.Input.Keyboard.JustDown(this.keys.pauseAlt)) {
+      this.toggleOverlay('pause');
       return;
     }
+    if (Phaser.Input.Keyboard.JustDown(this.keys.abort) && this.overlayMode !== 'pause') {
+      this.toggleOverlay('pause');
+    }
+    if (!this.overlayMode && Phaser.Input.Keyboard.JustDown(this.keys.usePatch)) this.useRepairPatch();
     if (Phaser.Input.Keyboard.JustDown(this.keys.map) || Phaser.Input.Keyboard.JustDown(this.keys.mapAlt)) {
       this.toggleOverlay('map');
       return;
@@ -228,6 +257,12 @@ export class RaidScene extends Phaser.Scene {
       return;
     }
     if (this.overlayMode) {
+      if (this.overlayMode === 'backpack'
+        && this.activeInventoryDrag
+        && Phaser.Input.Keyboard.JustDown(this.keys.usePatch)) {
+        this.rotateActiveRaidDrag();
+      }
+      if (this.overlayMode === 'pause') this.updateAbandonHold();
       this.publishTextState(time - this.lastTextStateAt > 100);
       return;
     }
@@ -949,6 +984,8 @@ export class RaidScene extends Phaser.Scene {
       baseY: 750,
       boss: true,
       label,
+      combatState: 'patrol',
+      attackReadyAt: this.time.now + 1200,
     });
   }
 
@@ -973,7 +1010,10 @@ export class RaidScene extends Phaser.Scene {
       backpack: Phaser.Input.Keyboard.KeyCodes.TAB,
       backpackAlt: Phaser.Input.Keyboard.KeyCodes.DOWN,
       fullscreen: Phaser.Input.Keyboard.KeyCodes.F,
+      pause: Phaser.Input.Keyboard.KeyCodes.ESC,
+      pauseAlt: Phaser.Input.Keyboard.KeyCodes.P,
       abort: Phaser.Input.Keyboard.KeyCodes.Q,
+      usePatch: Phaser.Input.Keyboard.KeyCodes.R,
     }) as unknown as RaidKeys;
     this.input.keyboard.addCapture([
       Phaser.Input.Keyboard.KeyCodes.TAB,
@@ -982,8 +1022,13 @@ export class RaidScene extends Phaser.Scene {
       Phaser.Input.Keyboard.KeyCodes.DOWN,
       Phaser.Input.Keyboard.KeyCodes.LEFT,
       Phaser.Input.Keyboard.KeyCodes.RIGHT,
+      Phaser.Input.Keyboard.KeyCodes.ESC,
     ]);
-    this.input.on('pointerdown', () => {
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (this.overlayMode === 'backpack' && (pointer.rightButtonDown() || pointer.button === 2)) {
+        this.rotateRaidItemAt(pointer);
+        return;
+      }
       if (!this.overlayMode) this.tryAttack(this.time.now);
     });
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
@@ -1029,7 +1074,7 @@ export class RaidScene extends Phaser.Scene {
       strokeThickness: 6,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(96).setAlpha(0);
 
-    this.objectiveText = this.add.text(26, 55, `目标  ${getCurrentObjective(this.profile)}`, {
+    this.objectiveText = this.add.text(26, 55, `线索  ${getCurrentObjective(this.profile)}`, {
       fontFamily: 'Arial, sans-serif',
       fontSize: '13px',
       color: '#f0c981',
@@ -1100,7 +1145,8 @@ export class RaidScene extends Phaser.Scene {
     const weapon = this.loadout.weapon ? ITEMS[this.loadout.weapon] : ITEMS.rust_nail;
     const shoes = this.loadout.shoes ? ITEMS[this.loadout.shoes] : null;
     const armor = this.loadout.armor ? ITEMS[this.loadout.armor] : null;
-    const speedMultiplier = (shoes?.stats?.speedMultiplier ?? 1) * (armor?.stats?.speedMultiplier ?? 1);
+    const catHaste = this.loadout.head === 'cat_cap' && time < this.hasteUntil ? 1.28 : 1;
+    const speedMultiplier = (shoes?.stats?.speedMultiplier ?? 1) * (armor?.stats?.speedMultiplier ?? 1) * catHaste;
     const moveSpeed = 350 * speedMultiplier;
     const leftDown = this.keys.left.isDown || this.keys.leftArrow.isDown;
     const rightDown = this.keys.right.isDown || this.keys.rightArrow.isDown;
@@ -1221,6 +1267,7 @@ export class RaidScene extends Phaser.Scene {
       enemy.sprite.setTint(0xe8fff6).setTintMode(Phaser.TintModes.FILL);
       this.time.delayedCall(80, () => enemy.sprite.active && enemy.sprite.clearTint());
       this.spawnImpact(enemy.sprite.x, enemy.sprite.y);
+      this.spawnDamageNumber(enemy.sprite.x, enemy.sprite.y - 30, damage, enemy.health <= 0);
       if (enemy.health <= 0) this.defeatEnemy(enemy);
     }
 
@@ -1250,27 +1297,110 @@ export class RaidScene extends Phaser.Scene {
         continue;
       }
       const distance = this.player.x - enemy.sprite.x;
+      if (enemy.kind === 'warden') {
+        this.updateWarden(enemy, distance);
+        continue;
+      }
       if (Math.abs(distance) < 320 && Math.abs(this.player.y - enemy.sprite.y) < 100) {
         enemy.direction = distance < 0 ? -1 : 1;
       }
       if (enemy.sprite.x <= enemy.patrolLeft) enemy.direction = 1;
       if (enemy.sprite.x >= enemy.patrolRight) enemy.direction = -1;
-      const chasing = Math.abs(distance) < (enemy.kind === 'warden' ? 520 : 320);
-      const speed = enemy.kind === 'warden' && chasing ? enemy.speed * 1.35 : enemy.speed;
-      enemy.sprite.setVelocityX(enemy.direction * speed);
+      enemy.sprite.setVelocityX(enemy.direction * enemy.speed);
       enemy.sprite.setFlipX(enemy.direction > 0);
-      enemy.sprite.angle = Math.sin(this.time.now / (enemy.kind === 'warden' ? 190 : 130) + enemy.sprite.x) * 2;
+      enemy.sprite.angle = Math.sin(this.time.now / 130 + enemy.sprite.x) * 2;
       enemy.label?.setPosition(enemy.sprite.x, enemy.sprite.y - 86);
     }
   }
 
+  private updateWarden(enemy: EnemyEntity, distance: number): void {
+    const time = this.time.now;
+    const state = enemy.combatState ?? 'patrol';
+    enemy.label?.setPosition(enemy.sprite.x, enemy.sprite.y - 86);
+
+    if (state === 'telegraph') {
+      enemy.sprite.setVelocityX(0);
+      enemy.sprite.setTint(0xc5a5ff).setTintMode(Phaser.TintModes.FILL);
+      enemy.sprite.angle = Math.sin(time / 42) * 4;
+      enemy.label?.setText('失频守卫 · 蓄势').setColor('#f1d8ff');
+      if (time < (enemy.telegraphUntil ?? 0)) return;
+      enemy.combatState = 'charge';
+      enemy.chargeUntil = time + 420;
+      enemy.warning?.destroy();
+      enemy.warning = undefined;
+      this.cameras.main.shake(90, 0.004);
+    }
+
+    if (enemy.combatState === 'charge') {
+      if (time < (enemy.chargeUntil ?? 0)) {
+        enemy.sprite.setTint(0xf0b4ff).setTintMode(Phaser.TintModes.FILL);
+        enemy.sprite.setVelocityX((enemy.chargeDirection ?? enemy.direction) * 500);
+        enemy.sprite.setFlipX((enemy.chargeDirection ?? enemy.direction) > 0);
+        enemy.sprite.angle = (enemy.chargeDirection ?? enemy.direction) * 7;
+        enemy.label?.setText('失频守卫 · 冲锋').setColor('#ffbfe8');
+        return;
+      }
+      enemy.combatState = 'patrol';
+      enemy.attackReadyAt = time + 1650;
+      enemy.sprite.clearTint();
+      enemy.sprite.angle = 0;
+      enemy.label?.setText('失频守卫').setColor('#bda8df');
+    }
+
+    if (Math.abs(distance) < 560
+      && Math.abs(this.player.y - enemy.sprite.y) < 135
+      && time >= (enemy.attackReadyAt ?? 0)) {
+      enemy.direction = distance < 0 ? -1 : 1;
+      enemy.chargeDirection = enemy.direction;
+      enemy.combatState = 'telegraph';
+      enemy.telegraphUntil = time + 900;
+      enemy.attackReadyAt = time + 2800;
+      enemy.sprite.setVelocityX(0);
+      enemy.warning?.destroy();
+      enemy.warning = this.add.arc(
+        enemy.sprite.x + enemy.direction * 95,
+        enemy.sprite.y + 18,
+        74,
+        -34,
+        34,
+        false,
+        0xb978ef,
+        0.28,
+      ).setStrokeStyle(5, 0xf0c8ff, 0.92).setDepth(19).setAngle(enemy.direction < 0 ? 180 : 0);
+      this.tweens.add({
+        targets: enemy.warning,
+        scaleX: 3.2,
+        scaleY: 1.45,
+        alpha: 0.82,
+        duration: 860,
+        ease: 'Sine.In',
+      });
+      return;
+    }
+
+    if (enemy.sprite.x <= enemy.patrolLeft) enemy.direction = 1;
+    if (enemy.sprite.x >= enemy.patrolRight) enemy.direction = -1;
+    if (Math.abs(distance) < 520) enemy.direction = distance < 0 ? -1 : 1;
+    const speed = Math.abs(distance) < 520 ? enemy.speed * 1.35 : enemy.speed;
+    enemy.sprite.setVelocityX(enemy.direction * speed);
+    enemy.sprite.setFlipX(enemy.direction > 0);
+    enemy.sprite.angle = Math.sin(time / 190 + enemy.sprite.x) * 2;
+  }
+
   private damagePlayer(enemy: EnemyEntity): void {
     const time = this.time.now;
-    if (time < this.invulnerableUntil || this.isDashing || !enemy.sprite.active) return;
+    if (time < this.invulnerableUntil
+      || this.isDashing
+      || !enemy.sprite.active
+      || (enemy.boss && enemy.combatState === 'telegraph')) return;
     this.invulnerableUntil = time + 1100;
     this.staggerEndsAt = time + 190;
     if (this.armor > 0) this.armor -= 1;
     else this.health -= 1;
+    if (this.loadout.head === 'cat_cap') {
+      this.hasteUntil = time + 1800;
+      this.showHint('小猫帽应激：移动速度暂时提升', 900);
+    }
     const knockDirection = this.player.x < enemy.sprite.x ? -1 : 1;
     this.player.setVelocity(knockDirection * 420, -370);
     enemy.sprite.setVelocity(-knockDirection * 170, -120);
@@ -1292,8 +1422,11 @@ export class RaidScene extends Phaser.Scene {
     const { x, y } = enemy.sprite;
     enemy.sprite.disableBody(true, true);
     enemy.label?.destroy();
+    enemy.warning?.destroy();
     if (enemy.boss) {
       this.bossDefeated = true;
+      this.discoveredClues.add('warden-trace');
+      this.discoveredClues.add('home-trace');
       this.spawnLoot('boss-core', 'echo_core', 1, x - 34, y - 18);
       this.spawnLoot('boss-boots', 'shadow_boots', 1, x + 36, y - 18);
       this.cameras.main.flash(380, 151, 113, 224);
@@ -1353,6 +1486,45 @@ export class RaidScene extends Phaser.Scene {
     }
   }
 
+  private spawnDamageNumber(x: number, y: number, damage: number, defeated: boolean): void {
+    const text = this.add.text(x, y, defeated ? `-${damage}  击破` : `-${damage}`, {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: defeated ? '18px' : '15px',
+      color: defeated ? '#f1c879' : '#d8fff4',
+      stroke: '#07151d',
+      strokeThickness: 4,
+      fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(46);
+    this.tweens.add({
+      targets: text,
+      y: y - 38,
+      alpha: 0,
+      duration: 620,
+      ease: 'Cubic.Out',
+      onComplete: () => text.destroy(),
+    });
+  }
+
+  private useRepairPatch(): void {
+    if (this.maxArmor <= 0) {
+      this.showHint('没有装备护甲，无法使用修补片。', 1100);
+      return;
+    }
+    if (this.armor >= this.maxArmor) {
+      this.showHint('蓝甲已经完整。', 900);
+      return;
+    }
+    const next = removeGridQuantity(this.backpack, 'repair_patch', 1);
+    if (!next) {
+      this.showHint('随身背包里没有便携修补片。', 1100);
+      return;
+    }
+    this.backpack = next;
+    this.armor = Math.min(this.maxArmor, this.armor + 1);
+    this.showHint(`修补完成：蓝甲 ${this.armor}/${this.maxArmor}`, 1200);
+    this.cameras.main.flash(120, 130, 230, 201);
+  }
+
   private respawnFromPit(): void {
     this.health -= 1;
     if (this.health <= 0) {
@@ -1373,13 +1545,15 @@ export class RaidScene extends Phaser.Scene {
         : Number.POSITIVE_INFINITY;
       if (distance > 105) {
         this.extractingUntil = 0;
+        if (this.endingTriggered) this.invulnerableUntil = time + 500;
+        this.endingTriggered = false;
         this.extractionText.setVisible(false);
-        this.showHint('已离开信号范围，撤离取消。', 1100);
+        this.showHint('已离开信号范围，连接取消。', 1100);
       } else {
         const remaining = Math.max(0, this.extractingUntil - time);
-        const blocks = Math.ceil((1 - remaining / 2500) * 12);
+        const blocks = Phaser.Math.Clamp(Math.ceil((1 - remaining / this.extractionDuration) * 12), 0, 12);
         this.extractionText
-          .setText(`正在上传战利品  ${'▰'.repeat(blocks)}${'▱'.repeat(12 - blocks)}  ${(remaining / 1000).toFixed(1)}s`)
+          .setText(`${this.endingTriggered ? '正在对准饼干岛频道' : '正在上传战利品'}  ${'▰'.repeat(blocks)}${'▱'.repeat(12 - blocks)}  ${(remaining / 1000).toFixed(1)}s`)
           .setVisible(true);
         if (remaining <= 0) {
           this.finishRaid('extracted');
@@ -1421,6 +1595,8 @@ export class RaidScene extends Phaser.Scene {
         prompt = this.shortcutUnlocked ? '维护电梯已启动 · 下轮可从深层入口出发' : 'E · 启动维护电梯捷径';
         if (interactPressed && !this.shortcutUnlocked) {
           this.shortcutUnlocked = true;
+          this.discoveredClues.add('lift-trace');
+          this.discoveredClues.add('warden-trace');
           this.showHint('维护电梯已记录到基地。以后可快速进入深层。', 2200);
         }
       } else {
@@ -1431,9 +1607,23 @@ export class RaidScene extends Phaser.Scene {
           echo.y,
         ) < 92);
         if (nearbyEcho) {
-          prompt = `E · 聆听「${nearbyEcho.title}」`;
+          const canSendHome = nearbyEcho.id === 'graveyard-terminal' && this.profile.endingUnlocked && !this.profile.endingSeen;
+          prompt = canSendHome ? 'E · 将回声核心接入终端，向故乡发送信号' : `E · 聆听「${nearbyEcho.title}」`;
           if (interactPressed) {
-            this.showHint(nearbyEcho.message, 5200);
+            this.discoveredClues.add(nearbyEcho.id);
+            if (nearbyEcho.id === 'graveyard-terminal') this.discoveredClues.add('home-trace');
+            if (canSendHome) {
+              this.endingTriggered = true;
+              this.extractionDuration = 3500;
+              this.invulnerableUntil = Number.POSITIVE_INFINITY;
+              this.staggerEndsAt = time;
+              this.player.setPosition(nearbyEcho.x, this.player.y).setVelocity(0, 0);
+              this.extractionPoint = { x: nearbyEcho.x, y: nearbyEcho.y };
+              this.extractingUntil = time + 3500;
+              this.showHint('核心开始跳动。留在终端旁，直到频道锁定。', 1700);
+            } else {
+              this.showHint(nearbyEcho.message, 5200);
+            }
             this.tweens.add({
               targets: [nearbyEcho.marker, nearbyEcho.halo],
               scale: 1.42,
@@ -1452,6 +1642,7 @@ export class RaidScene extends Phaser.Scene {
         if (!nearbyEcho && extraction) {
           prompt = this.extractingUntil > 0 ? '留在信号圈内…' : 'E · 开始安全撤离（2.5 秒）';
           if (interactPressed && this.extractingUntil === 0) {
+            this.extractionDuration = 2500;
             this.extractionPoint = extraction;
             this.extractingUntil = time + 2500;
           }
@@ -1474,7 +1665,12 @@ export class RaidScene extends Phaser.Scene {
       return;
     }
     this.backpack = inserted;
-    if (entry.itemId === 'map_feather') this.mapUnlocked = true;
+    this.discoveredItems.add(entry.itemId);
+    if (entry.itemId === 'map_feather') {
+      this.mapUnlocked = true;
+      this.discoveredClues.add('map-trace');
+      this.discoveredClues.add('lift-trace');
+    }
     entry.icon.destroy();
     entry.halo.destroy();
     this.showHint(`已拾取：${ITEMS[entry.itemId].name}${entry.quantity > 1 ? ` ×${entry.quantity}` : ''}`, 900);
@@ -1510,6 +1706,9 @@ export class RaidScene extends Phaser.Scene {
       shortcutUnlocked: this.shortcutUnlocked,
       bossDefeated: this.bossDefeated,
       recoveredEcho: this.recoveredEcho,
+      discoveredItems: Array.from(this.discoveredItems),
+      discoveredClues: Array.from(this.discoveredClues),
+      endingTriggered: outcome === 'extracted' && this.endingTriggered,
     };
 
     if (outcome === 'died') {
@@ -1532,7 +1731,7 @@ export class RaidScene extends Phaser.Scene {
         fontSize: '14px',
         color: '#8f81a0',
       }).setOrigin(0.5).setScrollFactor(0).setDepth(191);
-      this.time.delayedCall(1050, () => this.onResult(result));
+      window.setTimeout(() => this.onResult(result), 1050);
       return;
     }
 
@@ -1547,7 +1746,8 @@ export class RaidScene extends Phaser.Scene {
       : '无护甲';
     const bagUsed = occupiedGridCells(this.backpack);
     const bagTotal = this.profile.backpack.width * this.profile.backpack.height;
-    this.statusText.setText(`生命  ${hearts}    蓝甲  ${armor}    背包  ${bagUsed}/${bagTotal} 格`);
+    const patches = this.backpack.filter((item) => item.itemId === 'repair_patch').reduce((sum, item) => sum + item.quantity, 0);
+    this.statusText.setText(`生命  ${hearts}    蓝甲  ${armor}    背包  ${bagUsed}/${bagTotal} 格${patches > 0 ? `    修补 R×${patches}` : ''}`);
     const zone = this.getZone();
     this.zoneText.setText(`${zone.name} · 风险 ${zone.risk}`);
     if (zone.name !== this.lastZoneName) {
@@ -1575,7 +1775,7 @@ export class RaidScene extends Phaser.Scene {
     }
   }
 
-  private toggleOverlay(mode: 'map' | 'backpack'): void {
+  private toggleOverlay(mode: 'map' | 'backpack' | 'pause'): void {
     if (this.overlayMode === mode) {
       this.closeOverlay();
       return;
@@ -1583,17 +1783,76 @@ export class RaidScene extends Phaser.Scene {
     this.closeOverlay();
     this.overlayMode = mode;
     this.physics.pause();
-    this.overlay = mode === 'map' ? this.createMapOverlay() : this.createRaidInventoryOverlay();
+    this.overlay = mode === 'map'
+      ? this.createMapOverlay()
+      : (mode === 'backpack' ? this.createRaidInventoryOverlay() : this.createPauseOverlay());
   }
 
   private closeOverlay(): void {
     this.activeInventoryDrag = null;
     this.inventoryDragGhost?.destroy();
     this.inventoryDragGhost = null;
+    this.abortHoldStartedAt = 0;
+    this.pauseAbortText = null;
     this.overlay?.destroy(true);
     this.overlay = null;
     if (this.overlayMode && !this.runEnded) this.physics.resume();
     this.overlayMode = null;
+  }
+
+  private createPauseOverlay(): Phaser.GameObjects.Container {
+    const container = this.add.container(0, 0).setScrollFactor(0).setDepth(180);
+    const shade = this.add.rectangle(VIEW_WIDTH / 2, VIEW_HEIGHT / 2, VIEW_WIDTH, VIEW_HEIGHT, 0x02070b, 0.86);
+    const panel = this.add.rectangle(VIEW_WIDTH / 2, VIEW_HEIGHT / 2, 600, 430, 0x0a2028, 0.99)
+      .setStrokeStyle(2, 0x75d7c2, 0.32);
+    const continueButton = this.add.rectangle(VIEW_WIDTH / 2, 444, 260, 52, 0x17443e, 0.92)
+      .setStrokeStyle(2, 0x75d7c2, 0.48)
+      .setInteractive({ cursor: 'pointer' });
+    continueButton.on('pointerdown', () => this.closeOverlay());
+    this.pauseAbortText = this.add.text(VIEW_WIDTH / 2, 518, '按住 Q 1.2 秒放弃远征', {
+      fontFamily: 'Arial, sans-serif', fontSize: '14px', color: '#c48f99',
+    }).setOrigin(0.5);
+    container.add([
+      shade,
+      panel,
+      this.add.text(VIEW_WIDTH / 2, 176, '远 征 暂 停', {
+        fontFamily: 'Georgia, serif', fontSize: '38px', color: '#d8eee8', letterSpacing: 7,
+      }).setOrigin(0.5),
+      this.add.text(VIEW_WIDTH / 2, 233, 'A / D 移动　Space 跳跃　J 攻击　E 互动', {
+        fontFamily: 'Arial, sans-serif', fontSize: '13px', color: '#91aaa7',
+      }).setOrigin(0.5),
+      this.add.text(VIEW_WIDTH / 2, 263, 'Tab 背包　M 地图　R 修补　K / Shift 黑冲', {
+        fontFamily: 'Arial, sans-serif', fontSize: '13px', color: '#91aaa7',
+      }).setOrigin(0.5),
+      this.add.text(VIEW_WIDTH / 2, 326, '轻按 Q 只会打开此页，不会再误触丢失战利品。', {
+        fontFamily: 'Arial, sans-serif', fontSize: '14px', color: '#e3c98e',
+      }).setOrigin(0.5),
+      continueButton,
+      this.add.text(VIEW_WIDTH / 2, 444, '继续远征　Esc / P', {
+        fontFamily: 'Arial, sans-serif', fontSize: '15px', color: '#d7f3ec', fontStyle: 'bold',
+      }).setOrigin(0.5),
+      this.pauseAbortText,
+    ]);
+    return container;
+  }
+
+  private updateAbandonHold(): void {
+    if (!this.keys.abort.isDown) {
+      this.abortHoldStartedAt = 0;
+      this.pauseAbortText?.setText('按住 Q 1.2 秒放弃远征').setColor('#c48f99');
+      return;
+    }
+    const now = performance.now();
+    if (this.abortHoldStartedAt <= 0) this.abortHoldStartedAt = now;
+    const elapsed = now - this.abortHoldStartedAt;
+    const progress = Phaser.Math.Clamp(Math.ceil((elapsed / 1200) * 10), 0, 10);
+    this.pauseAbortText
+      ?.setText(`正在放弃  ${'■'.repeat(progress)}${'□'.repeat(10 - progress)}`)
+      .setColor('#ff9cab');
+    if (elapsed >= 1200) {
+      this.closeOverlay();
+      this.finishRaid('died');
+    }
   }
 
   private createMapOverlay(): Phaser.GameObjects.Container {
@@ -1721,6 +1980,54 @@ export class RaidScene extends Phaser.Scene {
     this.publishTextState(true);
   }
 
+  private rotateRaidItemAt(pointer: Phaser.Input.Pointer): void {
+    const cellSize = Math.min(62, 340 / Math.max(1, this.profile.backpack.height), 340 / Math.max(1, this.profile.backpack.width));
+    const gridWidth = this.profile.backpack.width * cellSize;
+    const gridHeight = this.profile.backpack.height * cellSize;
+    const gridLeft = 625 - gridWidth / 2;
+    const gridTop = 171;
+    if (pointer.x < gridLeft || pointer.x >= gridLeft + gridWidth || pointer.y < gridTop || pointer.y >= gridTop + gridHeight) return;
+    const cellX = Math.floor((pointer.x - gridLeft) / cellSize);
+    const cellY = Math.floor((pointer.y - gridTop) / cellSize);
+    const stack = this.backpack.find((entry) => {
+      const footprint = getGridItemSize(entry);
+      return cellX >= entry.x && cellX < entry.x + footprint.width && cellY >= entry.y && cellY < entry.y + footprint.height;
+    });
+    if (!stack) return;
+    const rotated = rotateGridItem(this.backpack, this.profile.backpack, stack.uid);
+    this.overlayNotice = rotated ? `${ITEMS[stack.itemId].name} 已旋转。` : '当前位置没有旋转所需空间。';
+    if (rotated) this.backpack = rotated;
+    this.refreshBackpackOverlay();
+  }
+
+  private rotateActiveRaidDrag(): void {
+    const drag = this.activeInventoryDrag;
+    if (drag?.source !== 'backpack' || !drag.uid) return;
+    const stack = this.backpack.find((entry) => entry.uid === drag.uid);
+    const item = stack ? ITEMS[stack.itemId] : null;
+    if (!stack || !item || item.size.width === item.size.height) return;
+
+    const grabOffsetX = drag.grabOffsetX ?? 0;
+    const grabOffsetY = drag.grabOffsetY ?? 0;
+    const rotated = !drag.rotated;
+    this.activeInventoryDrag = rotated
+      ? {
+        ...drag,
+        rotated,
+        grabOffsetX: item.size.height - 1 - grabOffsetY,
+        grabOffsetY: grabOffsetX,
+      }
+      : {
+        ...drag,
+        rotated,
+        grabOffsetX: grabOffsetY,
+        grabOffsetY: item.size.height - 1 - grabOffsetX,
+      };
+    const footprint = getGridItemSize({ itemId: stack.itemId, rotated });
+    this.inventoryDragGhost?.setText(`${item.icon} ${item.name} ↻ ${footprint.width}×${footprint.height}`);
+    this.overlayNotice = `拖动中已旋转：${footprint.width}×${footprint.height}`;
+  }
+
   private createInventoryDragCard(
     container: Phaser.GameObjects.Container,
     x: number,
@@ -1733,6 +2040,8 @@ export class RaidScene extends Phaser.Scene {
     compact = false,
   ): Phaser.GameObjects.Container {
     const item = ITEMS[itemId];
+    const carried = drag.uid ? this.backpack.find((entry) => entry.uid === drag.uid) : null;
+    const footprint = carried ? getGridItemSize(carried) : item.size;
     const fill = item.rarity === 'relic' ? 0x6f5730 : item.rarity === 'rare' ? 0x3f4777 : item.rarity === 'uncommon' ? 0x225b57 : 0x173d3b;
     const border = item.rarity === 'relic' ? 0xf1ca7a : item.rarity === 'rare' ? 0xb8afff : 0x78d9c4;
     const panel = this.add.rectangle(0, 0, width, height, fill, 0.98).setStrokeStyle(2, border, 0.64);
@@ -1747,8 +2056,8 @@ export class RaidScene extends Phaser.Scene {
       fontStyle: 'bold',
     }).setOrigin(compact ? 0 : 0.5, 0.5);
     const detail = compact
-      ? `${RARITY_NAMES[item.rarity]} · ${item.size.width}×${item.size.height}${quantity > 1 ? ` · ×${quantity}` : ''}`
-      : (quantity > 1 ? `×${quantity}` : `${item.size.width}×${item.size.height}`);
+      ? `${RARITY_NAMES[item.rarity]} · ${footprint.width}×${footprint.height}${quantity > 1 ? ` · ×${quantity}` : ''}`
+      : (quantity > 1 ? `×${quantity}` : `${footprint.width}×${footprint.height}${carried?.rotated ? ' ↻' : ''}`);
     const detailText = this.add.text(compact ? -width / 2 + 50 : width / 2 - 5, compact ? 12 : -height / 2 + 5, detail, {
       fontFamily: 'Arial, sans-serif',
       fontSize: compact ? '10px' : '9px',
@@ -1757,7 +2066,12 @@ export class RaidScene extends Phaser.Scene {
     const card = this.add.container(x, y, [panel, icon, name, detailText]);
     const hitArea = this.add.zone(x, y, width, height).setScrollFactor(0).setInteractive({ cursor: 'grab' });
     hitArea.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      this.activeInventoryDrag = drag;
+      if (pointer.rightButtonDown() || pointer.button === 2) return;
+      this.activeInventoryDrag = {
+        ...drag,
+        grabOffsetX: carried ? Math.min(footprint.width - 1, Math.max(0, Math.floor(((pointer.x - (x - width / 2)) / width) * footprint.width))) : 0,
+        grabOffsetY: carried ? Math.min(footprint.height - 1, Math.max(0, Math.floor(((pointer.y - (y - height / 2)) / height) * footprint.height))) : 0,
+      };
       this.inventoryDragGhost?.destroy();
       this.inventoryDragGhost = this.add.text(pointer.x + 18, pointer.y + 18, `${item.icon} ${item.name}`, {
         fontFamily: 'Arial, sans-serif',
@@ -1771,6 +2085,50 @@ export class RaidScene extends Phaser.Scene {
       card.setScale(1.025).setAlpha(0.92);
     });
     container.add([card, hitArea]);
+    if (carried && item.size.width !== item.size.height) {
+      const rotateButton = this.add.text(x - width / 2 + 6, y - height / 2 + 4, '↻', {
+        fontFamily: 'Arial, sans-serif',
+        fontSize: '13px',
+        color: '#f1c879',
+        backgroundColor: '#12312f',
+        padding: { x: 5, y: 3 },
+      }).setScrollFactor(0).setDepth(212).setInteractive({ cursor: 'pointer' });
+      rotateButton.on('pointerdown', (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData,
+      ) => {
+        event.stopPropagation();
+        const rotated = rotateGridItem(this.backpack, this.profile.backpack, carried.uid);
+        this.overlayNotice = rotated ? `${item.name} 已旋转。` : '当前位置没有旋转所需空间。';
+        if (rotated) this.backpack = rotated;
+        this.refreshBackpackOverlay();
+      });
+      container.add(rotateButton);
+    }
+    if (carried && carried.quantity > 1) {
+      const splitButton = this.add.text(x - width / 2 + 6, y + height / 2 - 24, '½', {
+        fontFamily: 'Arial, sans-serif',
+        fontSize: '12px',
+        color: '#bfeee2',
+        backgroundColor: '#12312f',
+        padding: { x: 5, y: 3 },
+      }).setScrollFactor(0).setDepth(212).setInteractive({ cursor: 'pointer' });
+      splitButton.on('pointerdown', (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData,
+      ) => {
+        event.stopPropagation();
+        const split = splitGridItem(this.backpack, this.profile.backpack, carried.uid);
+        this.overlayNotice = split ? `${item.name} 已拆成两组。` : '没有空间放置拆出的新堆叠。';
+        if (split) this.backpack = split;
+        this.refreshBackpackOverlay();
+      });
+      container.add(splitButton);
+    }
     return card;
   }
 
@@ -1785,7 +2143,7 @@ export class RaidScene extends Phaser.Scene {
       shade,
       panel,
       this.add.text(90, 70, '远征整备', { fontFamily: 'Georgia, serif', fontSize: '30px', color: '#d8eee8' }),
-      this.add.text(90, 109, '拖动物品即可换装、整理或丢到脚边；附近战利品也能直接拿取。', {
+      this.add.text(90, 109, '拖动物品可换装、整理或丢弃；抓取格决定落点，右键可旋转背包物品。', {
         fontFamily: 'Arial, sans-serif', fontSize: '13px', color: '#789795',
       }),
       this.add.text(90, 148, '当前装备', { fontFamily: 'Arial, sans-serif', fontSize: '15px', color: '#9ee6d5', fontStyle: 'bold' }),
@@ -1851,8 +2209,9 @@ export class RaidScene extends Phaser.Scene {
     }
     for (const stack of this.backpack) {
       const item = ITEMS[stack.itemId];
-      const width = item.size.width * cellSize - 7;
-      const height = item.size.height * cellSize - 7;
+      const footprint = getGridItemSize(stack);
+      const width = footprint.width * cellSize - 7;
+      const height = footprint.height * cellSize - 7;
       this.createInventoryDragCard(
         container,
         gridLeft + stack.x * cellSize + width / 2 + 3,
@@ -1959,12 +2318,12 @@ export class RaidScene extends Phaser.Scene {
     }
 
     if (drag.source === 'backpack' && drag.uid) {
-      const x = Math.floor((pointer.x - gridLeft) / cellSize);
-      const y = Math.floor((pointer.y - gridTop) / cellSize);
-      const moved = moveGridItem(this.backpack, this.profile.backpack, drag.uid, x, y);
-      if (moved) {
-        this.backpack = moved;
-        this.overlayNotice = '背包布局已调整。';
+      const x = Math.floor((pointer.x - gridLeft) / cellSize) - (drag.grabOffsetX ?? 0);
+      const y = Math.floor((pointer.y - gridTop) / cellSize) - (drag.grabOffsetY ?? 0);
+      const result = moveOrMergeGridItem(this.backpack, this.profile.backpack, drag.uid, x, y, drag.rotated);
+      if (result) {
+        this.backpack = result.items;
+        this.overlayNotice = result.merged ? '同类物品已合并。' : (result.autoPlaced ? '落点冲突，已自动放到空位。' : '背包布局已调整。');
       } else {
         this.overlayNotice = '这里放不下：需要完整连续空格。';
       }
@@ -1981,7 +2340,12 @@ export class RaidScene extends Phaser.Scene {
         this.overlayNotice = `${item.name} 需要 ${item.size.width}×${item.size.height} 连续空格。`;
       } else {
         this.backpack = inserted;
+        this.discoveredItems.add(loot.itemId);
         if (loot.itemId === 'map_feather') this.mapUnlocked = true;
+        if (loot.itemId === 'map_feather') {
+          this.discoveredClues.add('map-trace');
+          this.discoveredClues.add('lift-trace');
+        }
         loot.icon.destroy();
         loot.halo.destroy();
         this.overlayNotice = `已装入背包：${ITEMS[loot.itemId].name}`;
@@ -2008,6 +2372,7 @@ export class RaidScene extends Phaser.Scene {
     }
     if (!itemId) return;
     const item = ITEMS[itemId];
+    this.discoveredItems.add(itemId);
     if (item.category !== slot) {
       this.overlayNotice = `${item.name} 不能装备到${SLOT_NAMES[slot]}槽。`;
       return;
@@ -2077,8 +2442,9 @@ export class RaidScene extends Phaser.Scene {
     }
     for (const stack of this.backpack) {
       const item = ITEMS[stack.itemId];
-      const width = item.size.width * cellSize - 7;
-      const height = item.size.height * cellSize - 7;
+      const footprint = getGridItemSize(stack);
+      const width = footprint.width * cellSize - 7;
+      const height = footprint.height * cellSize - 7;
       const x = gridLeft + stack.x * cellSize + width / 2 + 3;
       const y = gridTop + stack.y * cellSize + height / 2 + 3;
       const color = item.rarity === 'relic' ? 0x6f5730 : item.rarity === 'rare' ? 0x3f4777 : 0x1b514c;
@@ -2088,7 +2454,7 @@ export class RaidScene extends Phaser.Scene {
         itemPanel,
         this.add.text(x, y - 9, item.icon, { fontSize: `${Math.min(30, height * 0.38)}px` }).setOrigin(0.5),
         this.add.text(x, y + Math.min(24, height * 0.28), item.name, { fontSize: '10px', color: '#d7ece7' }).setOrigin(0.5),
-        this.add.text(x + width / 2 - 5, y - height / 2 + 5, stack.quantity > 1 ? `×${stack.quantity}` : `${item.size.width}×${item.size.height}`, { fontSize: '9px', color: '#f1c879' }).setOrigin(1, 0),
+        this.add.text(x + width / 2 - 5, y - height / 2 + 5, stack.quantity > 1 ? `×${stack.quantity}` : `${footprint.width}×${footprint.height}${stack.rotated ? ' ↻' : ''}`, { fontSize: '9px', color: '#f1c879' }).setOrigin(1, 0),
       ]);
     }
 
@@ -2178,6 +2544,7 @@ export class RaidScene extends Phaser.Scene {
           x: Math.round(enemy.sprite.x),
           y: Math.round(enemy.sprite.y),
           health: enemy.health,
+          state: enemy.combatState,
         })),
       visibleLoot: this.loot
         .filter((entry) => entry.icon.active && Phaser.Math.Distance.Between(entry.icon.x, entry.icon.y, this.player.x, this.player.y) < 850)
@@ -2196,6 +2563,8 @@ export class RaidScene extends Phaser.Scene {
         recoveredEcho: this.recoveredEcho,
         extracting: this.extractingUntil > 0,
         inventoryOpen: this.overlayMode === 'backpack',
+        paused: this.overlayMode === 'pause',
+        abandonHoldActive: this.overlayMode === 'pause' && this.keys.abort.isDown,
       },
     };
     window.__SUI_GAME_STATE__ = state;

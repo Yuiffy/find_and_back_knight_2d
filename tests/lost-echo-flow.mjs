@@ -106,8 +106,10 @@ try {
   await page.waitForFunction(() => window.render_game_to_text?.().includes('"mode":"raid"'));
   await page.locator('canvas').click({ position: { x: 640, y: 360 } });
   await page.waitForTimeout(1000);
-  await page.keyboard.press('KeyQ');
-  await page.waitForFunction(() => window.render_game_to_text?.().includes('"mode":"base"'), null, { timeout: 5000 });
+  await page.keyboard.down('KeyQ');
+  await page.waitForTimeout(1350);
+  await page.keyboard.up('KeyQ');
+  await page.waitForFunction(() => window.render_game_to_text?.().includes('"mode":"base"'), null, { timeout: 7000 });
   saved = await page.evaluate(() => JSON.parse(localStorage.getItem('sui-echoes-below.save.v1')));
   assert(saved.lostEcho, 'Second death did not create a replacement Lost Echo.');
   assert(!saved.lostEcho.items.some((stack) => stack.itemId === 'echo_lance'), 'Old Lost Echo survived a second death.');

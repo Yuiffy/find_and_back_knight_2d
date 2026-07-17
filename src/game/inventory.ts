@@ -16,6 +16,13 @@ export function cloneGridItems(items: readonly GridItem[]): GridItem[] {
   return items.map((item) => ({ ...item }));
 }
 
+export function getGridItemSize(item: Pick<GridItem, 'itemId' | 'rotated'>): GridSize {
+  const base = ITEMS[item.itemId]?.size ?? { width: 1, height: 1 };
+  return item.rotated
+    ? { width: base.height, height: base.width }
+    : { ...base };
+}
+
 export function addItem(stacks: readonly ItemStack[], itemId: string, quantity = 1): ItemStack[] {
   const definition = ITEMS[itemId];
   if (!definition || quantity <= 0) return cloneStacks(stacks);
@@ -64,8 +71,8 @@ export function removeItem(stacks: readonly ItemStack[], itemId: string, quantit
 }
 
 function overlaps(a: GridItem, b: GridItem): boolean {
-  const aSize = ITEMS[a.itemId].size;
-  const bSize = ITEMS[b.itemId].size;
+  const aSize = getGridItemSize(a);
+  const bSize = getGridItemSize(b);
   return a.x < b.x + bSize.width
     && a.x + aSize.width > b.x
     && a.y < b.y + bSize.height
@@ -80,47 +87,170 @@ export function canPlaceGridItem(
   y: number,
   ignoreUid = item.uid,
 ): boolean {
-  const definition = ITEMS[item.itemId];
-  if (!definition) return false;
-  if (x < 0 || y < 0 || x + definition.size.width > grid.width || y + definition.size.height > grid.height) {
+  if (!ITEMS[item.itemId]) return false;
+  const size = getGridItemSize(item);
+  if (x < 0 || y < 0 || x + size.width > grid.width || y + size.height > grid.height) {
     return false;
   }
   const candidate = { ...item, x, y };
   return !items.some((existing) => existing.uid !== ignoreUid && overlaps(candidate, existing));
 }
 
-export function moveGridItem(
+export function rotateGridItem(
   items: readonly GridItem[],
   grid: GridSize,
   uid: string,
-  x: number,
-  y: number,
 ): GridItem[] | null {
   const item = items.find((entry) => entry.uid === uid);
-  if (!item || !canPlaceGridItem(items, grid, item, x, y)) return null;
-  return items.map((entry) => (entry.uid === uid ? { ...entry, x, y } : { ...entry }));
-}
-
-export function insertGridItemAt(
-  items: readonly GridItem[],
-  grid: GridSize,
-  item: GridItem,
-  x: number,
-  y: number,
-): GridItem[] | null {
-  const candidate = { ...item, x, y };
-  if (!canPlaceGridItem(items, grid, candidate, x, y, '')) return null;
-  return [...cloneGridItems(items), candidate];
+  if (!item) return null;
+  const definition = ITEMS[item.itemId];
+  if (!definition || definition.size.width === definition.size.height) return cloneGridItems(items);
+  const rotated = { ...item, rotated: !item.rotated };
+  if (!canPlaceGridItem(items, grid, rotated, item.x, item.y, uid)) return null;
+  return items.map((entry) => (entry.uid === uid ? rotated : { ...entry }));
 }
 
 function firstOpenPosition(items: readonly GridItem[], grid: GridSize, item: GridItem): { x: number; y: number } | null {
-  const size = ITEMS[item.itemId].size;
+  const size = getGridItemSize(item);
   for (let y = 0; y <= grid.height - size.height; y += 1) {
     for (let x = 0; x <= grid.width - size.width; x += 1) {
       if (canPlaceGridItem(items, grid, item, x, y, '')) return { x, y };
     }
   }
   return null;
+}
+
+export interface SmartInsertResult {
+  items: GridItem[];
+  placedAt: { x: number; y: number } | null;
+  merged: boolean;
+  autoPlaced: boolean;
+}
+
+/** Inserts one existing instance transactionally: merge first, then preferred cell, then first fit. */
+export function insertGridItemSmart(
+  items: readonly GridItem[],
+  grid: GridSize,
+  item: GridItem,
+  preferred?: { x: number; y: number },
+): SmartInsertResult | null {
+  const definition = ITEMS[item.itemId];
+  if (!definition || item.quantity <= 0) return null;
+  const next = cloneGridItems(items);
+  let remaining = item.quantity;
+  let merged = false;
+
+  for (const existing of next) {
+    if (existing.itemId !== item.itemId || existing.quantity >= definition.stackLimit) continue;
+    const amount = Math.min(definition.stackLimit - existing.quantity, remaining);
+    if (amount <= 0) continue;
+    existing.quantity += amount;
+    remaining -= amount;
+    merged = true;
+    if (remaining === 0) return { items: next, placedAt: null, merged, autoPlaced: false };
+  }
+
+  const candidate = { ...item, quantity: remaining };
+  if (preferred && canPlaceGridItem(next, grid, candidate, preferred.x, preferred.y, '')) {
+    return {
+      items: [...next, { ...candidate, ...preferred }],
+      placedAt: preferred,
+      merged,
+      autoPlaced: false,
+    };
+  }
+  const position = firstOpenPosition(next, grid, candidate);
+  if (!position) return null;
+  return {
+    items: [...next, { ...candidate, ...position }],
+    placedAt: position,
+    merged,
+    autoPlaced: Boolean(preferred),
+  };
+}
+
+export function moveOrMergeGridItem(
+  items: readonly GridItem[],
+  grid: GridSize,
+  uid: string,
+  x: number,
+  y: number,
+  rotated?: boolean,
+): SmartInsertResult | null {
+  const item = items.find((entry) => entry.uid === uid);
+  if (!item) return null;
+  const without = items.filter((entry) => entry.uid !== uid);
+  const result = insertGridItemSmart(without, grid, { ...item, rotated: rotated ?? item.rotated }, { x, y });
+  if (!result) return null;
+  return result;
+}
+
+export function splitGridItem(
+  items: readonly GridItem[],
+  grid: GridSize,
+  uid: string,
+): GridItem[] | null {
+  const source = items.find((entry) => entry.uid === uid);
+  if (!source || source.quantity < 2) return null;
+  const splitQuantity = Math.floor(source.quantity / 2);
+  const next = items.map((entry) => entry.uid === uid
+    ? { ...entry, quantity: entry.quantity - splitQuantity }
+    : { ...entry });
+  const candidate: GridItem = {
+    ...source,
+    uid: makeGridUid(source.itemId),
+    quantity: splitQuantity,
+    x: 0,
+    y: 0,
+  };
+  const position = firstOpenPosition(next, grid, candidate);
+  if (!position) return null;
+  return [...next, { ...candidate, ...position }];
+}
+
+export function compactGridItems(items: readonly GridItem[], grid: GridSize): GridItem[] | null {
+  const mergedStacks = gridItemsToStacks(items);
+  const instances: GridItem[] = [];
+  for (const stack of mergedStacks) {
+    const definition = ITEMS[stack.itemId];
+    let remaining = stack.quantity;
+    while (remaining > 0) {
+      const quantity = Math.min(definition.stackLimit, remaining);
+      const original = items.find((item) => item.itemId === stack.itemId && !instances.some((entry) => entry.uid === item.uid));
+      instances.push({
+        uid: original?.uid ?? makeGridUid(stack.itemId),
+        itemId: stack.itemId,
+        quantity,
+        x: 0,
+        y: 0,
+        rotated: original?.rotated ?? false,
+      });
+      remaining -= quantity;
+    }
+  }
+  instances.sort((left, right) => {
+    const leftSize = getGridItemSize(left);
+    const rightSize = getGridItemSize(right);
+    return (rightSize.width * rightSize.height) - (leftSize.width * leftSize.height);
+  });
+
+  let packed: GridItem[] = [];
+  for (const instance of instances) {
+    const orientations = ITEMS[instance.itemId].size.width === ITEMS[instance.itemId].size.height
+      ? [instance]
+      : [instance, { ...instance, rotated: !instance.rotated }];
+    let placed: GridItem | null = null;
+    for (const orientation of orientations) {
+      const position = firstOpenPosition(packed, grid, orientation);
+      if (position) {
+        placed = { ...orientation, ...position };
+        break;
+      }
+    }
+    if (!placed) return null;
+    packed = [...packed, placed];
+  }
+  return packed;
 }
 
 export function insertGridStack(
@@ -147,6 +277,7 @@ export function insertGridStack(
       quantity: Math.min(definition.stackLimit, remaining),
       x: 0,
       y: 0,
+      rotated: false,
     };
     const position = firstOpenPosition(next, grid, candidate);
     if (!position) return null;
@@ -202,7 +333,7 @@ export function gridItemsToStacks(items: readonly GridItem[]): ItemStack[] {
 
 export function occupiedGridCells(items: readonly GridItem[]): number {
   return items.reduce((total, item) => {
-    const size = ITEMS[item.itemId]?.size;
+    const size = ITEMS[item.itemId] ? getGridItemSize(item) : null;
     return total + (size ? size.width * size.height : 0);
   }, 0);
 }

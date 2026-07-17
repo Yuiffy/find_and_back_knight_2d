@@ -30,6 +30,8 @@ export interface ItemDefinition {
   rarity: Rarity;
   description: string;
   stackLimit: number;
+  buyPrice?: number;
+  sellPrice?: number;
   size: { width: number; height: number };
   stats?: ItemStats;
 }
@@ -43,6 +45,7 @@ export interface GridItem extends ItemStack {
   uid: string;
   x: number;
   y: number;
+  rotated?: boolean;
 }
 
 export interface GridSize {
@@ -83,6 +86,9 @@ export interface PlayerProfile {
   raidsStarted: number;
   successfulExtractions: number;
   deaths: number;
+  credits: number;
+  discoveredItems: string[];
+  discoveredClues: string[];
   mapUnlocked: boolean;
   shortcutUnlocked: boolean;
   bossDefeated: boolean;
@@ -117,7 +123,14 @@ export interface TextGameState {
   loadout?: Loadout;
   nearbyLoot?: Array<{ id: string; itemId: string; quantity: number; distance: number }>;
   nearbyTerrain?: Array<{ left: number; right: number; top: number; bottom: number }>;
-  visibleEnemies?: Array<{ id: string; kind: string; x: number; y: number; health: number }>;
+  visibleEnemies?: Array<{
+    id: string;
+    kind: string;
+    x: number;
+    y: number;
+    health: number;
+    state?: 'patrol' | 'telegraph' | 'charge';
+  }>;
   visibleLoot?: Array<{ id: string; itemId: string; x: number; y: number }>;
   nearbyInteraction?: string | null;
   flags?: Record<string, boolean>;
@@ -134,4 +147,7 @@ export interface RaidResult {
   shortcutUnlocked: boolean;
   bossDefeated: boolean;
   recoveredEcho: boolean;
+  discoveredItems?: string[];
+  discoveredClues?: string[];
+  endingTriggered?: boolean;
 }

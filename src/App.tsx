@@ -4,13 +4,16 @@ import type { InventoryDragPayload } from './components/InventoryGrid';
 import {
   addStacks,
   cloneGridItems,
+  compactGridItems,
   gridItemsToStacks,
-  insertGridItemAt,
+  insertGridItemSmart,
   insertGridStack,
   insertGridStacks,
   makeGridUid,
-  moveGridItem,
+  moveOrMergeGridItem,
   removeGridQuantity,
+  rotateGridItem,
+  splitGridItem,
   validateGrid,
 } from './game/inventory';
 import { getArmorMaximum, getCurrentObjective, ITEMS } from './game/items';
@@ -32,8 +35,11 @@ export function App() {
   const objective = getCurrentObjective(profile);
 
   useEffect(() => {
-    if (mode !== 'base') return;
-    const textState: TextGameState = { mode: 'base', objective };
+    if (mode === 'raid') return;
+    const textState: TextGameState = {
+      mode,
+      objective: mode === 'ending' ? '直播频道已经连通；结局一 · 尚未归巢' : objective,
+    };
     window.__SUI_GAME_STATE__ = textState;
   }, [mode, objective]);
 
@@ -68,14 +74,15 @@ export function App() {
   ): void {
     const targetGrid = getGrid(target);
     if (payload.source === target && payload.uid) {
-      const moved = moveGridItem(targetGrid.items, targetGrid.size, payload.uid, x, y);
-      if (!moved) {
+      const result = moveOrMergeGridItem(targetGrid.items, targetGrid.size, payload.uid, x, y, payload.rotated);
+      if (!result) {
         setNotice('那里放不下：物品不能重叠，也不能超出格子。');
         return;
       }
       commit(target === 'warehouse'
-        ? { ...profile, warehouse: moved }
-        : { ...profile, backpack: { ...profile.backpack, items: moved } });
+        ? { ...profile, warehouse: result.items }
+        : { ...profile, backpack: { ...profile.backpack, items: result.items } },
+      result.merged ? '同类物品已合并到一个堆叠。' : (result.autoPlaced ? '落点被占用，已放到最近的可用空位。' : '物品位置已调整。'));
       return;
     }
 
@@ -86,9 +93,9 @@ export function App() {
         setNotice('先把随身背包清空，才能卸下背包本体。');
         return;
       }
-      const gridItem: GridItem = { uid: makeGridUid(itemId), itemId, quantity: 1, x, y };
-      const inserted = insertGridItemAt(targetGrid.items, targetGrid.size, gridItem, x, y);
-      if (!inserted) {
+      const gridItem: GridItem = { uid: makeGridUid(itemId), itemId, quantity: 1, x, y, rotated: false };
+      const result = insertGridItemSmart(targetGrid.items, targetGrid.size, gridItem, { x, y });
+      if (!result) {
         setNotice('目标区域没有足够的连续空间。');
         return;
       }
@@ -96,10 +103,10 @@ export function App() {
       commit({
         ...profile,
         loadout: nextLoadout,
-        warehouse: target === 'warehouse' ? inserted : profile.warehouse,
+        warehouse: target === 'warehouse' ? result.items : profile.warehouse,
         backpack: payload.slot === 'backpack'
           ? { width: 0, height: 0, items: [] }
-          : { ...profile.backpack, items: target === 'backpack' ? inserted : profile.backpack.items },
+          : { ...profile.backpack, items: target === 'backpack' ? result.items : profile.backpack.items },
         armorCondition: payload.slot === 'armor' ? 0 : profile.armorCondition,
       }, `${ITEMS[itemId].name} 已卸下。`);
       return;
@@ -110,26 +117,117 @@ export function App() {
       const item = sourceGrid.items.find((entry) => entry.uid === payload.uid);
       if (!item) return;
       const sourceItems = sourceGrid.items.filter((entry) => entry.uid !== payload.uid).map((entry) => ({ ...entry }));
-      const inserted = insertGridItemAt(targetGrid.items, targetGrid.size, item, x, y);
-      if (!inserted) {
-        setNotice(`${ITEMS[item.itemId].name} 需要 ${ITEMS[item.itemId].size.width}×${ITEMS[item.itemId].size.height} 的连续空格。`);
+      const result = insertGridItemSmart(targetGrid.items, targetGrid.size, { ...item, rotated: payload.rotated ?? item.rotated }, { x, y });
+      if (!result) {
+        setNotice(`${ITEMS[item.itemId].name} 没有可用空间；可以先旋转或点击「自动整理」。`);
         return;
       }
       commit({
         ...profile,
         warehouse: payload.source === 'warehouse'
           ? sourceItems
-          : (target === 'warehouse' ? inserted : profile.warehouse),
+          : (target === 'warehouse' ? result.items : profile.warehouse),
         backpack: {
           ...profile.backpack,
           items: payload.source === 'backpack'
             ? sourceItems
-            : (target === 'backpack' ? inserted : profile.backpack.items),
+            : (target === 'backpack' ? result.items : profile.backpack.items),
         },
-        ...(target === 'warehouse' && payload.source !== 'warehouse' ? { warehouse: inserted } : {}),
-        ...(target === 'backpack' && payload.source !== 'backpack' ? { backpack: { ...profile.backpack, items: inserted } } : {}),
-      });
+        ...(target === 'warehouse' && payload.source !== 'warehouse' ? { warehouse: result.items } : {}),
+        ...(target === 'backpack' && payload.source !== 'backpack' ? { backpack: { ...profile.backpack, items: result.items } } : {}),
+      }, result.merged
+        ? `${ITEMS[item.itemId].name} 已并入现有堆叠。`
+        : (result.autoPlaced ? `${ITEMS[item.itemId].name} 已自动放入最近空位。` : `${ITEMS[item.itemId].name} 已转移。`));
     }
+  }
+
+  function handleRotateItem(payload: InventoryDragPayload): void {
+    if ((payload.source !== 'warehouse' && payload.source !== 'backpack') || !payload.uid) return;
+    const grid = getGrid(payload.source);
+    const item = grid.items.find((entry) => entry.uid === payload.uid);
+    if (!item) return;
+    const definition = ITEMS[item.itemId];
+    if (definition.size.width === definition.size.height) {
+      setNotice(`${definition.name} 是正方形，不需要旋转。`);
+      return;
+    }
+    const rotated = rotateGridItem(grid.items, grid.size, payload.uid);
+    if (!rotated) {
+      setNotice('当前位置没有旋转所需空间；先移动物品或自动整理。');
+      return;
+    }
+    commit(payload.source === 'warehouse'
+      ? { ...profile, warehouse: rotated }
+      : { ...profile, backpack: { ...profile.backpack, items: rotated } }, `${definition.name} 已旋转。`);
+  }
+
+  function handleCompactGrid(source: 'warehouse' | 'backpack'): void {
+    const grid = getGrid(source);
+    const compacted = compactGridItems(grid.items, grid.size);
+    if (!compacted) {
+      setNotice('自动整理失败：当前容器装不下这些物品。');
+      return;
+    }
+    commit(source === 'warehouse'
+      ? { ...profile, warehouse: compacted }
+      : { ...profile, backpack: { ...profile.backpack, items: compacted } }, '已合并堆叠，并按体积自动整理。');
+  }
+
+  function handleQuickTransfer(payload: InventoryDragPayload): void {
+    if (payload.source === 'warehouse') handleMoveItem(payload, 'backpack', -1, -1);
+    if (payload.source === 'backpack') handleMoveItem(payload, 'warehouse', -1, -1);
+  }
+
+  function handleSplitItem(payload: InventoryDragPayload): void {
+    if ((payload.source !== 'warehouse' && payload.source !== 'backpack') || !payload.uid) return;
+    const grid = getGrid(payload.source);
+    const source = grid.items.find((entry) => entry.uid === payload.uid);
+    if (!source || source.quantity < 2) return;
+    const split = splitGridItem(grid.items, grid.size, payload.uid);
+    if (!split) {
+      setNotice('没有空间放置拆出的新堆叠；先整理或移走一些物品。');
+      return;
+    }
+    commit(payload.source === 'warehouse'
+      ? { ...profile, warehouse: split }
+      : { ...profile, backpack: { ...profile.backpack, items: split } },
+    `${ITEMS[source.itemId].name} 已拆为 ${source.quantity - Math.floor(source.quantity / 2)} 与 ${Math.floor(source.quantity / 2)} 两组。`);
+  }
+
+  function handleBuy(itemId: string, quantity = 1): void {
+    const item = ITEMS[itemId];
+    const unitPrice = item?.buyPrice ?? 0;
+    const price = unitPrice * quantity;
+    const unlocked = !['echo_lance', 'survey_lens'].includes(itemId) || profile.mapUnlocked;
+    const deepUnlocked = !['storm_feather', 'survey_pack'].includes(itemId) || profile.bossDefeated;
+    if (!item || price <= 0 || quantity <= 0 || !unlocked || !deepUnlocked || profile.credits < price) return;
+    const warehouse = insertGridStack(profile.warehouse, profile.warehouseSize, { itemId, quantity });
+    if (!warehouse) {
+      setNotice('仓库没有空间收货；先整理或出售一些物品。');
+      return;
+    }
+    commit({
+      ...profile,
+      warehouse,
+      credits: profile.credits - price,
+      discoveredItems: Array.from(new Set([...profile.discoveredItems, itemId])),
+    }, `购入 ${item.icon} ${item.name}${quantity > 1 ? ` ×${quantity}` : ''}，已自动合并并放入仓库。`);
+  }
+
+  function handleSell(uid: string, sellAll = false): void {
+    const itemStack = profile.warehouse.find((entry) => entry.uid === uid);
+    if (!itemStack) return;
+    const definition = ITEMS[itemStack.itemId];
+    const price = definition.sellPrice ?? 0;
+    if (price <= 0) {
+      setNotice(`${definition.name} 是关键物品，交易台拒绝收购。`);
+      return;
+    }
+    const quantity = sellAll ? itemStack.quantity : 1;
+    const warehouse = itemStack.quantity > quantity
+      ? profile.warehouse.map((entry) => entry.uid === uid ? { ...entry, quantity: entry.quantity - quantity } : { ...entry })
+      : profile.warehouse.filter((entry) => entry.uid !== uid).map((entry) => ({ ...entry }));
+    commit({ ...profile, warehouse, credits: profile.credits + price * quantity }, `售出 ${quantity} 个 ${definition.name}，获得 ${price * quantity} 羽币。`);
   }
 
   function handleEquipItem(payload: InventoryDragPayload, slot: GearSlot): void {
@@ -244,10 +342,21 @@ export function App() {
         shortcutUnlocked: profile.shortcutUnlocked || result.shortcutUnlocked,
         bossDefeated: nextBossDefeated,
         endingUnlocked: profile.endingUnlocked || nextBossDefeated,
+        endingSeen: profile.endingSeen || Boolean(result.endingTriggered),
+        discoveredItems: Array.from(new Set([
+          ...profile.discoveredItems,
+          ...(result.discoveredItems ?? []),
+          ...result.backpack.map((item) => item.itemId),
+        ])),
+        discoveredClues: Array.from(new Set([...profile.discoveredClues, ...(result.discoveredClues ?? [])])),
         lostEcho: result.recoveredEcho && recoveredWarehouse ? null : profile.lostEcho,
         activeRaid: null,
       });
       setProfile(next);
+      if (result.endingTriggered) {
+        setMode('ending');
+        return;
+      }
       setNotice(`安全撤离成功：${result.backpack.reduce((sum, stack) => sum + stack.quantity, 0)} 件物品仍在随身背包，请在整备页卸入基地仓库。`);
       setMode('base');
       return;
@@ -270,6 +379,8 @@ export function App() {
       backpack: { width: 4, height: 5, items: [] },
       armorCondition: 0,
       deaths: profile.deaths + 1,
+      discoveredItems: Array.from(new Set([...profile.discoveredItems, ...(result.discoveredItems ?? [])])),
+      discoveredClues: Array.from(new Set([...profile.discoveredClues, ...(result.discoveredClues ?? [])])),
       shortcutUnlocked: profile.shortcutUnlocked || result.shortcutUnlocked,
       lostEcho: {
         mapId: 'hollow_01',
@@ -301,12 +412,6 @@ export function App() {
     setNotice('已创建新的本地存档。');
   }
 
-  function handlePlayEnding(): void {
-    const next = saveRepository.save({ ...profile, endingSeen: true });
-    setProfile(next);
-    setMode('ending');
-  }
-
   if (mode === 'raid') {
     return (
       <Suspense fallback={<main className="game-loading">正在打开寂羽空洞…</main>}>
@@ -336,13 +441,18 @@ export function App() {
       notice={notice}
       onBeginRaid={handleBeginRaid}
       onMoveItem={handleMoveItem}
+      onRotateItem={handleRotateItem}
+      onQuickTransfer={handleQuickTransfer}
+      onSplitItem={handleSplitItem}
+      onCompactGrid={handleCompactGrid}
       onEquipItem={handleEquipItem}
+      onBuy={handleBuy}
+      onSell={handleSell}
       onRepair={handleRepair}
       onUpgradeWarehouse={handleUpgradeWarehouse}
       onExport={() => saveRepository.export(profile)}
       onImport={handleImport}
       onReset={handleReset}
-      onPlayEnding={handlePlayEnding}
     />
   );
 }
