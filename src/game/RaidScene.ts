@@ -191,7 +191,7 @@ export class RaidScene extends Phaser.Scene {
   }
 
   preload(): void {
-    this.load.image('sui-bird', '/assets/sui-bird.png');
+    this.load.image('sui-bird', `${import.meta.env.BASE_URL}assets/sui-bird.png`);
   }
 
   create(): void {

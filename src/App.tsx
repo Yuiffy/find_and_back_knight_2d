@@ -425,7 +425,11 @@ export function App() {
       <main className="ending-screen">
         <div className="signal-rings" />
         <span className="ending-cookie">🍪</span>
-        <img className="ending-bird" src="/assets/sui-bird.png" alt="岁己望向重新亮起的直播信标" />
+        <img
+          className="ending-bird"
+          src={`${import.meta.env.BASE_URL}assets/sui-bird.png`}
+          alt="岁己望向重新亮起的直播信标"
+        />
         <h1>收到请回答</h1>
         <p>回声核心重新点亮了空洞上空的频道。<br />遥远的屏幕上，第一条弹幕穿过黑暗：<br /><strong>“岁己，你的麦没关。”</strong></p>
         <span className="ending-label">结局一 · 尚未归巢</span>
