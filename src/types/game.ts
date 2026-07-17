@@ -3,11 +3,12 @@ export type ItemCategory =
   | 'armor'
   | 'head'
   | 'shoes'
+  | 'backpack'
   | 'material'
   | 'collectible'
   | 'consumable';
 
-export type GearSlot = 'weapon' | 'armor' | 'head' | 'shoes';
+export type GearSlot = 'weapon' | 'armor' | 'head' | 'shoes' | 'backpack';
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'relic';
 
 export interface ItemStats {
@@ -17,6 +18,8 @@ export interface ItemStats {
   armor?: number;
   speedMultiplier?: number;
   dashEnabled?: boolean;
+  gridWidth?: number;
+  gridHeight?: number;
 }
 
 export interface ItemDefinition {
@@ -27,12 +30,28 @@ export interface ItemDefinition {
   rarity: Rarity;
   description: string;
   stackLimit: number;
+  size: { width: number; height: number };
   stats?: ItemStats;
 }
 
 export interface ItemStack {
   itemId: string;
   quantity: number;
+}
+
+export interface GridItem extends ItemStack {
+  uid: string;
+  x: number;
+  y: number;
+}
+
+export interface GridSize {
+  width: number;
+  height: number;
+}
+
+export interface BackpackInventory extends GridSize {
+  items: GridItem[];
 }
 
 export type Loadout = Record<GearSlot, string | null>;
@@ -49,16 +68,16 @@ export interface ActiveRaid {
   raidId: number;
   mapId: string;
   startedAt: string;
-  backpack: ItemStack[];
+  backpack: GridItem[];
   entryId?: 'foyer' | 'lift';
 }
 
 export interface PlayerProfile {
-  version: 1;
+  version: 2;
   updatedAt: string;
-  stashCapacity: number;
-  backpackCapacity: number;
-  stash: ItemStack[];
+  warehouseSize: GridSize;
+  warehouse: GridItem[];
+  backpack: BackpackInventory;
   loadout: Loadout;
   armorCondition: number;
   raidsStarted: number;
@@ -86,11 +105,13 @@ export interface TextGameState {
     maxHealth: number;
     armor: number;
     maxArmor: number;
+    bodyWidth: number;
+    bodyHeight: number;
     facing: 'left' | 'right';
     grounded: boolean;
   };
   zone?: string;
-  backpack?: ItemStack[];
+  backpack?: GridItem[];
   visibleEnemies?: Array<{ id: string; kind: string; x: number; y: number; health: number }>;
   visibleLoot?: Array<{ id: string; itemId: string; x: number; y: number }>;
   nearbyInteraction?: string | null;
@@ -99,7 +120,8 @@ export interface TextGameState {
 
 export interface RaidResult {
   outcome: 'extracted' | 'died';
-  backpack: ItemStack[];
+  backpack: GridItem[];
+  recoveredItems: ItemStack[];
   deathPosition?: { x: number; y: number };
   armorCondition: number;
   mapUnlocked: boolean;

@@ -33,7 +33,7 @@ function profileWithLostEcho(uniqueOldItem = 'echo_lance') {
     lostEcho: {
       mapId: 'hollow_01',
       x: 430,
-      y: 600,
+      y: 1990,
       items: [
         { itemId: uniqueOldItem, quantity: 1 },
         { itemId: 'stream_shell', quantity: 1 },
@@ -81,6 +81,7 @@ try {
 
   await seed(profileWithLostEcho());
   await page.locator('.deploy-button').click();
+  await page.getByRole('button', { name: /失落前庭/ }).click();
   await page.locator('canvas').click({ position: { x: 640, y: 360 } });
   await page.waitForTimeout(650);
   await moveNear(430);
@@ -90,17 +91,18 @@ try {
   let current = await state();
   assert(current.flags.recoveredEcho, 'Lost Echo was not marked recovered.');
 
-  await moveNear(620);
+  await moveNear(520);
   await page.keyboard.press('Enter');
   await page.waitForTimeout(3400);
   let saved = await page.evaluate(() => JSON.parse(localStorage.getItem('sui-echoes-below.save.v1')));
   assert(saved.lostEcho === null, 'Recovered Lost Echo remained in the profile.');
-  assert(saved.stash.some((stack) => stack.itemId === 'echo_lance'), 'Recovered weapon did not enter stash.');
-  assert(saved.stash.some((stack) => stack.itemId === 'stream_shell'), 'Recovered armor did not enter stash.');
+  assert(saved.warehouse.some((stack) => stack.itemId === 'echo_lance'), 'Recovered weapon did not enter warehouse.');
+  assert(saved.warehouse.some((stack) => stack.itemId === 'stream_shell'), 'Recovered armor did not enter warehouse.');
   await page.screenshot({ path: path.join(outputDir, '02-recovered-at-base.png'), fullPage: true });
 
   await seed(profileWithLostEcho('echo_lance'));
   await page.locator('.deploy-button').click();
+  await page.getByRole('button', { name: /失落前庭/ }).click();
   await page.waitForFunction(() => window.render_game_to_text?.().includes('"mode":"raid"'));
   await page.locator('canvas').click({ position: { x: 640, y: 360 } });
   await page.waitForTimeout(1000);

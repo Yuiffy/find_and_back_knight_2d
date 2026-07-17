@@ -2,9 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
 
-const outputDir = path.resolve('artifacts/deep-flow');
+const outputDir = path.resolve('artifacts/deep-flow-v2');
 fs.mkdirSync(outputDir, { recursive: true });
-
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 const errors = [];
@@ -20,7 +19,7 @@ const seededProfile = {
   backpackCapacity: 8,
   stash: [{ itemId: 'echo_dust', quantity: 12 }],
   loadout: {
-    weapon: 'storm_feather',
+    weapon: 'echo_lance',
     armor: 'miner_shell',
     head: 'cat_cap',
     shoes: 'shadow_boots',
@@ -43,8 +42,7 @@ function assert(condition, message) {
 }
 
 async function state() {
-  const raw = await page.evaluate(() => window.render_game_to_text?.() ?? '{}');
-  return JSON.parse(raw);
+  return JSON.parse(await page.evaluate(() => window.render_game_to_text?.() ?? '{}'));
 }
 
 async function hold(key, milliseconds) {
@@ -53,110 +51,109 @@ async function hold(key, milliseconds) {
   await page.keyboard.up(key);
 }
 
-async function moveToward(targetX, maximumMilliseconds = 850) {
-  const current = await state();
-  assert(current.mode === 'raid', `Expected raid while moving, got ${current.mode}`);
-  const distance = targetX - current.player.x;
-  if (Math.abs(distance) < 48) return;
-  const key = distance > 0 ? 'ArrowRight' : 'ArrowLeft';
-  const duration = Math.min(maximumMilliseconds, Math.max(80, Math.abs(distance) / 0.25));
-  await hold(key, duration);
+async function moveX(targetX, tolerance = 35) {
+  for (let attempt = 0; attempt < 28; attempt += 1) {
+    const current = await state();
+    const distance = targetX - current.player.x;
+    if (Math.abs(distance) <= tolerance) return current;
+    await hold(distance > 0 ? 'ArrowRight' : 'ArrowLeft', Math.min(220, Math.max(70, Math.abs(distance) * 1.5)));
+  }
+  return state();
+}
+
+async function jumpUp(targetY) {
+  const before = await state();
+  await page.keyboard.down('Space');
+  await page.waitForTimeout(380);
+  await page.keyboard.up('Space');
+  await page.waitForTimeout(420);
+  let current = await state();
+  for (let wait = 0; wait < 10 && !current.player.grounded; wait += 1) {
+    await page.waitForTimeout(180);
+    current = await state();
+  }
+  assert(current.player.grounded, `Player never landed after jumping from y=${before.player.y}.`);
+  assert(current.player.y <= targetY + 50 && current.player.y < before.player.y - 55, `Vertical route failed from y=${before.player.y} to y=${current.player.y}; expected next platform near ${targetY}.`);
+  return current;
+}
+
+async function attackBurst(count = 3) {
+  for (let index = 0; index < count; index += 1) {
+    await page.keyboard.press('KeyB');
+    await page.waitForTimeout(235);
+  }
 }
 
 try {
   await page.goto('http://127.0.0.1:4175', { waitUntil: 'networkidle' });
-  await page.evaluate((profile) => {
-    localStorage.setItem('sui-echoes-below.save.v1', JSON.stringify(profile));
-  }, seededProfile);
+  await page.evaluate((profile) => localStorage.setItem('sui-echoes-below.save.v1', JSON.stringify(profile)), seededProfile);
   await page.reload({ waitUntil: 'networkidle' });
 
-  await page.locator('.shortcut-button').click();
+  await page.getByRole('button', { name: '选择入口并开始远征' }).click();
+  await page.getByRole('button', { name: /维护电梯中层站/ }).click();
   await page.locator('canvas').waitFor({ state: 'visible' });
   await page.locator('canvas').click({ position: { x: 640, y: 360 } });
-  await page.waitForTimeout(650);
+  await page.waitForTimeout(700);
 
   let current = await state();
-  assert(current.mode === 'raid' && current.player.x >= 3150, 'Deep entry did not spawn near the lift.');
+  assert(current.mode === 'raid' && current.player.x > 1380 && current.player.y > 1200, 'Lift entry did not spawn in the middle room.');
+  await jumpUp(1250);
+  await jumpUp(1155);
+  await jumpUp(1060);
+  await jumpUp(965);
+  await moveX(1580);
+  await jumpUp(885);
+  await page.locator('canvas').screenshot({ path: path.join(outputDir, '01-two-axis-deep-route.png') });
 
-  for (let approach = 0; approach < 10; approach += 1) {
-    current = await state();
-    if (current.player.x >= 3540) break;
-    await hold('ArrowRight', 350);
-  }
+  await moveX(1800);
+  await attackBurst(3);
+  await moveX(2160, 20);
+  await jumpUp(795);
+  await moveX(2320);
+  await jumpUp(735);
+  await moveX(2460, 15);
+  await page.waitForTimeout(420);
+  await jumpUp(635);
   current = await state();
-  assert(current.player.x >= 3520 && current.player.x < 3630, `Could not stage the deep jump at x=${current.player.x}.`);
-  await page.keyboard.down('ArrowRight');
-  await page.keyboard.down('Space');
-  await page.waitForTimeout(120);
-  await page.keyboard.up('Space');
-  await page.waitForTimeout(230);
-  await page.keyboard.press('Shift');
-  await page.waitForTimeout(1550);
-  await page.keyboard.up('ArrowRight');
-  await page.waitForTimeout(180);
+  assert(current.zone === '静默机房', `Expected machine room, got ${current.zone}.`);
 
-  current = await state();
-  assert(current.mode === 'raid', 'Player died while crossing from the deep entry.');
-  assert(current.player.x > 3670, `Deep gap traversal stalled at x=${current.player.x}.`);
-  await page.locator('canvas').screenshot({ path: path.join(outputDir, '01-deep-approach.png') });
-
-  for (let strike = 0; strike < 14; strike += 1) {
+  for (let strike = 0; strike < 12; strike += 1) {
     current = await state();
     assert(current.mode === 'raid', 'Player died during the boss fight.');
     const boss = current.visibleEnemies.find((enemy) => enemy.kind === 'warden');
     if (!boss) break;
     const distance = boss.x - current.player.x;
-    if (Math.abs(distance) > 62) {
-      await hold(distance > 0 ? 'ArrowRight' : 'ArrowLeft', Math.min(260, Math.abs(distance) * 2.3));
-    }
-    await page.keyboard.press('b');
-    await page.waitForTimeout(235);
+    if (Math.abs(distance) > 135) await hold(distance > 0 ? 'ArrowRight' : 'ArrowLeft', Math.min(150, Math.abs(distance) * 1.1));
+    else await hold(distance > 0 ? 'ArrowRight' : 'ArrowLeft', 35);
+    await page.keyboard.press('KeyB');
+    await page.waitForTimeout(500);
   }
-
   current = await state();
-  assert(current.mode === 'raid', 'Player died before defeating the boss.');
-  assert(!current.visibleEnemies.some((enemy) => enemy.kind === 'warden'), 'Boss remained alive after the combat sequence.');
+  assert(current.mode === 'raid', 'Player died before the boss result could be collected.');
+  const survivingBoss = current.visibleEnemies.find((enemy) => enemy.kind === 'warden');
+  assert(!survivingBoss, `Boss remained alive after the combat sequence with ${survivingBoss?.health} health.`);
 
-  for (let pickup = 0; pickup < 5; pickup += 1) {
+  for (let pickup = 0; pickup < 4; pickup += 1) {
     current = await state();
-    const core = current.visibleLoot.find((loot) => loot.itemId === 'echo_core');
-    const nextLoot = core ?? current.visibleLoot[0];
+    const nextLoot = current.visibleLoot.find((loot) => loot.itemId === 'echo_core') ?? current.visibleLoot[0];
     if (!nextLoot) break;
-    await moveToward(nextLoot.x, 420);
+    await moveX(nextLoot.x, 45);
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(160);
-  }
-
-  current = await state();
-  assert(current.backpack.some((stack) => stack.itemId === 'echo_core'), 'Echo Core was not collected.');
-  await page.locator('canvas').screenshot({ path: path.join(outputDir, '02-boss-defeated.png') });
-
-  for (let approach = 0; approach < 12; approach += 1) {
-    current = await state();
-    if (current.player.x >= 4260) break;
-    await hold('ArrowRight', 300);
+    await page.waitForTimeout(180);
   }
   current = await state();
-  assert(current.player.x >= 4235 && current.player.x < 4310, `Could not stage deep extraction jump at x=${current.player.x}.`);
-  await page.keyboard.down('ArrowRight');
-  await page.keyboard.down('Space');
-  await page.waitForTimeout(120);
-  await page.keyboard.up('Space');
-  await page.waitForTimeout(180);
-  await page.keyboard.press('Shift');
-  await page.waitForTimeout(1250);
-  await page.keyboard.up('ArrowRight');
-  await page.waitForTimeout(180);
-  await moveToward(4550, 520);
+  assert(current.backpack.some((item) => item.itemId === 'echo_core'), '3x3 Echo Core was not placed in the 4x5 backpack.');
+  await page.locator('canvas').screenshot({ path: path.join(outputDir, '02-boss-loot-in-grid-pack.png') });
 
+  await moveX(3010, 65);
   current = await state();
-  assert(current.mode === 'raid', 'Player died before reaching deep extraction.');
-  assert(Math.abs(current.player.x - 4550) < 105, `Player missed deep extraction at x=${current.player.x}.`);
+  assert(Math.abs(current.player.x - 3010) < 100, `Player missed machine-room extraction at x=${current.player.x}.`);
   await page.keyboard.press('Enter');
   await page.waitForTimeout(3400);
+
+  await page.getByRole('button', { name: '任务与地图' }).click();
   await page.locator('.signal-button').waitFor({ state: 'visible' });
   await page.screenshot({ path: path.join(outputDir, '03-ending-ready.png'), fullPage: true });
-
   await page.locator('.signal-button').click();
   await page.waitForTimeout(700);
   assert(await page.getByText('收到请回答', { exact: true }).isVisible(), 'Ending title did not render.');
@@ -164,7 +161,7 @@ try {
   await page.screenshot({ path: path.join(outputDir, '04-ending.png'), fullPage: true });
 
   assert(errors.length === 0, `Browser errors: ${errors.join(' | ')}`);
-  console.log(JSON.stringify({ ok: true, finalMode: 'ending', errors }, null, 2));
+  console.log(JSON.stringify({ ok: true, finalMode: 'ending', migratedSave: 2, twoAxisRoute: true, errors }, null, 2));
 } finally {
   await browser.close();
 }

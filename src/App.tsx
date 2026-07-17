@@ -1,10 +1,22 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { BaseScreen } from './components/BaseScreen';
-import { addItem, addStacks, removeItem } from './game/inventory';
+import type { InventoryDragPayload } from './components/InventoryGrid';
+import {
+  addStacks,
+  cloneGridItems,
+  gridItemsToStacks,
+  insertGridItemAt,
+  insertGridStack,
+  insertGridStacks,
+  makeGridUid,
+  moveGridItem,
+  removeGridQuantity,
+  validateGrid,
+} from './game/inventory';
 import { getArmorMaximum, getCurrentObjective, ITEMS } from './game/items';
 import { saveRepository } from './services/saveRepository';
 import { publishDomainEvent } from './services/gameNetworkBoundary';
-import type { GearSlot, PlayerProfile, RaidResult, TextGameState } from './types/game';
+import type { GearSlot, GridItem, GridSize, PlayerProfile, RaidResult, TextGameState } from './types/game';
 
 type AppMode = 'base' | 'raid' | 'ending';
 
@@ -42,51 +54,144 @@ export function App() {
     if (message) setNotice(message);
   }
 
-  function handleEquip(itemId: string): void {
-    const item = ITEMS[itemId];
-    if (!item || !['weapon', 'armor', 'head', 'shoes'].includes(item.category)) return;
-    const slot = item.category as GearSlot;
-    const withoutNew = removeItem(profile.stash, itemId, 1);
-    if (!withoutNew) return;
+  function getGrid(source: 'warehouse' | 'backpack'): { items: GridItem[]; size: GridSize } {
+    return source === 'warehouse'
+      ? { items: profile.warehouse, size: profile.warehouseSize }
+      : { items: profile.backpack.items, size: profile.backpack };
+  }
+
+  function handleMoveItem(
+    payload: InventoryDragPayload,
+    target: 'warehouse' | 'backpack',
+    x: number,
+    y: number,
+  ): void {
+    const targetGrid = getGrid(target);
+    if (payload.source === target && payload.uid) {
+      const moved = moveGridItem(targetGrid.items, targetGrid.size, payload.uid, x, y);
+      if (!moved) {
+        setNotice('那里放不下：物品不能重叠，也不能超出格子。');
+        return;
+      }
+      commit(target === 'warehouse'
+        ? { ...profile, warehouse: moved }
+        : { ...profile, backpack: { ...profile.backpack, items: moved } });
+      return;
+    }
+
+    if (payload.source === 'loadout' && payload.slot) {
+      const itemId = profile.loadout[payload.slot];
+      if (!itemId) return;
+      if (payload.slot === 'backpack' && (target === 'backpack' || profile.backpack.items.length > 0)) {
+        setNotice('先把随身背包清空，才能卸下背包本体。');
+        return;
+      }
+      const gridItem: GridItem = { uid: makeGridUid(itemId), itemId, quantity: 1, x, y };
+      const inserted = insertGridItemAt(targetGrid.items, targetGrid.size, gridItem, x, y);
+      if (!inserted) {
+        setNotice('目标区域没有足够的连续空间。');
+        return;
+      }
+      const nextLoadout = { ...profile.loadout, [payload.slot]: null };
+      commit({
+        ...profile,
+        loadout: nextLoadout,
+        warehouse: target === 'warehouse' ? inserted : profile.warehouse,
+        backpack: payload.slot === 'backpack'
+          ? { width: 0, height: 0, items: [] }
+          : { ...profile.backpack, items: target === 'backpack' ? inserted : profile.backpack.items },
+        armorCondition: payload.slot === 'armor' ? 0 : profile.armorCondition,
+      }, `${ITEMS[itemId].name} 已卸下。`);
+      return;
+    }
+
+    if ((payload.source === 'warehouse' || payload.source === 'backpack') && payload.uid) {
+      const sourceGrid = getGrid(payload.source);
+      const item = sourceGrid.items.find((entry) => entry.uid === payload.uid);
+      if (!item) return;
+      const sourceItems = sourceGrid.items.filter((entry) => entry.uid !== payload.uid).map((entry) => ({ ...entry }));
+      const inserted = insertGridItemAt(targetGrid.items, targetGrid.size, item, x, y);
+      if (!inserted) {
+        setNotice(`${ITEMS[item.itemId].name} 需要 ${ITEMS[item.itemId].size.width}×${ITEMS[item.itemId].size.height} 的连续空格。`);
+        return;
+      }
+      commit({
+        ...profile,
+        warehouse: payload.source === 'warehouse'
+          ? sourceItems
+          : (target === 'warehouse' ? inserted : profile.warehouse),
+        backpack: {
+          ...profile.backpack,
+          items: payload.source === 'backpack'
+            ? sourceItems
+            : (target === 'backpack' ? inserted : profile.backpack.items),
+        },
+        ...(target === 'warehouse' && payload.source !== 'warehouse' ? { warehouse: inserted } : {}),
+        ...(target === 'backpack' && payload.source !== 'backpack' ? { backpack: { ...profile.backpack, items: inserted } } : {}),
+      });
+    }
+  }
+
+  function handleEquipItem(payload: InventoryDragPayload, slot: GearSlot): void {
+    if (payload.source === 'loadout') return;
+    if (!payload.uid) return;
+    const sourceGrid = getGrid(payload.source);
+    const gridItem = sourceGrid.items.find((entry) => entry.uid === payload.uid);
+    if (!gridItem) return;
+    const item = ITEMS[gridItem.itemId];
+    if (item.category !== slot) {
+      setNotice(`${item.name} 不能放进「${slot}」装备位。`);
+      return;
+    }
+    const sourceItems = sourceGrid.items.filter((entry) => entry.uid !== payload.uid).map((entry) => ({ ...entry }));
     const oldItemId = profile.loadout[slot];
-    const nextStash = oldItemId ? addItem(withoutNew, oldItemId) : withoutNew;
+    const warehouseAfterTake = payload.source === 'warehouse' ? sourceItems : cloneGridItems(profile.warehouse);
+    const warehouseWithOld = oldItemId
+      ? insertGridStack(warehouseAfterTake, profile.warehouseSize, { itemId: oldItemId, quantity: 1 })
+      : warehouseAfterTake;
+    if (!warehouseWithOld) {
+      setNotice('仓库没有空间放回当前装备。');
+      return;
+    }
+
+    const nextLoadout = { ...profile.loadout, [slot]: item.id };
+    let nextBackpack = {
+      ...profile.backpack,
+      items: payload.source === 'backpack' ? sourceItems : profile.backpack.items,
+    };
+    if (slot === 'backpack') {
+      const nextSize = {
+        width: item.stats?.gridWidth ?? 0,
+        height: item.stats?.gridHeight ?? 0,
+      };
+      if (!validateGrid(nextBackpack.items, nextSize)) {
+        setNotice('当前背包里的物品放不进这个新背包，请先整理或清空。');
+        return;
+      }
+      nextBackpack = { ...nextSize, items: nextBackpack.items };
+    }
     const next = {
       ...profile,
-      stash: nextStash,
-      loadout: { ...profile.loadout, [slot]: itemId },
+      warehouse: warehouseWithOld,
+      backpack: nextBackpack,
+      loadout: nextLoadout,
     };
     if (slot === 'armor') next.armorCondition = getArmorMaximum(next);
     commit(next, `${item.icon} 已装备：${item.name}`);
   }
 
-  function handleUnequip(slot: GearSlot): void {
-    const itemId = profile.loadout[slot];
-    if (!itemId) return;
-    if (profile.stash.length >= profile.stashCapacity) {
-      setNotice('仓库已满，暂时无法卸下装备。');
-      return;
-    }
-    const next = {
-      ...profile,
-      stash: addItem(profile.stash, itemId),
-      loadout: { ...profile.loadout, [slot]: null },
-      armorCondition: slot === 'armor' ? 0 : profile.armorCondition,
-    };
-    commit(next, `${ITEMS[itemId].name} 已放回仓库。`);
-  }
-
   function handleRepair(): void {
     const armorMax = getArmorMaximum(profile);
-    const nextStash = removeItem(profile.stash, 'echo_dust', 2);
-    if (!nextStash || profile.armorCondition >= armorMax) return;
-    commit({ ...profile, stash: nextStash, armorCondition: armorMax }, '护甲已完全修复。');
+    const nextWarehouse = removeGridQuantity(profile.warehouse, 'echo_dust', 2);
+    if (!nextWarehouse || profile.armorCondition >= armorMax) return;
+    commit({ ...profile, warehouse: nextWarehouse, armorCondition: armorMax }, '护甲已完全修复。');
   }
 
-  function handleUpgradeStash(): void {
-    if (profile.stashCapacity >= 16) return;
-    const nextStash = removeItem(profile.stash, 'echo_dust', 6);
-    if (!nextStash) return;
-    commit({ ...profile, stash: nextStash, stashCapacity: 16, backpackCapacity: 8 }, '仓库扩建完成，远征背包也扩为 8 格。');
+  function handleUpgradeWarehouse(): void {
+    if (profile.warehouseSize.width >= 10) return;
+    const nextWarehouse = removeGridQuantity(profile.warehouse, 'echo_dust', 6);
+    if (!nextWarehouse) return;
+    commit({ ...profile, warehouse: nextWarehouse, warehouseSize: { width: 10, height: 10 } }, '基地仓库已扩建为 10×10；随身背包保持不变。');
   }
 
   function handleBeginRaid(entryId: 'foyer' | 'lift'): void {
@@ -98,7 +203,7 @@ export function App() {
         raidId,
         mapId: 'hollow_01',
         startedAt: new Date().toISOString(),
-        backpack: [],
+        backpack: cloneGridItems(profile.backpack.items),
         entryId,
       },
     });
@@ -127,20 +232,22 @@ export function App() {
       const nextMapUnlocked = profile.mapUnlocked || result.mapUnlocked;
       const extractedCore = result.backpack.some((stack) => stack.itemId === 'echo_core');
       const nextBossDefeated = profile.bossDefeated || (result.bossDefeated && extractedCore);
+      const recoveredWarehouse = insertGridStacks(profile.warehouse, profile.warehouseSize, result.recoveredItems);
       const next = saveRepository.save({
         ...profile,
-        stash: addStacks(profile.stash, result.backpack),
+        warehouse: recoveredWarehouse ?? profile.warehouse,
+        backpack: { ...profile.backpack, items: cloneGridItems(result.backpack) },
         armorCondition: result.armorCondition,
         successfulExtractions: profile.successfulExtractions + 1,
         mapUnlocked: nextMapUnlocked,
         shortcutUnlocked: profile.shortcutUnlocked || result.shortcutUnlocked,
         bossDefeated: nextBossDefeated,
         endingUnlocked: profile.endingUnlocked || nextBossDefeated,
-        lostEcho: result.recoveredEcho ? null : profile.lostEcho,
+        lostEcho: result.recoveredEcho && recoveredWarehouse ? null : profile.lostEcho,
         activeRaid: null,
       });
       setProfile(next);
-      setNotice(`安全撤离成功：${result.backpack.reduce((sum, stack) => sum + stack.quantity, 0)} 件战利品已入仓。`);
+      setNotice(`安全撤离成功：${result.backpack.reduce((sum, stack) => sum + stack.quantity, 0)} 件物品仍在随身背包，请在整备页卸入基地仓库。`);
       setMode('base');
       return;
     }
@@ -148,8 +255,8 @@ export function App() {
     const carriedGear = Object.values(profile.loadout)
       .filter((itemId): itemId is string => Boolean(itemId))
       .map((itemId) => ({ itemId, quantity: 1 }));
-    const lostItems = addStacks(result.backpack, carriedGear);
-    const deathPosition = result.deathPosition ?? { x: 180, y: 560 };
+    const lostItems = addStacks(addStacks(gridItemsToStacks(result.backpack), result.recoveredItems), carriedGear);
+    const deathPosition = result.deathPosition ?? { x: 240, y: 1940 };
     const next = saveRepository.save({
       ...profile,
       loadout: {
@@ -157,7 +264,9 @@ export function App() {
         armor: null,
         head: null,
         shoes: 'soft_boots',
+        backpack: 'field_pack',
       },
+      backpack: { width: 4, height: 5, items: [] },
       armorCondition: 0,
       deaths: profile.deaths + 1,
       shortcutUnlocked: profile.shortcutUnlocked || result.shortcutUnlocked,
@@ -225,10 +334,10 @@ export function App() {
       objective={objective}
       notice={notice}
       onBeginRaid={handleBeginRaid}
-      onEquip={handleEquip}
-      onUnequip={handleUnequip}
+      onMoveItem={handleMoveItem}
+      onEquipItem={handleEquipItem}
       onRepair={handleRepair}
-      onUpgradeStash={handleUpgradeStash}
+      onUpgradeWarehouse={handleUpgradeWarehouse}
       onExport={() => saveRepository.export(profile)}
       onImport={handleImport}
       onReset={handleReset}

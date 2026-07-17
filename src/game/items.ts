@@ -9,6 +9,7 @@ export const ITEMS: Record<string, ItemDefinition> = {
     rarity: 'common',
     description: '陪岁己一起掉下来的旧道具。均衡、可靠。',
     stackLimit: 1,
+    size: { width: 1, height: 3 },
     stats: { attack: 2, range: 84, attackCooldown: 340 },
   },
   echo_lance: {
@@ -19,6 +20,7 @@ export const ITEMS: Record<string, ItemDefinition> = {
     rarity: 'uncommon',
     description: '攻击更慢，但可以在敌人靠近前刺中它。',
     stackLimit: 1,
+    size: { width: 1, height: 4 },
     stats: { attack: 3, range: 118, attackCooldown: 470 },
   },
   storm_feather: {
@@ -29,6 +31,7 @@ export const ITEMS: Record<string, ItemDefinition> = {
     rarity: 'rare',
     description: '范围很短，连击却像弹幕刷新一样快。',
     stackLimit: 1,
+    size: { width: 2, height: 2 },
     stats: { attack: 2, range: 68, attackCooldown: 210 },
   },
   stream_shell: {
@@ -39,6 +42,7 @@ export const ITEMS: Record<string, ItemDefinition> = {
     rarity: 'common',
     description: '提供 2 点可修复蓝甲。贴着“户外直播专用”。',
     stackLimit: 1,
+    size: { width: 2, height: 3 },
     stats: { armor: 2 },
   },
   miner_shell: {
@@ -49,6 +53,7 @@ export const ITEMS: Record<string, ItemDefinition> = {
     rarity: 'uncommon',
     description: '提供 4 点蓝甲，但沉重的壳会稍微拖慢脚步。',
     stackLimit: 1,
+    size: { width: 3, height: 3 },
     stats: { armor: 4, speedMultiplier: 0.92 },
   },
   cat_cap: {
@@ -59,6 +64,7 @@ export const ITEMS: Record<string, ItemDefinition> = {
     rarity: 'common',
     description: '受伤后短暂加速。帽子不会承认这是逃跑。',
     stackLimit: 1,
+    size: { width: 2, height: 2 },
   },
   survey_lens: {
     id: 'survey_lens',
@@ -68,6 +74,7 @@ export const ITEMS: Record<string, ItemDefinition> = {
     rarity: 'uncommon',
     description: '让未知地图上的目标和遗失回声更醒目。',
     stackLimit: 1,
+    size: { width: 2, height: 2 },
   },
   soft_boots: {
     id: 'soft_boots',
@@ -77,6 +84,7 @@ export const ITEMS: Record<string, ItemDefinition> = {
     rarity: 'common',
     description: '移动速度提升 12%。轻得像根本没穿。',
     stackLimit: 1,
+    size: { width: 2, height: 2 },
     stats: { speedMultiplier: 1.12 },
   },
   shadow_boots: {
@@ -87,7 +95,30 @@ export const ITEMS: Record<string, ItemDefinition> = {
     rarity: 'rare',
     description: '解锁能够穿过敌人的黑冲。',
     stackLimit: 1,
+    size: { width: 2, height: 2 },
     stats: { dashEnabled: true },
+  },
+  field_pack: {
+    id: 'field_pack',
+    name: '折羽背包',
+    icon: '🎒',
+    category: 'backpack',
+    rarity: 'common',
+    description: '4×5 格随身背包。装进去的物品会随远征一起承担风险。',
+    stackLimit: 1,
+    size: { width: 2, height: 3 },
+    stats: { gridWidth: 4, gridHeight: 5 },
+  },
+  survey_pack: {
+    id: 'survey_pack',
+    name: '测绘员背架',
+    icon: '🧰',
+    category: 'backpack',
+    rarity: 'rare',
+    description: '5×6 格扩展背包。预留给后续区域的高级掉落。',
+    stackLimit: 1,
+    size: { width: 3, height: 3 },
+    stats: { gridWidth: 5, gridHeight: 6 },
   },
   echo_dust: {
     id: 'echo_dust',
@@ -97,6 +128,7 @@ export const ITEMS: Record<string, ItemDefinition> = {
     rarity: 'common',
     description: '修理护甲和扩建饼干台的通用材料。',
     stackLimit: 99,
+    size: { width: 1, height: 1 },
   },
   repair_patch: {
     id: 'repair_patch',
@@ -106,6 +138,7 @@ export const ITEMS: Record<string, ItemDefinition> = {
     rarity: 'uncommon',
     description: '远征中恢复 1 点蓝甲。',
     stackLimit: 5,
+    size: { width: 1, height: 2 },
   },
   map_feather: {
     id: 'map_feather',
@@ -115,6 +148,7 @@ export const ITEMS: Record<string, ItemDefinition> = {
     rarity: 'rare',
     description: '记录寂羽空洞的完整房间、捷径和撤离点。',
     stackLimit: 1,
+    size: { width: 2, height: 2 },
   },
   biscuit_note: {
     id: 'biscuit_note',
@@ -124,6 +158,7 @@ export const ITEMS: Record<string, ItemDefinition> = {
     rarity: 'uncommon',
     description: '“收到请回答！以及不要舔洞里的蘑菇！”',
     stackLimit: 1,
+    size: { width: 2, height: 1 },
   },
   echo_core: {
     id: 'echo_core',
@@ -133,16 +168,18 @@ export const ITEMS: Record<string, ItemDefinition> = {
     rarity: 'relic',
     description: '静默机房仍在跳动的信号核心。可以修复直播信标。',
     stackLimit: 1,
+    size: { width: 3, height: 3 },
   },
 };
 
-export const GEAR_SLOTS: GearSlot[] = ['weapon', 'armor', 'head', 'shoes'];
+export const GEAR_SLOTS: GearSlot[] = ['weapon', 'armor', 'head', 'shoes', 'backpack'];
 
 export const SLOT_NAMES: Record<GearSlot, string> = {
   weapon: '武器',
   armor: '护甲',
   head: '头部',
   shoes: '鞋',
+  backpack: '背包',
 };
 
 export const RARITY_NAMES = {
@@ -152,8 +189,10 @@ export const RARITY_NAMES = {
   relic: '遗物',
 } as const;
 
-export function countItem(stacks: ItemStack[], itemId: string): number {
-  return stacks.find((stack) => stack.itemId === itemId)?.quantity ?? 0;
+export function countItem(stacks: readonly ItemStack[], itemId: string): number {
+  return stacks
+    .filter((stack) => stack.itemId === itemId)
+    .reduce((total, stack) => total + stack.quantity, 0);
 }
 
 export function getArmorMaximum(profile: Pick<PlayerProfile, 'loadout'>): number {
@@ -164,7 +203,7 @@ export function getArmorMaximum(profile: Pick<PlayerProfile, 'loadout'>): number
 export function getCurrentObjective(profile: PlayerProfile): string {
   if (profile.successfulExtractions === 0) return '带任意战利品从前庭撤离点安全返回';
   if (!profile.mapUnlocked) return '在荧菌裂谷找到导航羽片并安全带回';
-  if (profile.stashCapacity < 16) return '收集 6 份空响尘，扩建一次仓库';
+  if (profile.warehouseSize.width < 10) return '收集 6 份空响尘，把基地仓库扩建到 10×10';
   if (!profile.shortcutUnlocked) return '深入裂谷，启动通往机房的维护电梯';
   if (!profile.bossDefeated) return '击败静默机房的失频守卫，夺取回声核心';
   if (!profile.endingSeen) return '在饼干台启动直播信标';

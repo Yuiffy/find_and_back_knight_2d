@@ -1,16 +1,26 @@
-import { useRef } from 'react';
-import { countItem, GEAR_SLOTS, getArmorMaximum, ITEMS, RARITY_NAMES, SLOT_NAMES } from '../game/items';
+import { useEffect, useRef, useState, type DragEvent } from 'react';
+import { countItem, GEAR_SLOTS, getArmorMaximum, ITEMS, SLOT_NAMES } from '../game/items';
+import { occupiedGridCells } from '../game/inventory';
 import type { GearSlot, PlayerProfile } from '../types/game';
+import {
+  InventoryGrid,
+  readInventoryDrag,
+  writeInventoryDrag,
+  type InventoryDragPayload,
+  type InventorySource,
+} from './InventoryGrid';
+
+type BaseTab = 'storage' | 'workshop' | 'missions';
 
 interface BaseScreenProps {
   profile: PlayerProfile;
   objective: string;
   notice: string | null;
   onBeginRaid: (entryId: 'foyer' | 'lift') => void;
-  onEquip: (itemId: string) => void;
-  onUnequip: (slot: GearSlot) => void;
+  onMoveItem: (payload: InventoryDragPayload, target: Exclude<InventorySource, 'loadout'>, x: number, y: number) => void;
+  onEquipItem: (payload: InventoryDragPayload, slot: GearSlot) => void;
   onRepair: () => void;
-  onUpgradeStash: () => void;
+  onUpgradeWarehouse: () => void;
   onExport: () => void;
   onImport: (file: File) => void;
   onReset: () => void;
@@ -22,29 +32,52 @@ export function BaseScreen({
   objective,
   notice,
   onBeginRaid,
-  onEquip,
-  onUnequip,
+  onMoveItem,
+  onEquipItem,
   onRepair,
-  onUpgradeStash,
+  onUpgradeWarehouse,
   onExport,
   onImport,
   onReset,
   onPlayEnding,
 }: BaseScreenProps) {
   const importRef = useRef<HTMLInputElement>(null);
+  const firstEntryRef = useRef<HTMLButtonElement>(null);
+  const [activeTab, setActiveTab] = useState<BaseTab>('storage');
+  const [entryOpen, setEntryOpen] = useState(false);
+  const [selected, setSelected] = useState<InventoryDragPayload | null>(null);
   const armorMax = getArmorMaximum(profile);
-  const dust = countItem(profile.stash, 'echo_dust');
+  const dust = countItem(profile.warehouse, 'echo_dust');
+  const warehouseCells = profile.warehouseSize.width * profile.warehouseSize.height;
+  const bagCells = profile.backpack.width * profile.backpack.height;
+
+  useEffect(() => {
+    if (!entryOpen) return undefined;
+    firstEntryRef.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setEntryOpen(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [entryOpen]);
+
+  function acceptSlotDrop(event: DragEvent<HTMLButtonElement>, slot: GearSlot): void {
+    event.preventDefault();
+    const payload = readInventoryDrag(event);
+    if (payload) onEquipItem(payload, slot);
+    setSelected(null);
+  }
 
   return (
-    <main className="base-shell">
-      <header className="base-header">
-        <div className="brand-lockup">
-          <span className="eyebrow">SUI: ECHOES BELOW · FIRST DESCENT</span>
-          <h1>岁己：空响撤离</h1>
-          <p>把故事带回来，才算直播成功。</p>
+    <main className="base-shell base-shell-v2">
+      <header className="compact-header">
+        <div className="brand-lockup compact-brand">
+          <span className="eyebrow">SUI: ECHOES BELOW</span>
+          <h1>饼干台整备间</h1>
+          <p>只把需要的东西装进背包；留在仓库里的物品不会随远征丢失。</p>
         </div>
         <div className="header-actions" aria-label="存档操作">
-          <span className="save-status">● 已自动存档</span>
+          <span className="save-status">● 自动存档</span>
           <button className="text-button" type="button" onClick={onExport}>导出</button>
           <button className="text-button" type="button" onClick={() => importRef.current?.click()}>导入</button>
           <button className="text-button danger" type="button" onClick={onReset}>重置</button>
@@ -62,179 +95,170 @@ export function BaseScreen({
         </div>
       </header>
 
-      <section className="objective-banner">
-        <span className="objective-index">当前主线</span>
-        <div>
-          <strong>{objective}</strong>
-          <p>目标会显示在未知地图上。按 M 随时确认方向。</p>
-        </div>
-        <span className="objective-arrow">↗</span>
-      </section>
+      <nav className="base-tabs" aria-label="基地功能">
+        <button className={activeTab === 'storage' ? 'is-active' : ''} type="button" onClick={() => setActiveTab('storage')}>装备与仓库</button>
+        <button className={activeTab === 'workshop' ? 'is-active' : ''} type="button" onClick={() => setActiveTab('workshop')}>工作台</button>
+        <button className={activeTab === 'missions' ? 'is-active' : ''} type="button" onClick={() => setActiveTab('missions')}>任务与地图</button>
+        <span className="base-objective"><small>当前目标</small>{objective}</span>
+      </nav>
 
       {notice && <div className="notice" role="status">{notice}</div>}
 
-      <div className="base-grid">
-        <section className="panel hero-panel">
-          <div className="panel-heading">
-            <div>
-              <span className="eyebrow">EXPLORER</span>
-              <h2>远征者 · 岁己 SUI</h2>
+      {activeTab === 'storage' && (
+        <section className="storage-workspace">
+          <aside className="equipment-column panel">
+            <div className="panel-heading compact-panel-heading">
+              <div><span className="eyebrow">LOADOUT</span><h2>身上装备</h2></div>
+              <span className="risk-label">进图后有风险</span>
             </div>
-            <span className="online-badge">📡 弱信号</span>
-          </div>
-
-          <div className="hero-stage">
-            <div className="hero-halo" />
-            <img src="/assets/sui-bird.png" alt="岁己的小鸟形态" />
-            <span className="floating-cookie cookie-one">🍪</span>
-            <span className="floating-cookie cookie-two">🍪</span>
-            <div className="hero-caption">
-              <strong>“只是普通户外直播。”</strong>
-              <span>—— 距离地表约 4,800 米</span>
+            <div className="equipment-slots">
+              {GEAR_SLOTS.map((slot) => {
+                const itemId = profile.loadout[slot];
+                const item = itemId ? ITEMS[itemId] : null;
+                const isSelected = selected?.source === 'loadout' && selected.slot === slot;
+                return (
+                  <button
+                    className={`equipment-slot${item ? ` rarity-${item.rarity}` : ' is-empty'}${isSelected ? ' is-selected' : ''}`}
+                    key={slot}
+                    type="button"
+                    draggable={Boolean(item)}
+                    aria-pressed={isSelected}
+                    onDragStart={(event) => item && writeInventoryDrag(event, { source: 'loadout', slot })}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => acceptSlotDrop(event, slot)}
+                    onClick={() => {
+                      if (selected && selected.source !== 'loadout') {
+                        onEquipItem(selected, slot);
+                        setSelected(null);
+                      } else if (item) {
+                        setSelected(isSelected ? null : { source: 'loadout', slot });
+                      }
+                    }}
+                  >
+                    <span>{item?.icon ?? '＋'}</span>
+                    <div><small>{SLOT_NAMES[slot]}</small><strong>{item?.name ?? '空槽位'}</strong></div>
+                  </button>
+                );
+              })}
             </div>
-          </div>
+            <div className="loadout-summary">
+              <span>生命 ♥♥♥♥♥</span>
+              <span>蓝甲 {'◆'.repeat(profile.armorCondition)}{'◇'.repeat(Math.max(0, armorMax - profile.armorCondition)) || '无'}</span>
+            </div>
+          </aside>
 
-          <div className="stat-row">
-            <div><span>生命</span><strong>♥ ♥ ♥ ♥ ♥</strong></div>
-            <div><span>蓝甲</span><strong>{'◆ '.repeat(profile.armorCondition)}{'◇ '.repeat(Math.max(0, armorMax - profile.armorCondition)) || '无'}</strong></div>
-            <div><span>远征</span><strong>{profile.raidsStarted}</strong></div>
-            <div><span>撤离</span><strong>{profile.successfulExtractions}</strong></div>
-          </div>
+          <section className="bag-column panel">
+            <div className="panel-heading compact-panel-heading">
+              <div><span className="eyebrow">FIELD BAG</span><h2>随身背包</h2></div>
+              <span className="capacity">{occupiedGridCells(profile.backpack.items)} / {bagCells} 格</span>
+            </div>
+            <p className="grid-explainer">拖进这里的物品会带进地图，也会占用搜刮空间。</p>
+            {profile.loadout.backpack && bagCells > 0 ? (
+              <InventoryGrid
+                ariaLabel={`${profile.backpack.width}乘${profile.backpack.height}随身背包`}
+                items={profile.backpack.items}
+                size={profile.backpack}
+                source="backpack"
+                selected={selected}
+                onSelect={setSelected}
+                onDropItem={(payload, x, y) => onMoveItem(payload, 'backpack', x, y)}
+              />
+            ) : (
+              <div className="no-backpack">请先把背包装到装备栏</div>
+            )}
+            <div className="bag-warning">撤离前死亡：装备和背包内物品都会成为遗失回声。</div>
+          </section>
+
+          <section className="warehouse-column panel">
+            <div className="panel-heading compact-panel-heading">
+              <div><span className="eyebrow">SAFE STORAGE</span><h2>基地仓库</h2></div>
+              <span className="capacity">{occupiedGridCells(profile.warehouse)} / {warehouseCells} 格 · {profile.warehouseSize.width}×{profile.warehouseSize.height}</span>
+            </div>
+            <p className="grid-explainer">仓库处于基地保护中。拖动物品整理位置，或拖到左侧装备/背包。</p>
+            <InventoryGrid
+              ariaLabel={`${profile.warehouseSize.width}乘${profile.warehouseSize.height}基地仓库`}
+              items={profile.warehouse}
+              size={profile.warehouseSize}
+              source="warehouse"
+              selected={selected}
+              onSelect={setSelected}
+              onDropItem={(payload, x, y) => onMoveItem(payload, 'warehouse', x, y)}
+            />
+          </section>
         </section>
+      )}
 
-        <section className="panel loadout-panel">
-          <div className="panel-heading">
-            <div>
-              <span className="eyebrow">LOADOUT</span>
-              <h2>本次携行</h2>
-            </div>
-            <span className="risk-label">死亡会遗失</span>
-          </div>
-
-          <div className="loadout-list">
-            {GEAR_SLOTS.map((slot) => {
-              const itemId = profile.loadout[slot];
-              const item = itemId ? ITEMS[itemId] : null;
-              return (
-                <button
-                  className={`loadout-slot ${item ? `rarity-${item.rarity}` : 'is-empty'}`}
-                  key={slot}
-                  type="button"
-                  onClick={() => onUnequip(slot)}
-                  disabled={!item}
-                  title={item ? '点击卸下到仓库' : '从仓库选择装备'}
-                >
-                  <span className="slot-icon">{item?.icon ?? '＋'}</span>
-                  <span className="slot-copy">
-                    <small>{SLOT_NAMES[slot]}</small>
-                    <strong>{item?.name ?? '空槽位'}</strong>
-                    <em>{item?.description ?? '点击下方仓库物品进行装备'}</em>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="maintenance-row">
-            <button type="button" className="secondary-button" onClick={onRepair} disabled={profile.armorCondition >= armorMax || dust < 2}>
-              🛠 修复护甲 · 2 ✨
-            </button>
-            <span>库存 {dust} ✨</span>
-          </div>
-
-          <button className="deploy-button" type="button" onClick={() => onBeginRaid('foyer')} disabled={!profile.loadout.weapon}>
-            <span>进入寂羽空洞</span>
-            <small>建议等级：初次远征 · 最近撤离点 680m</small>
-          </button>
-          {profile.shortcutUnlocked && (
-            <button className="shortcut-button" type="button" onClick={() => onBeginRaid('lift')} disabled={!profile.loadout.weapon}>
-              ⇣ 从维护电梯进入荧菌裂谷深层
-            </button>
-          )}
-          {profile.lostEcho && (
-            <div className="lost-echo-alert">
-              <span>◉</span>
-              <div><strong>检测到遗失回声</strong><p>位于上次死亡地点。再次倒下将覆盖它。</p></div>
-            </div>
-          )}
+      {activeTab === 'workshop' && (
+        <section className="subpage-grid">
+          <article className="panel service-card">
+            <span className="service-icon">🛠</span>
+            <div><span className="eyebrow">REPAIR</span><h2>护甲维修</h2><p>消耗基地仓库中的 2 份空响尘，把当前护甲修满。</p></div>
+            <button className="secondary-button" type="button" onClick={onRepair} disabled={profile.armorCondition >= armorMax || dust < 2}>修复 · 2 ✨</button>
+          </article>
+          <article className="panel service-card">
+            <span className="service-icon">🏗️</span>
+            <div><span className="eyebrow">EXPANSION</span><h2>仓库扩建</h2><p>将安全仓库从 9×10 扩建到 10×10，不改变随身背包。</p></div>
+            <button className="secondary-button" type="button" onClick={onUpgradeWarehouse} disabled={profile.warehouseSize.width >= 10 || dust < 6}>{profile.warehouseSize.width >= 10 ? '已完成' : '扩建 · 6 ✨'}</button>
+          </article>
+          <article className="panel service-card is-coming">
+            <span className="service-icon">⚗️</span>
+            <div><span className="eyebrow">CRAFTING</span><h2>制造与出售</h2><p>接口已经预留；下一版加入图纸、报价和批量制造。</p></div>
+            <span className="coming-label">后续开放</span>
+          </article>
         </section>
+      )}
 
-        <section className="panel stash-panel">
-          <div className="panel-heading">
-            <div>
-              <span className="eyebrow">STORAGE</span>
-              <h2>饼干台仓库</h2>
-            </div>
-            <span className="capacity">{profile.stash.length} / {profile.stashCapacity} 格</span>
-          </div>
-
-          <div className="stash-grid">
-            {profile.stash.map((stack, index) => {
-              const item = ITEMS[stack.itemId];
-              const canEquip = ['weapon', 'armor', 'head', 'shoes'].includes(item.category);
-              return (
-                <button
-                  className={`stash-item rarity-${item.rarity}`}
-                  key={`${stack.itemId}-${index}`}
-                  type="button"
-                  onClick={() => canEquip && onEquip(item.id)}
-                  disabled={!canEquip}
-                  title={canEquip ? `装备 ${item.name}` : item.description}
-                >
-                  <span className="item-icon">{item.icon}</span>
-                  <strong>{item.name}</strong>
-                  <small>{RARITY_NAMES[item.rarity]} · {item.category}</small>
-                  {stack.quantity > 1 && <b>×{stack.quantity}</b>}
-                </button>
-              );
-            })}
-            {Array.from({ length: Math.max(0, profile.stashCapacity - profile.stash.length) }).map((_, index) => (
-              <div className="stash-empty" key={`empty-${index}`}><span>·</span></div>
-            ))}
-          </div>
-
-          <div className="upgrade-row">
-            <div><strong>仓库扩建</strong><span>增加 4 格，并把远征背包升级为 8 格。</span></div>
-            <button type="button" className="secondary-button" onClick={onUpgradeStash} disabled={profile.stashCapacity >= 16 || dust < 6}>
-              {profile.stashCapacity >= 16 ? '已完成' : '扩建 · 6 ✨'}
-            </button>
-          </div>
+      {activeTab === 'missions' && (
+        <section className="mission-layout">
+          <article className="panel mission-card">
+            <span className="eyebrow">CURRENT OBJECTIVE</span>
+            <h2>{objective}</h2>
+            <p>未知地图也会显示你、主目标和撤离点的相对方位。远征中按 M 查看二维房间图。</p>
+            <ol className="mission-list">
+              <li className={profile.successfulExtractions > 0 ? 'done' : ''}>首次安全撤离</li>
+              <li className={profile.mapUnlocked ? 'done' : ''}>找回导航羽片</li>
+              <li className={profile.shortcutUnlocked ? 'done' : ''}>启动维护电梯</li>
+              <li className={profile.bossDefeated ? 'done' : ''}>取得回声核心</li>
+            </ol>
+            {profile.endingUnlocked && <button className="signal-button" type="button" onClick={onPlayEnding}>📡 启动直播信标</button>}
+          </article>
+          <article className="panel room-map-card" aria-label="寂羽空洞二维房间示意图">
+            <span className="map-room room-foyer">前庭<br /><small>入口 / 撤离</small></span>
+            <span className="map-room room-shaft">回声竖井</span>
+            <span className="map-room room-rift">荧菌裂谷<br /><small>{profile.mapUnlocked ? '导航羽片' : '未知目标'}</small></span>
+            <span className="map-room room-machine">静默机房<br /><small>深层信号</small></span>
+            <span className="map-route route-vertical" />
+            <span className="map-route route-upper" />
+            <span className="map-home-marker">▲ 基地入口</span>
+          </article>
         </section>
+      )}
 
-        <section className="panel intel-panel">
-          <div className="panel-heading">
-            <div>
-              <span className="eyebrow">EXPEDITION INTEL</span>
-              <h2>寂羽空洞</h2>
-            </div>
-            <span className={profile.mapUnlocked ? 'map-ready' : 'map-unknown'}>{profile.mapUnlocked ? '地图已测绘' : '相对位置可用'}</span>
-          </div>
-
-          <div className={`mini-map ${profile.mapUnlocked ? 'is-unlocked' : ''}`} aria-label="寂羽空洞地图示意">
-            <div className="map-line" />
-            <span className="map-node node-base">⌂<small>前庭</small></span>
-            <span className="map-node node-rift">◌<small>{profile.mapUnlocked ? '荧菌裂谷' : '未知区'}</small></span>
-            <span className="map-node node-core">◇<small>{profile.mapUnlocked ? '静默机房' : '深层信号'}</small></span>
-            <span className="map-you">▲ 你</span>
-          </div>
-
-          <ul className="intel-list">
-            <li><span className={profile.successfulExtractions > 0 ? 'done' : ''}>01</span> 首次安全撤离</li>
-            <li><span className={profile.mapUnlocked ? 'done' : ''}>02</span> 找回导航羽片</li>
-            <li><span className={profile.shortcutUnlocked ? 'done' : ''}>03</span> 启动维护电梯</li>
-            <li><span className={profile.bossDefeated ? 'done' : ''}>04</span> 取得回声核心</li>
-          </ul>
-
-          {profile.endingUnlocked && (
-            <button className="signal-button" type="button" onClick={onPlayEnding}>📡 启动直播信标</button>
-          )}
-        </section>
-      </div>
-
-      <footer className="base-footer">
-        <span>基地操作：点击物品装备 · 装备带入远征后会承担风险</span>
-        <span>版本 0.1 · LOCAL PROFILE SERVICE</span>
+      <footer className="base-command-bar">
+        <div>
+          {profile.lostEcho ? <strong className="echo-warning">◉ 遗失回声等待找回；再次死亡会覆盖</strong> : <span>提示：也可点击物品，再点击目标格或装备槽。</span>}
+        </div>
+        <button className="deploy-button" type="button" onClick={() => setEntryOpen(true)} disabled={!profile.loadout.weapon || !profile.loadout.backpack}>
+          选择入口并开始远征
+        </button>
       </footer>
+
+      {entryOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setEntryOpen(false)}>
+          <section className="entry-modal" role="dialog" aria-modal="true" aria-labelledby="entry-title" onMouseDown={(event) => event.stopPropagation()}>
+            <span className="eyebrow">DEPLOYMENT</span>
+            <h2 id="entry-title">选择远征入口</h2>
+            <p>入口只决定出生房间；身上装备和随身背包内容都会带入。</p>
+            <button ref={firstEntryRef} className="entry-option" type="button" onClick={() => onBeginRaid('foyer')}>
+              <span>⌂</span><div><strong>失落前庭</strong><small>风险 I · 适合初次探索 · 最近撤离点</small></div>
+            </button>
+            <button className="entry-option" type="button" disabled={!profile.shortcutUnlocked} onClick={() => onBeginRaid('lift')}>
+              <span>⇣</span><div><strong>维护电梯中层站</strong><small>{profile.shortcutUnlocked ? '风险 II · 直接进入二维地图中层' : '需要先在裂谷启动电梯'}</small></div>
+            </button>
+            <button className="text-button modal-cancel" type="button" onClick={() => setEntryOpen(false)}>取消</button>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

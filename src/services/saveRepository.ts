@@ -1,29 +1,100 @@
-import { addStacks, cloneStacks } from '../game/inventory';
-import { getArmorMaximum } from '../game/items';
-import type { PlayerProfile } from '../types/game';
+import {
+  addStacks,
+  cloneGridItems,
+  cloneStacks,
+  gridItemsToStacks,
+  insertGridStacks,
+  validateGrid,
+} from '../game/inventory';
+import { getArmorMaximum, ITEMS } from '../game/items';
+import type {
+  ActiveRaid,
+  BackpackInventory,
+  GridItem,
+  GridSize,
+  ItemStack,
+  Loadout,
+  PlayerProfile,
+} from '../types/game';
 
 const SAVE_KEY = 'sui-echoes-below.save.v1';
+
+interface LegacyProfile {
+  version?: number;
+  updatedAt?: string;
+  stashCapacity?: number;
+  backpackCapacity?: number;
+  stash?: ItemStack[];
+  loadout?: Partial<Loadout>;
+  armorCondition?: number;
+  raidsStarted?: number;
+  successfulExtractions?: number;
+  deaths?: number;
+  mapUnlocked?: boolean;
+  shortcutUnlocked?: boolean;
+  bossDefeated?: boolean;
+  endingUnlocked?: boolean;
+  endingSeen?: boolean;
+  lostEcho?: PlayerProfile['lostEcho'];
+  activeRaid?: Omit<ActiveRaid, 'backpack'> & { backpack?: ItemStack[] | GridItem[] };
+}
 
 function now(): string {
   return new Date().toISOString();
 }
 
+function getPackSize(loadout: Loadout): GridSize {
+  const pack = loadout.backpack ? ITEMS[loadout.backpack] : null;
+  return {
+    width: pack?.stats?.gridWidth ?? 0,
+    height: pack?.stats?.gridHeight ?? 0,
+  };
+}
+
+function packStacks(stacks: readonly ItemStack[], size: GridSize): GridItem[] {
+  return insertGridStacks([], size, stacks) ?? [];
+}
+
+function normalizeGrid(raw: unknown, size: GridSize): GridItem[] {
+  if (!Array.isArray(raw)) return [];
+  const items = raw.filter((entry): entry is GridItem => {
+    if (!entry || typeof entry !== 'object') return false;
+    const candidate = entry as Partial<GridItem>;
+    return typeof candidate.uid === 'string'
+      && typeof candidate.itemId === 'string'
+      && Boolean(ITEMS[candidate.itemId])
+      && Number.isFinite(candidate.quantity)
+      && Number.isFinite(candidate.x)
+      && Number.isFinite(candidate.y);
+  }).map((item) => ({
+    ...item,
+    quantity: Math.max(1, Math.floor(item.quantity)),
+    x: Math.max(0, Math.floor(item.x)),
+    y: Math.max(0, Math.floor(item.y)),
+  }));
+  if (validateGrid(items, size)) return cloneGridItems(items);
+  return packStacks(gridItemsToStacks(items), size);
+}
+
 export function createDefaultProfile(): PlayerProfile {
-  const profile: PlayerProfile = {
-    version: 1,
+  const warehouseSize = { width: 9, height: 10 };
+  const loadout: Loadout = {
+    weapon: 'rust_nail',
+    armor: 'stream_shell',
+    head: 'cat_cap',
+    shoes: 'soft_boots',
+    backpack: 'field_pack',
+  };
+  return {
+    version: 2,
     updatedAt: now(),
-    stashCapacity: 12,
-    backpackCapacity: 6,
-    stash: [
+    warehouseSize,
+    warehouse: packStacks([
       { itemId: 'echo_dust', quantity: 2 },
       { itemId: 'repair_patch', quantity: 1 },
-    ],
-    loadout: {
-      weapon: 'rust_nail',
-      armor: 'stream_shell',
-      head: 'cat_cap',
-      shoes: 'soft_boots',
-    },
+    ], warehouseSize),
+    loadout,
+    backpack: { ...getPackSize(loadout), items: [] },
     armorCondition: 2,
     raidsStarted: 0,
     successfulExtractions: 0,
@@ -36,39 +107,73 @@ export function createDefaultProfile(): PlayerProfile {
     lostEcho: null,
     activeRaid: null,
   };
-  return profile;
 }
 
 function normalizeProfile(value: unknown): PlayerProfile {
   if (!value || typeof value !== 'object') throw new Error('存档内容不是有效对象');
-  const candidate = value as Partial<PlayerProfile>;
-  if (candidate.version !== 1 || !candidate.loadout || !Array.isArray(candidate.stash)) {
-    throw new Error('存档版本不受支持');
-  }
+  const candidate = value as LegacyProfile & Partial<PlayerProfile>;
+  if (!candidate.loadout) throw new Error('存档版本不受支持');
 
   const defaults = createDefaultProfile();
+  const loadout: Loadout = {
+    ...defaults.loadout,
+    ...candidate.loadout,
+    backpack: candidate.version === 2
+      ? (candidate.loadout.backpack ?? null)
+      : (candidate.loadout.backpack ?? 'field_pack'),
+  };
+  const warehouseSize = candidate.version === 2 && candidate.warehouseSize
+    ? {
+      width: Math.max(9, Math.min(12, Math.floor(candidate.warehouseSize.width))),
+      height: Math.max(10, Math.min(14, Math.floor(candidate.warehouseSize.height))),
+    }
+    : { width: candidate.stashCapacity && candidate.stashCapacity >= 16 ? 10 : 9, height: 10 };
+
+  const warehouse = candidate.version === 2
+    ? normalizeGrid(candidate.warehouse, warehouseSize)
+    : packStacks(candidate.stash ?? [], warehouseSize);
+  const packSize = getPackSize(loadout);
+  const backpackItems = candidate.version === 2
+    ? normalizeGrid(candidate.backpack?.items, packSize)
+    : [];
+
   const normalized: PlayerProfile = {
     ...defaults,
-    ...candidate,
-    version: 1,
+    version: 2,
     updatedAt: now(),
-    stash: cloneStacks(candidate.stash),
-    loadout: { ...defaults.loadout, ...candidate.loadout },
+    warehouseSize,
+    warehouse,
+    loadout,
+    backpack: { ...packSize, items: backpackItems },
+    armorCondition: Math.max(0, Number(candidate.armorCondition ?? defaults.armorCondition)),
+    raidsStarted: Math.max(0, Number(candidate.raidsStarted ?? 0)),
+    successfulExtractions: Math.max(0, Number(candidate.successfulExtractions ?? 0)),
+    deaths: Math.max(0, Number(candidate.deaths ?? 0)),
+    mapUnlocked: Boolean(candidate.mapUnlocked),
+    shortcutUnlocked: Boolean(candidate.shortcutUnlocked),
+    bossDefeated: Boolean(candidate.bossDefeated),
+    endingUnlocked: Boolean(candidate.endingUnlocked),
+    endingSeen: Boolean(candidate.endingSeen),
+    lostEcho: candidate.lostEcho ? {
+      ...candidate.lostEcho,
+      items: cloneStacks(candidate.lostEcho.items ?? []),
+    } : null,
     activeRaid: null,
   };
-  normalized.armorCondition = Math.min(
-    Math.max(0, normalized.armorCondition),
-    getArmorMaximum(normalized),
-  );
+  normalized.armorCondition = Math.min(normalized.armorCondition, getArmorMaximum(normalized));
+
   if (candidate.activeRaid) {
+    const activeItems = candidate.version === 2
+      ? gridItemsToStacks(normalizeGrid(candidate.activeRaid.backpack, packSize))
+      : cloneStacks((candidate.activeRaid.backpack ?? []) as ItemStack[]);
     const abandonedGear = Object.values(normalized.loadout)
       .filter((itemId): itemId is string => Boolean(itemId))
       .map((itemId) => ({ itemId, quantity: 1 }));
     normalized.lostEcho = {
       mapId: candidate.activeRaid.mapId,
-      x: candidate.activeRaid.entryId === 'lift' ? 3200 : 180,
-      y: 560,
-      items: addStacks(candidate.activeRaid.backpack ?? [], abandonedGear),
+      x: candidate.activeRaid.entryId === 'lift' ? 1500 : 240,
+      y: candidate.activeRaid.entryId === 'lift' ? 1270 : 1940,
+      items: addStacks(activeItems, abandonedGear),
       createdAtRaid: candidate.activeRaid.raidId,
     };
     normalized.loadout = {
@@ -76,10 +181,11 @@ function normalizeProfile(value: unknown): PlayerProfile {
       armor: null,
       head: null,
       shoes: 'soft_boots',
+      backpack: 'field_pack',
     };
+    normalized.backpack = { width: 4, height: 5, items: [] };
     normalized.armorCondition = 0;
     normalized.deaths += 1;
-    normalized.activeRaid = null;
   }
   return normalized;
 }
@@ -87,22 +193,26 @@ function normalizeProfile(value: unknown): PlayerProfile {
 export const saveRepository = {
   load(): PlayerProfile {
     const raw = window.localStorage.getItem(SAVE_KEY);
-    if (!raw) return createDefaultProfile();
+    if (!raw) {
+      const fresh = createDefaultProfile();
+      window.localStorage.setItem(SAVE_KEY, JSON.stringify(fresh));
+      return fresh;
+    }
     try {
-      const parsed = JSON.parse(raw) as Partial<PlayerProfile>;
+      const parsed = JSON.parse(raw) as unknown;
       const normalized = normalizeProfile(parsed);
-      if (parsed.activeRaid) {
-        window.localStorage.setItem(SAVE_KEY, JSON.stringify(normalized));
-      }
+      window.localStorage.setItem(SAVE_KEY, JSON.stringify(normalized));
       return normalized;
     } catch (error) {
       console.warn('存档损坏，已创建新档。', error);
-      return createDefaultProfile();
+      const fresh = createDefaultProfile();
+      window.localStorage.setItem(SAVE_KEY, JSON.stringify(fresh));
+      return fresh;
     }
   },
 
   save(profile: PlayerProfile): PlayerProfile {
-    const saved = { ...profile, updatedAt: now() };
+    const saved = { ...profile, version: 2 as const, updatedAt: now() };
     window.localStorage.setItem(SAVE_KEY, JSON.stringify(saved));
     return saved;
   },
