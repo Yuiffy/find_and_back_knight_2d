@@ -1,0 +1,6 @@
+[
+  {
+    "type": "console.error",
+    "text": "`setTintFill(color)` is removed as of Phaser 4. Use setTint(color).setTintMode(Phaser.TintModes.FILL)` instead."
+  }
+]

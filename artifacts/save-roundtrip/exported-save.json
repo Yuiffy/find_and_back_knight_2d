@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "updatedAt": "2026-07-16T12:10:53.887Z",
+  "stashCapacity": 16,
+  "backpackCapacity": 8,
+  "stash": [
+    {
+      "itemId": "echo_dust",
+      "quantity": 2
+    },
+    {
+      "itemId": "repair_patch",
+      "quantity": 1
+    }
+  ],
+  "loadout": {
+    "weapon": "rust_nail",
+    "armor": "stream_shell",
+    "head": "cat_cap",
+    "shoes": "soft_boots"
+  },
+  "armorCondition": 2,
+  "raidsStarted": 0,
+  "successfulExtractions": 7,
+  "deaths": 0,
+  "mapUnlocked": true,
+  "shortcutUnlocked": true,
+  "bossDefeated": false,
+  "endingUnlocked": false,
+  "endingSeen": false,
+  "lostEcho": null,
+  "activeRaid": null
+}

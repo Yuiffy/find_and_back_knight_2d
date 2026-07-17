@@ -1,0 +1,25 @@
+localStorage.setItem('sui-echoes-below.save.v1', JSON.stringify({
+  version: 1,
+  updatedAt: new Date().toISOString(),
+  stashCapacity: 16,
+  backpackCapacity: 8,
+  stash: [{ itemId: 'echo_dust', quantity: 12 }],
+  loadout: {
+    weapon: 'storm_feather',
+    armor: 'miner_shell',
+    head: 'cat_cap',
+    shoes: 'shadow_boots',
+  },
+  armorCondition: 4,
+  raidsStarted: 4,
+  successfulExtractions: 3,
+  deaths: 0,
+  mapUnlocked: true,
+  shortcutUnlocked: true,
+  bossDefeated: false,
+  endingUnlocked: false,
+  endingSeen: false,
+  lostEcho: null,
+  activeRaid: null,
+}));
+'SEEDED';
