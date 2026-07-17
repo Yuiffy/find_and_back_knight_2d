@@ -43,15 +43,16 @@ async function attackBurst() {
   }
 }
 
-async function jumpToward(targetX, targetY, directionHold = 500) {
+async function jumpToward(targetX, targetY, directionHold = 500, runUp = 45) {
   const before = await state();
   const direction = targetX >= before.player.x ? 'KeyD' : 'KeyA';
   await page.keyboard.down(direction);
-  await page.waitForTimeout(300);
+  // 实体悬崖需要在侧壁前起跳，而不是像旧穿透平台那样先贴墙再按跳跃。
+  await page.waitForTimeout(runUp);
   await page.keyboard.down('Space');
-  await page.waitForTimeout(350);
+  await page.waitForTimeout(430);
   await page.keyboard.up('Space');
-  await page.waitForTimeout(Math.max(0, directionHold - 350));
+  await page.waitForTimeout(Math.max(0, directionHold - 430));
   await page.keyboard.up(direction);
   await page.waitForTimeout(430);
   const after = await state();
@@ -72,13 +73,14 @@ try {
   await moveX(620);
   await attackBurst();
   await moveX(620);
-  await jumpToward(780, 1925, 650);
-  await jumpToward(900, 1820, 650);
-  await jumpToward(780, 1715, 650);
+  await jumpToward(760, 1925, 700);
+  await moveX(850);
+  await jumpToward(1250, 1740, 1000, 100);
   await page.locator('canvas').screenshot({ path: path.join(outputDir, '01-mid-shaft.png') });
-  await jumpToward(900, 1610, 650);
-  await jumpToward(780, 1505, 650);
-  await jumpToward(900, 1405, 650);
+  await moveX(1100);
+  await jumpToward(570, 1555, 1050, 45);
+  await moveX(830);
+  await jumpToward(1450, 1375, 1300, 110);
   const reached = await state();
   assert(reached.player.y < 1500, `Player did not climb vertically; y=${reached.player.y}.`);
   assert(Math.abs(reached.player.y - 2033) > 400, 'Camera route still behaves like a flat horizontal strip.');

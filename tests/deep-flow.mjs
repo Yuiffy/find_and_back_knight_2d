@@ -61,19 +61,25 @@ async function moveX(targetX, tolerance = 35) {
   return state();
 }
 
-async function jumpUp(targetY) {
+async function jumpToward(takeoffX, targetX, targetY, directionHold = 1050) {
+  await moveX(takeoffX, 24);
   const before = await state();
+  const direction = targetX >= before.player.x ? 'KeyD' : 'KeyA';
+  await page.keyboard.down(direction);
+  await page.waitForTimeout(100);
   await page.keyboard.down('Space');
-  await page.waitForTimeout(380);
+  await page.waitForTimeout(430);
   await page.keyboard.up('Space');
-  await page.waitForTimeout(420);
+  await page.waitForTimeout(Math.max(0, directionHold - 430));
+  await page.keyboard.up(direction);
+  await page.waitForTimeout(430);
   let current = await state();
   for (let wait = 0; wait < 10 && !current.player.grounded; wait += 1) {
-    await page.waitForTimeout(180);
+    await page.waitForTimeout(160);
     current = await state();
   }
-  assert(current.player.grounded, `Player never landed after jumping from y=${before.player.y}.`);
-  assert(current.player.y <= targetY + 50 && current.player.y < before.player.y - 55, `Vertical route failed from y=${before.player.y} to y=${current.player.y}; expected next platform near ${targetY}.`);
+  assert(current.player.grounded, `Player never landed after the solid-terrain jump from (${before.player.x}, ${before.player.y}).`);
+  assert(current.player.y <= targetY + 55 && current.player.y < before.player.y - 70, `Solid-terrain route failed from (${before.player.x}, ${before.player.y}) to (${current.player.x}, ${current.player.y}); expected ledge near y=${targetY}.`);
   return current;
 }
 
@@ -97,23 +103,12 @@ try {
 
   let current = await state();
   assert(current.mode === 'raid' && current.player.x > 1380 && current.player.y > 1200, 'Lift entry did not spawn in the middle room.');
-  await jumpUp(1250);
-  await jumpUp(1155);
-  await jumpUp(1060);
-  await jumpUp(965);
-  await moveX(1580);
-  await jumpUp(885);
-  await page.locator('canvas').screenshot({ path: path.join(outputDir, '01-two-axis-deep-route.png') });
-
-  await moveX(1800);
+  await jumpToward(1700, 2000, 1188, 1100);
+  await jumpToward(2100, 2450, 1003, 1050);
+  await jumpToward(2400, 2700, 883, 980);
   await attackBurst(3);
-  await moveX(2160, 20);
-  await jumpUp(795);
-  await moveX(2320);
-  await jumpUp(735);
-  await moveX(2460, 15);
-  await page.waitForTimeout(420);
-  await jumpUp(635);
+  await jumpToward(2700, 3250, 783, 1250);
+  await page.locator('canvas').screenshot({ path: path.join(outputDir, '01-two-axis-deep-route.png') });
   current = await state();
   assert(current.zone === '静默机房', `Expected machine room, got ${current.zone}.`);
 
@@ -145,9 +140,12 @@ try {
   assert(current.backpack.some((item) => item.itemId === 'echo_core'), '3x3 Echo Core was not placed in the 4x5 backpack.');
   await page.locator('canvas').screenshot({ path: path.join(outputDir, '02-boss-loot-in-grid-pack.png') });
 
-  await moveX(3010, 65);
+  if (current.player.y > 820) {
+    await jumpToward(2700, 3250, 783, 1250);
+  }
+  await moveX(3620, 65);
   current = await state();
-  assert(Math.abs(current.player.x - 3010) < 100, `Player missed machine-room extraction at x=${current.player.x}.`);
+  assert(Math.abs(current.player.x - 3620) < 100, `Player missed machine-room extraction at x=${current.player.x}.`);
   await page.keyboard.press('Enter');
   await page.waitForTimeout(3400);
 

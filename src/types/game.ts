@@ -99,6 +99,8 @@ export interface TextGameState {
   player?: {
     x: number;
     y: number;
+    collisionX?: number;
+    collisionY?: number;
     velocityX: number;
     velocityY: number;
     health: number;
@@ -114,6 +116,7 @@ export interface TextGameState {
   backpack?: GridItem[];
   loadout?: Loadout;
   nearbyLoot?: Array<{ id: string; itemId: string; quantity: number; distance: number }>;
+  nearbyTerrain?: Array<{ left: number; right: number; top: number; bottom: number }>;
   visibleEnemies?: Array<{ id: string; kind: string; x: number; y: number; health: number }>;
   visibleLoot?: Array<{ id: string; itemId: string; x: number; y: number }>;
   nearbyInteraction?: string | null;

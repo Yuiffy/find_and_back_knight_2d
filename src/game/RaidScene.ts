@@ -8,6 +8,15 @@ import {
 } from './inventory';
 import { getArmorMaximum, getCurrentObjective, ITEMS, RARITY_NAMES, SLOT_NAMES } from './items';
 import { DEMO_MAP } from './maps';
+import {
+  MAP_ROUTES,
+  MAP_ROOM_SHAPES,
+  STORY_ECHOES,
+  TERRAIN_SEGMENTS,
+  type StoryEchoDefinition,
+  type TerrainSegment,
+  type TerrainStyle,
+} from './worldLayout';
 import type { GearSlot, GridItem, ItemStack, Loadout, PlayerProfile, RaidResult, TextGameState } from '../types/game';
 
 const VIEW_WIDTH = 1280;
@@ -79,6 +88,11 @@ interface RaidInventoryDrag {
   lootId?: string;
 }
 
+interface StoryEchoEntity extends StoryEchoDefinition {
+  marker: Phaser.GameObjects.Text;
+  halo: Phaser.GameObjects.Arc;
+}
+
 const RAID_EQUIPMENT_SLOTS: GearSlot[] = ['weapon', 'armor', 'head', 'shoes'];
 const NEARBY_LOOT_RADIUS = 240;
 
@@ -92,6 +106,7 @@ export class RaidScene extends Phaser.Scene {
   private enemies: EnemyEntity[] = [];
   private loot: LootEntity[] = [];
   private crates: RaidCrate[] = [];
+  private storyEchoes: StoryEchoEntity[] = [];
   private backpack: GridItem[] = [];
   private loadout: Loadout;
   private recoveredEchoItems: ItemStack[] = [];
@@ -115,6 +130,7 @@ export class RaidScene extends Phaser.Scene {
   private isDashing = false;
   private statusText!: Phaser.GameObjects.Text;
   private zoneText!: Phaser.GameObjects.Text;
+  private zoneRevealText!: Phaser.GameObjects.Text;
   private objectiveText!: Phaser.GameObjects.Text;
   private hintText!: Phaser.GameObjects.Text;
   private bossHealthText!: Phaser.GameObjects.Text;
@@ -123,12 +139,15 @@ export class RaidScene extends Phaser.Scene {
   private extractingUntil = 0;
   private extractionPoint: { x: number; y: number } | null = null;
   private nearbyInteraction: string | null = null;
+  private lastZoneName = '';
   private lostEchoIcon: Phaser.GameObjects.Text | null = null;
   private lostEchoHalo: Phaser.GameObjects.Arc | null = null;
   private readonly elevatorPoint = { x: 1450, y: 1330 };
   private readonly extractionPoints = [
     { x: 520, y: 1995, label: '前庭撤离点' },
-    { x: 3010, y: 595, label: '机房信号井' },
+    { x: 3010, y: 1415, label: '沉钟应急浮标' },
+    { x: 3620, y: 745, label: '机房信号井' },
+    { x: 4000, y: 535, label: '墓园远距天线' },
   ];
   private attackGraphics: Phaser.GameObjects.Rectangle | null = null;
   private lastTextStateAt = 0;
@@ -164,6 +183,7 @@ export class RaidScene extends Phaser.Scene {
     this.createPlayer();
     this.createEnemies();
     this.createLandmarks();
+    this.createForeground();
     this.createInput();
     this.createHud();
     this.invulnerableUntil = this.time.now + 3000;
@@ -176,17 +196,8 @@ export class RaidScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor('#07151d');
     this.input.mouse?.disableContextMenu();
 
-    this.physics.add.collider(
-      this.player,
-      this.platforms,
-      undefined,
-      (playerObject, platformObject) => {
-        const playerBody = (playerObject as Phaser.Types.Physics.Arcade.GameObjectWithBody).body as Phaser.Physics.Arcade.Body;
-        const platformBody = (platformObject as Phaser.Types.Physics.Arcade.GameObjectWithBody).body as Phaser.Physics.Arcade.StaticBody;
-        // 探索平台只在从上方下落时承接玩家，避免竖井台阶变成跳跃时撞到的侧墙。
-        return playerBody.velocity.y >= -10 && playerBody.bottom <= platformBody.top + 20;
-      },
-    );
+    // 所有主要地形都是完整实体；角色不能再从下方穿过岩台或机器基座。
+    this.physics.add.collider(this.player, this.platforms);
     for (const enemy of this.enemies) {
       if (enemy.kind !== 'moth') this.physics.add.collider(enemy.sprite, this.platforms);
       this.physics.add.overlap(this.player, enemy.sprite, () => this.damagePlayer(enemy));
@@ -235,15 +246,37 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private createTextures(): void {
-    const platform = this.add.graphics();
-    platform.fillStyle(0x173840, 1);
-    platform.fillRoundedRect(0, 0, 256, 38, 12);
-    platform.fillStyle(0x3c736f, 0.62);
-    platform.fillRoundedRect(0, 0, 256, 8, 8);
-    platform.lineStyle(2, 0x87d7c5, 0.12);
-    platform.strokeRoundedRect(1, 1, 254, 36, 11);
-    platform.generateTexture('stone-platform', 256, 38);
-    platform.destroy();
+    const terrainPalettes: Record<TerrainStyle, { body: number; lip: number; seam: number }> = {
+      foyer: { body: 0x1b3339, lip: 0x78968b, seam: 0xb0b58f },
+      shaft: { body: 0x132b33, lip: 0x48716f, seam: 0x79b5aa },
+      archive: { body: 0x23323b, lip: 0x60777b, seam: 0xc39f69 },
+      fungal: { body: 0x173d3c, lip: 0x55a58f, seam: 0x9be1bf },
+      cistern: { body: 0x173541, lip: 0x4d8997, seam: 0x8ec4ca },
+      machine: { body: 0x242d3b, lip: 0x75658a, seam: 0xb19ad0 },
+      graveyard: { body: 0x292d40, lip: 0x8871a2, seam: 0xc7a8e9 },
+    };
+    for (const style of Object.keys(terrainPalettes) as TerrainStyle[]) {
+      const palette = terrainPalettes[style];
+      const surface = this.add.graphics();
+      surface.fillStyle(palette.body, 1);
+      surface.fillRect(0, 8, 256, 30);
+      surface.fillTriangle(0, 8, 22, 0, 52, 8);
+      surface.fillTriangle(178, 8, 213, 1, 256, 8);
+      surface.fillStyle(palette.lip, 0.82);
+      surface.fillRect(0, 7, 256, 7);
+      surface.lineStyle(2, palette.seam, 0.38);
+      surface.beginPath();
+      surface.moveTo(0, 8);
+      surface.lineTo(40, 5);
+      surface.lineTo(76, 9);
+      surface.lineTo(122, 4);
+      surface.lineTo(166, 8);
+      surface.lineTo(211, 3);
+      surface.lineTo(256, 8);
+      surface.strokePath();
+      surface.generateTexture(`terrain-${style}`, 256, 38);
+      surface.destroy();
+    }
 
     const husk = this.add.graphics();
     husk.fillStyle(0x725479, 1);
@@ -371,9 +404,18 @@ export class RaidScene extends Phaser.Scene {
     this.add.text(900, 1180, '荧菌裂谷', {
       fontFamily: 'Georgia, serif', fontSize: '42px', color: '#a5e8d7',
     }).setAlpha(0.1);
-    this.add.text(2400, 360, '静默机房', {
+    this.add.text(170, 845, '遗忘档案窟', {
+      fontFamily: 'Georgia, serif', fontSize: '38px', color: '#b5c6c8',
+    }).setAlpha(0.09);
+    this.add.text(2320, 1185, '沉钟蓄水池', {
+      fontFamily: 'Georgia, serif', fontSize: '42px', color: '#95d2d8',
+    }).setAlpha(0.1);
+    this.add.text(3100, 360, '静默机房', {
       fontFamily: 'Georgia, serif', fontSize: '42px', color: '#c9b6f2',
     }).setAlpha(0.1);
+    this.add.text(3850, 280, '天线墓园', {
+      fontFamily: 'Georgia, serif', fontSize: '46px', color: '#d2b5ef',
+    }).setAlpha(0.12);
 
     const fungi = this.add.graphics().setDepth(2);
     for (let x = 520; x < 2200; x += 190) {
@@ -390,14 +432,14 @@ export class RaidScene extends Phaser.Scene {
     const machines = this.add.graphics().setDepth(2);
     machines.lineStyle(11, 0x293744, 0.72);
     machines.beginPath();
-    machines.moveTo(2140, 180);
-    machines.lineTo(2380, 180);
-    machines.lineTo(2380, 380);
-    machines.lineTo(2660, 380);
-    machines.lineTo(2660, 140);
-    machines.lineTo(3160, 140);
+    machines.moveTo(2940, 180);
+    machines.lineTo(3180, 180);
+    machines.lineTo(3180, 380);
+    machines.lineTo(3460, 380);
+    machines.lineTo(3460, 140);
+    machines.lineTo(4160, 140);
     machines.strokePath();
-    for (let x = 2200; x < 3180; x += 280) {
+    for (let x = 3000; x < 4180; x += 280) {
       machines.fillStyle(0x182731, 0.82);
       machines.fillRoundedRect(x, 360, 150, 250, 18);
       machines.lineStyle(2, 0x8e6fc4, 0.18);
@@ -405,45 +447,267 @@ export class RaidScene extends Phaser.Scene {
       machines.fillStyle(0x8a6ac0, 0.3);
       machines.fillCircle(x + 75, 405, 12);
     }
+
+    this.drawWorldArchitecture();
+    this.createAmbientLife();
+  }
+
+  private drawWorldArchitecture(): void {
+    const architecture = this.add.graphics().setDepth(2);
+
+    // 前庭是一座坍塌的公共建筑，而不只是洞底的一条地板。
+    architecture.fillStyle(0x0e252c, 0.96);
+    architecture.fillRect(0, 2050, 2140, 150);
+    architecture.fillStyle(0x173039, 0.76);
+    for (let x = 100; x < 1880; x += 310) {
+      architecture.fillRect(x, 1740, 42, 330);
+      architecture.fillRect(x - 24, 1730, 90, 22);
+      architecture.lineStyle(12, 0x1a343b, 0.9);
+      architecture.strokeRoundedRect(x - 8, 1580, 260, 340, 128);
+    }
+    architecture.fillStyle(0x091b22, 0.92);
+    architecture.fillTriangle(0, 1680, 260, 1510, 500, 1680);
+    architecture.fillTriangle(1440, 1730, 1700, 1510, 2020, 1730);
+
+    // 回声竖井两侧的岩壁、旧缆线和维修梁把台阶包进一个垂直空间。
+    architecture.fillStyle(0x0a2028, 0.98);
+    architecture.fillRect(470, 1330, 145, 760);
+    architecture.fillRect(1080, 1320, 120, 760);
+    architecture.fillTriangle(470, 1330, 690, 1410, 470, 1510);
+    architecture.fillTriangle(1200, 1320, 1000, 1470, 1200, 1580);
+    architecture.lineStyle(7, 0x486866, 0.34);
+    architecture.beginPath();
+    architecture.moveTo(560, 1340);
+    architecture.lineTo(590, 1960);
+    architecture.moveTo(1120, 1350);
+    architecture.lineTo(1070, 2030);
+    architecture.strokePath();
+    for (let y = 1390; y < 2050; y += 132) {
+      architecture.lineStyle(2, 0x73928c, 0.24);
+      architecture.lineBetween(525, y, 1140, y + 24);
+    }
+
+    // 档案窟：埋入岩层的门洞、倾斜书架与仍在亮的记录终端。
+    architecture.fillStyle(0x101f27, 0.98);
+    architecture.fillRect(0, 760, 1050, 210);
+    architecture.fillRect(0, 920, 75, 530);
+    architecture.fillTriangle(0, 980, 280, 760, 520, 930);
+    architecture.lineStyle(10, 0x3b4b50, 0.75);
+    architecture.strokeRoundedRect(240, 825, 540, 430, 170);
+    for (let x = 300; x < 850; x += 150) {
+      architecture.fillStyle(0x26343a, 0.78);
+      architecture.fillRect(x, 840, 82, 330);
+      architecture.lineStyle(3, 0x9f825a, 0.28);
+      for (let y = 875; y < 1140; y += 48) architecture.lineBetween(x + 8, y, x + 74, y + 6);
+    }
+
+    // 裂谷的巨大菌伞形成“树冠”，让主路像穿过一座地下森林。
+    for (let x = 1120; x < 2150; x += 210) {
+      const stemTop = 770 + ((x / 210) % 3) * 72;
+      architecture.fillStyle(0x285650, 0.34);
+      architecture.fillRoundedRect(x, stemTop, 28, 580, 14);
+      architecture.fillStyle(0x4c9183, 0.22);
+      architecture.fillEllipse(x + 14, stemTop, 250, 88);
+      architecture.lineStyle(3, 0x88d8bd, 0.18);
+      architecture.strokeEllipse(x + 14, stemTop, 250, 88);
+    }
+
+    // 蓄水池：环形水塔、输水管与沉入水下的钟架。
+    architecture.fillStyle(0x0b2530, 0.96);
+    architecture.fillRect(1820, 1995, 1400, 205);
+    architecture.lineStyle(22, 0x243f49, 0.82);
+    architecture.strokeCircle(2690, 1715, 330);
+    architecture.lineStyle(8, 0x4a7882, 0.35);
+    architecture.strokeCircle(2690, 1715, 280);
+    architecture.lineStyle(18, 0x213b46, 0.9);
+    architecture.beginPath();
+    architecture.moveTo(1880, 1150);
+    architecture.lineTo(1880, 1840);
+    architecture.lineTo(3130, 1840);
+    architecture.lineTo(3130, 1120);
+    architecture.strokePath();
+    architecture.fillStyle(0x203f49, 0.7);
+    architecture.fillTriangle(2730, 1260, 2820, 1440, 2640, 1440);
+    architecture.fillRect(2678, 1420, 104, 160);
+
+    // 机房用厚重墙板、管道与巨型转子建立人工设施的体量。
+    architecture.fillStyle(0x121b28, 0.96);
+    architecture.fillRect(2850, 250, 930, 390);
+    architecture.lineStyle(12, 0x40384f, 0.82);
+    architecture.strokeRoundedRect(2920, 300, 780, 410, 28);
+    architecture.lineStyle(18, 0x2f3443, 0.9);
+    architecture.strokeCircle(3350, 490, 205);
+    architecture.lineStyle(5, 0x9a7fbc, 0.24);
+    architecture.strokeCircle(3350, 490, 156);
+    for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
+      architecture.lineBetween(3350, 490, 3350 + Math.cos(angle) * 190, 490 + Math.sin(angle) * 190);
+    }
+
+    // 天线墓园是开阔的深层终景：倾倒的塔、断裂碟面和向上消失的缆线。
+    architecture.fillStyle(0x101723, 0.96);
+    architecture.fillRect(3750, 650, 450, 270);
+    for (let x = 3820; x < 4140; x += 180) {
+      const lean = ((x / 250) % 2 === 0 ? -35 : 28);
+      architecture.lineStyle(13, 0x343448, 0.9);
+      architecture.lineBetween(x, 690, x + lean, 210);
+      architecture.lineStyle(5, 0x78628f, 0.45);
+      architecture.strokeEllipse(x + lean, 245, 180, 62);
+      architecture.lineBetween(x + lean, 245, x + lean * 1.4, 120);
+    }
+  }
+
+  private createAmbientLife(): void {
+    const lightPools = [
+      { x: 430, y: 1850, width: 700, height: 520, color: 0xcaa55d, alpha: 0.035 },
+      { x: 1550, y: 1110, width: 1050, height: 760, color: 0x5ce2ad, alpha: 0.055 },
+      { x: 3350, y: 550, width: 980, height: 580, color: 0x9a70d5, alpha: 0.06 },
+      { x: 3970, y: 470, width: 620, height: 520, color: 0xb185e8, alpha: 0.055 },
+    ];
+    for (const pool of lightPools) {
+      const glow = this.add.ellipse(pool.x, pool.y, pool.width, pool.height, pool.color, pool.alpha)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setDepth(3);
+      this.tweens.add({
+        targets: glow,
+        alpha: { from: pool.alpha * 0.65, to: pool.alpha * 1.35 },
+        scaleX: { from: 0.97, to: 1.03 },
+        duration: 2600 + (pool.x % 900),
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.InOut',
+      });
+    }
+
+    for (let x = 1880; x < 3220; x += 180) {
+      const waterLine = this.add.rectangle(x, 2035 + ((x / 180) % 3) * 9, 145, 2, 0x70c8d1, 0.18).setDepth(5);
+      this.tweens.add({
+        targets: waterLine,
+        x: x + 45,
+        alpha: { from: 0.08, to: 0.34 },
+        duration: 1500 + (x % 700),
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.InOut',
+      });
+    }
+
+    for (let i = 0; i < 26; i += 1) {
+      const spore = this.add.circle(
+        1080 + (i * 83) % 1160,
+        880 + (i * 137) % 640,
+        2 + (i % 3),
+        i % 4 === 0 ? 0xd6c778 : 0x82e5c3,
+        0.18 + (i % 5) * 0.04,
+      ).setDepth(6);
+      this.tweens.add({
+        targets: spore,
+        x: spore.x + 35 - (i % 4) * 18,
+        y: spore.y - 60 - (i % 3) * 24,
+        alpha: 0.03,
+        duration: 2600 + i * 95,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.InOut',
+      });
+    }
   }
 
   private createPlatforms(): void {
     this.platforms = this.physics.add.staticGroup();
-    const segments = [
-      // 失落前庭与下层侧洞
-      { x: 420, y: 2080, width: 840 },
-      { x: 1050, y: 2080, width: 300 },
-      { x: 1390, y: 1990, width: 300 },
-      { x: 1680, y: 1900, width: 300 },
-      { x: 1960, y: 1990, width: 280 },
-      // 回声竖井：每级 90–110px，低于完整跳跃高度
-      { x: 780, y: 1970, width: 220 },
-      { x: 900, y: 1865, width: 340 },
-      { x: 780, y: 1760, width: 220 },
-      { x: 900, y: 1655, width: 340 },
-      { x: 780, y: 1550, width: 240 },
-      { x: 900, y: 1450, width: 340 },
-      { x: 610, y: 1420, width: 520 },
-      { x: 1210, y: 1450, width: 420 },
-      // 荧菌裂谷的折返上升路线与地图支路
-      { x: 1500, y: 1390, width: 400 },
-      { x: 1650, y: 1295, width: 400 },
-      { x: 1510, y: 1200, width: 360 },
-      { x: 1650, y: 1105, width: 400 },
-      { x: 1540, y: 1010, width: 360 },
-      { x: 1220, y: 1050, width: 350 },
-      { x: 1900, y: 930, width: 700 },
-      // 机房上层与 Boss 房
-      { x: 2260, y: 840, width: 260 },
-      { x: 2470, y: 780, width: 360 },
-      { x: 2790, y: 680, width: 820 },
-    ];
-
-    for (const segment of segments) {
-      const platform = this.platforms.create(segment.x, segment.y, 'stone-platform') as Phaser.Physics.Arcade.Sprite;
-      platform.setDisplaySize(segment.width, 38);
-      platform.refreshBody();
+    for (const segment of TERRAIN_SEGMENTS) {
+      this.drawTerrainMass(segment);
+      this.add.image(segment.x, segment.y, `terrain-${segment.style}`)
+        .setDisplaySize(segment.width, 38)
+        .setDepth(8);
+      const depth = segment.massDepth ?? 120;
+      const surfaceY = segment.y - 19;
+      const collider = this.platforms.create(
+        segment.x,
+        surfaceY + depth / 2,
+        `terrain-${segment.style}`,
+      ) as Phaser.Physics.Arcade.Sprite;
+      collider.setDisplaySize(segment.width, depth).setVisible(false);
+      collider.refreshBody();
     }
+  }
+
+  private drawTerrainMass(segment: TerrainSegment): void {
+    const palette: Record<TerrainStyle, { body: number; shadow: number; accent: number }> = {
+      foyer: { body: 0x142b31, shadow: 0x091b22, accent: 0x748e82 },
+      shaft: { body: 0x10272f, shadow: 0x071921, accent: 0x4a7772 },
+      archive: { body: 0x1d2b33, shadow: 0x0b1920, accent: 0x987d57 },
+      fungal: { body: 0x123434, shadow: 0x071d24, accent: 0x4c9984 },
+      cistern: { body: 0x112f3a, shadow: 0x061a24, accent: 0x4a8392 },
+      machine: { body: 0x202936, shadow: 0x0d1520, accent: 0x655877 },
+      graveyard: { body: 0x24283a, shadow: 0x101420, accent: 0x75628d },
+    };
+    const colors = palette[segment.style];
+    const left = segment.x - segment.width / 2;
+    const right = segment.x + segment.width / 2;
+    const top = segment.y - 19;
+    const bottom = Math.min(WORLD_HEIGHT + 80, top + (segment.massDepth ?? 120));
+    const mass = this.add.graphics().setDepth(4);
+    mass.fillStyle(colors.body, 0.98);
+    mass.beginPath();
+    mass.moveTo(left, top);
+    mass.lineTo(right, top);
+    mass.lineTo(right - 4, bottom - 18);
+    mass.lineTo(right - segment.width * 0.17, bottom - 4);
+    mass.lineTo(right - segment.width * 0.34, bottom - 24);
+    mass.lineTo(left + segment.width * 0.48, bottom - 8);
+    mass.lineTo(left + segment.width * 0.24, bottom - 30);
+    mass.lineTo(left + 7, bottom - 14);
+    mass.closePath();
+    mass.fillPath();
+    mass.fillStyle(colors.shadow, 0.58);
+    mass.fillTriangle(left + segment.width * 0.08, top + 20, left + segment.width * 0.32, bottom - 18, left + segment.width * 0.44, top + 20);
+    mass.fillTriangle(right - segment.width * 0.35, top + 22, right - segment.width * 0.16, bottom - 10, right - segment.width * 0.06, top + 22);
+    mass.lineStyle(2, colors.accent, 0.22);
+    mass.beginPath();
+    mass.moveTo(left + 18, top + 34);
+    mass.lineTo(left + segment.width * 0.32, top + 50);
+    mass.lineTo(left + segment.width * 0.48, top + 43);
+    mass.lineTo(right - 20, top + 66);
+    mass.strokePath();
+
+    if (segment.style === 'machine' || segment.style === 'graveyard') {
+      mass.lineStyle(3, colors.accent, 0.24);
+      for (let x = left + 34; x < right; x += 84) {
+        mass.strokeRect(x, top + 20, Math.min(62, right - x - 5), Math.min(70, bottom - top - 34));
+      }
+    }
+    if (segment.style === 'fungal') {
+      for (let x = left + 32; x < right - 20; x += 86) {
+        mass.fillStyle(0x79d5b7, 0.13);
+        mass.fillCircle(x, top + 24 + ((x / 10) % 3) * 9, 5);
+      }
+    }
+  }
+
+  private createForeground(): void {
+    const foreground = this.add.graphics().setDepth(42);
+    foreground.fillStyle(0x04141b, 0.78);
+    foreground.fillTriangle(0, 1260, 170, 1430, 0, 1740);
+    foreground.fillTriangle(4200, 180, 4025, 430, 4200, 720);
+    foreground.fillTriangle(1850, 2200, 2050, 2025, 2280, 2200);
+    foreground.fillTriangle(3090, 2200, 3270, 1990, 3480, 2200);
+    foreground.fillStyle(0x071921, 0.82);
+    for (let x = 1120; x < 2140; x += 260) {
+      foreground.fillTriangle(x, 720, x + 70, 880 + ((x / 260) % 3) * 60, x + 150, 720);
+    }
+    for (let x = 2150; x < 4200; x += 330) {
+      foreground.fillTriangle(x, 0, x + 82, 190 + ((x / 330) % 4) * 55, x + 190, 0);
+    }
+
+    const vignette = this.add.graphics().setScrollFactor(0).setDepth(92);
+    vignette.fillStyle(0x02090d, 0.2);
+    vignette.fillRect(0, 0, VIEW_WIDTH, 20);
+    vignette.fillRect(0, VIEW_HEIGHT - 18, VIEW_WIDTH, 18);
+    vignette.fillRect(0, 0, 18, VIEW_HEIGHT);
+    vignette.fillRect(VIEW_WIDTH - 18, 0, 18, VIEW_HEIGHT);
+    vignette.fillStyle(0x02090d, 0.1);
+    vignette.fillRect(18, 20, 18, VIEW_HEIGHT - 40);
+    vignette.fillRect(VIEW_WIDTH - 36, 20, 18, VIEW_HEIGHT - 40);
   }
 
   private createPlayer(): void {
@@ -455,17 +719,21 @@ export class RaidScene extends Phaser.Scene {
     this.player.setDepth(20);
     this.player.setCollideWorldBounds(true);
     this.player.setMaxVelocity(720, 1100);
-    this.player.setDragX(1500);
-    this.player.body.setSize(180, 185);
-    this.player.body.setOffset(85, 48);
+    this.player.setDragX(900);
+    this.player.body.setSize(180, 185, true);
   }
 
   private createEnemies(): void {
-    this.spawnHusk('husk-foyer-1', 760, 2010, 600, 810);
-    this.spawnHusk('husk-foyer-2', 1390, 1920, 1270, 1510);
-    this.spawnHusk('husk-shaft-1', 1030, 1585, 930, 1130);
+    this.spawnHusk('husk-foyer-1', 1120, 2010, 1040, 1260);
+    this.spawnHusk('husk-foyer-2', 1570, 1870, 1450, 1690);
+    this.spawnHusk('husk-shaft-1', 470, 1530, 420, 540);
+    this.spawnHusk('husk-archive-1', 650, 840, 480, 790);
     this.spawnMoth('moth-rift-1', 1560, 1280, 1370, 1840);
-    this.spawnHusk('husk-rift-1', 1950, 860, 1740, 2220);
+    this.spawnHusk('husk-rift-1', 2700, 860, 2550, 2840);
+    this.spawnMoth('moth-cistern-1', 2620, 1530, 2310, 3000);
+    this.spawnHusk('husk-cistern-1', 2800, 1625, 2680, 2930);
+    this.spawnHusk('husk-graveyard-1', 3970, 550, 3830, 4120);
+    this.spawnMoth('moth-graveyard-1', 3890, 430, 3780, 4140);
     if (!this.profile.bossDefeated) this.spawnWarden();
   }
 
@@ -476,15 +744,28 @@ export class RaidScene extends Phaser.Scene {
       { itemId: 'echo_dust', quantity: 4 },
       { itemId: 'repair_patch', quantity: 1 },
     ]);
-    this.spawnCrate('crate-rift', 1100, 1400, [
+    this.spawnCrate('crate-rift', 1250, 1370, [
       { itemId: 'echo_lance', quantity: 1 },
       { itemId: 'echo_dust', quantity: 2 },
     ]);
-    this.spawnCrate('crate-deep', 2010, 880, [
+    this.spawnCrate('crate-deep', 2700, 880, [
       { itemId: 'miner_shell', quantity: 1 },
       { itemId: 'echo_dust', quantity: 3 },
     ]);
+    this.spawnCrate('crate-archive', 390, 1060, [
+      { itemId: 'repair_patch', quantity: 2 },
+      { itemId: 'echo_dust', quantity: 3 },
+    ]);
+    this.spawnCrate('crate-cistern', 3020, 1430, [
+      { itemId: 'echo_dust', quantity: 6 },
+      { itemId: 'repair_patch', quantity: 1 },
+    ]);
+    this.spawnCrate('crate-graveyard', 3990, 430, [
+      { itemId: 'echo_dust', quantity: 8 },
+      { itemId: 'echo_lance', quantity: 1 },
+    ]);
     this.spawnLoot('map-feather', 'map_feather', 1, 1220, 995);
+    STORY_ECHOES.forEach((echo) => this.createStoryEcho(echo));
 
     const liftBase = this.add.rectangle(this.elevatorPoint.x, this.elevatorPoint.y, 118, 118, 0x152f3a, 0.92)
       .setStrokeStyle(3, 0x75d7c2, 0.28)
@@ -521,6 +802,35 @@ export class RaidScene extends Phaser.Scene {
         repeat: -1,
       });
     }
+  }
+
+  private createStoryEcho(definition: StoryEchoDefinition): void {
+    const halo = this.add.circle(definition.x, definition.y, 28, definition.color, 0.06)
+      .setStrokeStyle(2, definition.color, 0.32)
+      .setDepth(10);
+    const marker = this.add.text(definition.x, definition.y, '⌁', {
+      fontFamily: 'Georgia, serif',
+      fontSize: '30px',
+      color: Phaser.Display.Color.IntegerToColor(definition.color).rgba,
+      stroke: '#07151d',
+      strokeThickness: 5,
+    }).setOrigin(0.5).setDepth(11);
+    this.add.text(definition.x, definition.y - 48, definition.title, {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: '10px',
+      color: '#799693',
+      letterSpacing: 1,
+    }).setOrigin(0.5).setDepth(10);
+    this.tweens.add({
+      targets: [halo, marker],
+      alpha: { from: 0.38, to: 0.92 },
+      scale: { from: 0.94, to: 1.08 },
+      duration: 1250 + this.storyEchoes.length * 130,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.InOut',
+    });
+    this.storyEchoes.push({ ...definition, marker, halo });
   }
 
   private createExtractionBeacon(x: number, y: number, label: string): void {
@@ -615,11 +925,11 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private spawnWarden(): void {
-    const sprite = this.physics.add.sprite(2880, 600, 'signal-warden');
+    const sprite = this.physics.add.sprite(3400, 750, 'signal-warden');
     sprite.setDepth(18);
     sprite.body.setSize(105, 78);
     sprite.body.setOffset(11, 15);
-    const label = this.add.text(2880, 514, '失频守卫', {
+    const label = this.add.text(3400, 664, '失频守卫', {
       fontFamily: 'Georgia, serif',
       fontSize: '18px',
       color: '#bda8df',
@@ -634,9 +944,9 @@ export class RaidScene extends Phaser.Scene {
       maxHealth: 15,
       speed: 58,
       direction: -1,
-      patrolLeft: 2700,
-      patrolRight: 3120,
-      baseY: 600,
+      patrolLeft: 3100,
+      patrolRight: 3480,
+      baseY: 750,
       boss: true,
       label,
     });
@@ -708,6 +1018,16 @@ export class RaidScene extends Phaser.Scene {
       stroke: '#07151d',
       strokeThickness: 4,
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(100);
+
+    this.zoneRevealText = this.add.text(VIEW_WIDTH / 2, 174, '', {
+      fontFamily: 'Georgia, serif',
+      fontSize: '34px',
+      color: '#d8eee8',
+      align: 'center',
+      letterSpacing: 4,
+      stroke: '#07151d',
+      strokeThickness: 6,
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(96).setAlpha(0);
 
     this.objectiveText = this.add.text(26, 55, `目标  ${getCurrentObjective(this.profile)}`, {
       fontFamily: 'Arial, sans-serif',
@@ -781,32 +1101,27 @@ export class RaidScene extends Phaser.Scene {
     const shoes = this.loadout.shoes ? ITEMS[this.loadout.shoes] : null;
     const armor = this.loadout.armor ? ITEMS[this.loadout.armor] : null;
     const speedMultiplier = (shoes?.stats?.speedMultiplier ?? 1) * (armor?.stats?.speedMultiplier ?? 1);
-    const moveSpeed = 300 * speedMultiplier;
+    const moveSpeed = 350 * speedMultiplier;
     const leftDown = this.keys.left.isDown || this.keys.leftArrow.isDown;
     const rightDown = this.keys.right.isDown || this.keys.rightArrow.isDown;
     const desiredVelocity = leftDown === rightDown ? 0 : (leftDown ? -moveSpeed : moveSpeed);
-    const responsiveness = grounded ? 0.28 : 0.16;
+    const responsiveness = grounded ? 0.52 : 0.3;
     this.player.setVelocityX(Phaser.Math.Linear(body.velocity.x, desiredVelocity, responsiveness));
+    if (grounded) this.correctGroundedEdge(leftDown, rightDown);
 
     if (leftDown && !rightDown) this.facing = -1;
     if (rightDown && !leftDown) this.facing = 1;
     this.player.setFlipX(this.facing > 0);
 
-    if (time - this.jumpQueuedAt <= 130 && time - this.lastGroundedAt <= 120) {
-      this.player.setVelocityY(-650);
+    // 保留略长于受击硬直的输入缓冲；玩家在落地或挨打瞬间按跳跃不应丢输入。
+    if (time - this.jumpQueuedAt <= 260 && time - this.lastGroundedAt <= 120) {
+      this.player.setVelocityY(-1050);
       this.jumpQueuedAt = -1000;
       this.lastGroundedAt = -1000;
-      this.tweens.add({
-        targets: this.player,
-        scaleX: 0.25,
-        scaleY: 0.31,
-        duration: 90,
-        yoyo: true,
-      });
     }
 
     const jumpHeld = this.keys.jump.isDown || this.keys.jumpAlt.isDown;
-    if (!jumpHeld && body.velocity.y < -260) this.player.setVelocityY(-260);
+    if (!jumpHeld && body.velocity.y < -420) this.player.setVelocityY(-420);
 
     const dashPressed = Phaser.Input.Keyboard.JustDown(this.keys.dash)
       || Phaser.Input.Keyboard.JustDown(this.keys.dashAlt);
@@ -820,6 +1135,25 @@ export class RaidScene extends Phaser.Scene {
     } else {
       this.player.angle = Phaser.Math.Linear(this.player.angle, 0, 0.2);
     }
+  }
+
+  private correctGroundedEdge(leftDown: boolean, rightDown: boolean): void {
+    if (leftDown === rightDown) return;
+    const body = this.player.body;
+    const direction = rightDown ? 1 : -1;
+    const touchingEdge = this.platforms.getChildren()
+      .map((entry) => (entry as Phaser.Types.Physics.Arcade.GameObjectWithBody).body as Phaser.Physics.Arcade.StaticBody)
+      .some((terrainBody) => {
+        const horizontalGap = direction > 0
+          ? terrainBody.left - body.right
+          : body.left - terrainBody.right;
+        return horizontalGap >= -2
+          && horizontalGap <= 3
+          && Math.abs(terrainBody.top - body.bottom) <= 6;
+      });
+    if (!touchingEdge) return;
+    body.reset(this.player.x + direction * 4, this.player.y - 2);
+    this.player.setVelocityX(direction * 180);
   }
 
   private startDash(time: number): void {
@@ -879,14 +1213,6 @@ export class RaidScene extends Phaser.Scene {
         this.attackGraphics = null;
       },
     });
-    this.tweens.add({
-      targets: this.player,
-      scaleX: 0.31,
-      scaleY: 0.25,
-      duration: 65,
-      yoyo: true,
-    });
-
     for (const enemy of this.enemies) {
       if (!enemy.sprite.active || !Phaser.Geom.Intersects.RectangleToRectangle(hitbox, enemy.sprite.getBounds())) continue;
       enemy.health -= damage;
@@ -913,11 +1239,10 @@ export class RaidScene extends Phaser.Scene {
       }
       if (enemy.kind === 'moth') {
         const distance = this.player.x - enemy.sprite.x;
-        if (Math.abs(distance) < 420) enemy.direction = distance < 0 ? -1 : 1;
-        else {
-          if (enemy.sprite.x <= enemy.patrolLeft) enemy.direction = 1;
-          if (enemy.sprite.x >= enemy.patrolRight) enemy.direction = -1;
-        }
+        // 飞行敌人可以追逐玩家，但不能跨越整张地图离开自己的生态区。
+        if (enemy.sprite.x <= enemy.patrolLeft) enemy.direction = 1;
+        else if (enemy.sprite.x >= enemy.patrolRight) enemy.direction = -1;
+        else if (Math.abs(distance) < 420) enemy.direction = distance < 0 ? -1 : 1;
         const targetY = (enemy.baseY ?? 470) + Math.sin(this.time.now / 420 + enemy.patrolLeft) * 52;
         enemy.sprite.setVelocity(enemy.direction * enemy.speed, (targetY - enemy.sprite.y) * 2.1);
         enemy.sprite.setFlipX(enemy.direction > 0);
@@ -1099,13 +1424,32 @@ export class RaidScene extends Phaser.Scene {
           this.showHint('维护电梯已记录到基地。以后可快速进入深层。', 2200);
         }
       } else {
+        const nearbyEcho = this.storyEchoes.find((echo) => Phaser.Math.Distance.Between(
+          this.player.x,
+          this.player.y,
+          echo.x,
+          echo.y,
+        ) < 92);
+        if (nearbyEcho) {
+          prompt = `E · 聆听「${nearbyEcho.title}」`;
+          if (interactPressed) {
+            this.showHint(nearbyEcho.message, 5200);
+            this.tweens.add({
+              targets: [nearbyEcho.marker, nearbyEcho.halo],
+              scale: 1.42,
+              alpha: 1,
+              duration: 180,
+              yoyo: true,
+            });
+          }
+        }
         const extraction = this.extractionPoints.find((point) => Phaser.Math.Distance.Between(
           this.player.x,
           this.player.y,
           point.x,
           point.y,
         ) < 100);
-        if (extraction) {
+        if (!nearbyEcho && extraction) {
           prompt = this.extractingUntil > 0 ? '留在信号圈内…' : 'E · 开始安全撤离（2.5 秒）';
           if (interactPressed && this.extractingUntil === 0) {
             this.extractionPoint = extraction;
@@ -1206,6 +1550,20 @@ export class RaidScene extends Phaser.Scene {
     this.statusText.setText(`生命  ${hearts}    蓝甲  ${armor}    背包  ${bagUsed}/${bagTotal} 格`);
     const zone = this.getZone();
     this.zoneText.setText(`${zone.name} · 风险 ${zone.risk}`);
+    if (zone.name !== this.lastZoneName) {
+      this.lastZoneName = zone.name;
+      this.tweens.killTweensOf(this.zoneRevealText);
+      this.zoneRevealText.setText(`${zone.name}\n风险 ${zone.risk}`).setAlpha(0).setY(190);
+      this.tweens.add({
+        targets: this.zoneRevealText,
+        alpha: { from: 0, to: 0.78 },
+        y: 174,
+        duration: 520,
+        hold: 1250,
+        yoyo: true,
+        ease: 'Sine.InOut',
+      });
+    }
     const boss = this.enemies.find((enemy) => enemy.boss && enemy.sprite.active);
     if (boss && Phaser.Math.Distance.Between(this.player.x, this.player.y, boss.sprite.x, boss.sprite.y) < 760) {
       const filled = Math.ceil((boss.health / boss.maxHealth) * 18);
@@ -1255,45 +1613,60 @@ export class RaidScene extends Phaser.Scene {
       fontSize: '13px',
       color: '#789795',
     });
-    const mapLeft = 185;
+    const mapLeft = 155;
     const mapTop = 215;
-    const mapWidth = 900;
-    const mapHeight = 310;
+    const mapWidth = 970;
+    const mapHeight = 300;
     const sx = (x: number) => mapLeft + (x / WORLD_WIDTH) * mapWidth;
     const sy = (y: number) => mapTop + (y / WORLD_HEIGHT) * mapHeight;
     const mapGraphic = this.add.graphics();
-    mapGraphic.lineStyle(6, this.mapUnlocked ? 0x67cbb6 : 0x4e6669, this.mapUnlocked ? 0.68 : 0.36);
-    mapGraphic.beginPath();
-    mapGraphic.moveTo(sx(300), sy(1990));
-    mapGraphic.lineTo(sx(950), sy(1550));
-    mapGraphic.lineTo(sx(1500), sy(1350));
-    mapGraphic.lineTo(sx(1750), sy(980));
-    mapGraphic.lineTo(sx(2450), sy(720));
-    mapGraphic.lineTo(sx(2980), sy(620));
-    mapGraphic.strokePath();
-    const rooms = [
-      { x: 90, y: 1770, w: 1030, h: 330, color: 0x315d61 },
-      { x: 650, y: 1350, w: 1050, h: 440, color: 0x36786f },
-      { x: 1050, y: 850, w: 1250, h: 570, color: 0x397e73 },
-      { x: 2200, y: 430, w: 980, h: 430, color: 0x5f4e7d },
-    ];
-    for (const room of rooms) {
+    for (const room of MAP_ROOM_SHAPES) {
       mapGraphic.fillStyle(room.color, this.mapUnlocked ? 0.22 : 0.1);
-      mapGraphic.fillRoundedRect(sx(room.x), sy(room.y), (room.w / WORLD_WIDTH) * mapWidth, (room.h / WORLD_HEIGHT) * mapHeight, 8);
+      mapGraphic.fillRoundedRect(
+        sx(room.x),
+        sy(room.y),
+        (room.width / WORLD_WIDTH) * mapWidth,
+        (room.height / WORLD_HEIGHT) * mapHeight,
+        8,
+      );
+    }
+    for (const route of MAP_ROUTES) {
+      mapGraphic.lineStyle(5, this.mapUnlocked ? 0x67cbb6 : 0x4e6669, this.mapUnlocked ? 0.66 : 0.28);
+      mapGraphic.beginPath();
+      route.forEach((point, index) => {
+        if (index === 0) mapGraphic.moveTo(sx(point.x), sy(point.y));
+        else mapGraphic.lineTo(sx(point.x), sy(point.y));
+      });
+      mapGraphic.strokePath();
     }
     container.add([shade, panel, title, subtitle, mapGraphic]);
+
+    if (this.mapUnlocked) {
+      for (const room of MAP_ROOM_SHAPES) {
+        const roomLabel = this.add.text(
+          sx(room.x + room.width / 2),
+          sy(room.y + room.height / 2),
+          room.name,
+          { fontFamily: 'Arial, sans-serif', fontSize: '9px', color: '#6f9692' },
+        ).setOrigin(0.5);
+        container.add(roomLabel);
+      }
+    }
 
     const nodes = [
       { x: 240, y: 1960, known: '入口', unknown: '入口' },
       { x: 520, y: 1995, known: '前庭撤离', unknown: '安全信号' },
       { x: 1220, y: 995, known: '导航羽片', unknown: '未知目标' },
       { x: 1450, y: 1330, known: '维护电梯', unknown: '未知设施' },
-      { x: 3010, y: 595, known: '机房撤离', unknown: '深层信号' },
+      { x: 3010, y: 1415, known: '沉钟浮标', unknown: '侧路信号' },
+      { x: 3620, y: 745, known: '机房撤离', unknown: '深层信号' },
+      { x: 4000, y: 535, known: '墓园天线', unknown: '极远信号' },
     ];
     nodes.forEach((entry, index) => {
       const x = sx(entry.x);
       const y = sy(entry.y);
-      const node = this.add.circle(x, y, index === 4 ? 15 : 10, index === 4 ? 0xa281df : 0x74d6bf, 0.9)
+      const deepNode = index >= 5;
+      const node = this.add.circle(x, y, deepNode ? 12 : 9, deepNode ? 0xa281df : 0x74d6bf, 0.9)
         .setStrokeStyle(4, 0x07151d, 1);
       const label = this.add.text(x, y + 19, this.mapUnlocked ? entry.known : entry.unknown, {
         fontFamily: 'Arial, sans-serif',
@@ -1312,7 +1685,7 @@ export class RaidScene extends Phaser.Scene {
     }).setOrigin(0.5);
     const targetPosition = !this.mapUnlocked
       ? { x: 1220, y: 995 }
-      : (this.bossDefeated ? { x: 520, y: 1995 } : { x: 2760, y: 600 });
+      : (this.bossDefeated ? { x: 520, y: 1995 } : { x: 3400, y: 750 });
     const targetMarker = this.add.text(sx(targetPosition.x), sy(targetPosition.y) - 34, '◇ 主目标', {
       fontFamily: 'Arial, sans-serif',
       fontSize: '13px',
@@ -1766,6 +2139,8 @@ export class RaidScene extends Phaser.Scene {
       player: {
         x: Math.round(this.player.x),
         y: Math.round(this.player.y),
+        collisionX: Math.round(body.center.x),
+        collisionY: Math.round(body.center.y),
         velocityX: Math.round(body.velocity.x),
         velocityY: Math.round(body.velocity.y),
         health: this.health,
@@ -1785,6 +2160,16 @@ export class RaidScene extends Phaser.Scene {
         quantity: entry.quantity,
         distance: Math.round(Phaser.Math.Distance.Between(this.player.x, this.player.y, entry.icon.x, entry.icon.y)),
       })),
+      nearbyTerrain: this.platforms.getChildren()
+        .map((entry) => (entry as Phaser.Types.Physics.Arcade.GameObjectWithBody).body as Phaser.Physics.Arcade.StaticBody)
+        .filter((terrainBody) => Math.abs(terrainBody.center.x - body.center.x) < 900
+          && Math.abs(terrainBody.center.y - body.center.y) < 700)
+        .map((terrainBody) => ({
+          left: Math.round(terrainBody.left),
+          right: Math.round(terrainBody.right),
+          top: Math.round(terrainBody.top),
+          bottom: Math.round(terrainBody.bottom),
+        })),
       visibleEnemies: this.enemies
         .filter((enemy) => enemy.sprite.active && Phaser.Math.Distance.Between(enemy.sprite.x, enemy.sprite.y, this.player.x, this.player.y) < 850)
         .map((enemy) => ({
