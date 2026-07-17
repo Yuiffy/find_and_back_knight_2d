@@ -57,6 +57,7 @@ export function BaseScreen({
   const [activeTab, setActiveTab] = useState<BaseTab>('storage');
   const [entryOpen, setEntryOpen] = useState(false);
   const [selected, setSelected] = useState<InventoryDragPayload | null>(null);
+  const [activeDrag, setActiveDrag] = useState<InventoryDragPayload | null>(null);
   const activeDragRef = useRef<InventoryDragPayload | null>(null);
   const armorMax = getArmorMaximum(profile);
   const dust = countItem(profile.warehouse, 'echo_dust');
@@ -84,10 +85,36 @@ export function BaseScreen({
       if (event.key.toLowerCase() !== 'r' || !activeDragRef.current?.uid) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      activeDragRef.current = rotateInventoryDragPayload(activeDragRef.current);
+      const rotated = rotateInventoryDragPayload(activeDragRef.current);
+      activeDragRef.current = rotated;
+      setActiveDrag(rotated);
     };
     window.addEventListener('keydown', rotateActiveDrag);
     return () => window.removeEventListener('keydown', rotateActiveDrag);
+  }, []);
+
+  useEffect(() => {
+    const moveInventoryDrag = (event: globalThis.PointerEvent) => {
+      const drag = activeDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const next = {
+        ...drag,
+        pointerX: event.clientX,
+        pointerY: event.clientY,
+        dragMoved: drag.dragMoved || Math.hypot(event.clientX - (drag.dragStartX ?? event.clientX), event.clientY - (drag.dragStartY ?? event.clientY)) > 4,
+      };
+      activeDragRef.current = next;
+      setActiveDrag(next);
+    };
+    const endInventoryDragOnMiss = (event: globalThis.PointerEvent) => {
+      if (activeDragRef.current?.pointerId === event.pointerId) endInventoryDrag();
+    };
+    window.addEventListener('pointermove', moveInventoryDrag);
+    window.addEventListener('pointerup', endInventoryDragOnMiss);
+    return () => {
+      window.removeEventListener('pointermove', moveInventoryDrag);
+      window.removeEventListener('pointerup', endInventoryDragOnMiss);
+    };
   }, []);
 
   useEffect(() => {
@@ -104,10 +131,12 @@ export function BaseScreen({
 
   function beginInventoryDrag(payload: InventoryDragPayload): void {
     activeDragRef.current = payload;
+    setActiveDrag(payload);
   }
 
   function endInventoryDrag(): void {
     activeDragRef.current = null;
+    setActiveDrag(null);
   }
 
   function acceptSlotDrop(event: DragEvent<HTMLButtonElement>, slot: GearSlot): void {
@@ -213,7 +242,7 @@ export function BaseScreen({
               <div><span className="eyebrow">FIELD BAG</span><h2>随身背包</h2></div>
               <div className="panel-tools"><span className="capacity">{occupiedGridCells(profile.backpack.items)} / {bagCells} 格</span><button type="button" onClick={() => onCompactGrid('backpack')}>自动整理</button></div>
             </div>
-            <p className="grid-explainer">拖动时亮框显示完整落点；空间冲突会自动寻找空位。右键旋转，双击快速卸回仓库。</p>
+            <p className="grid-explainer">拖动时亮框显示完整落点；按 R 可即时旋转，空间冲突会自动寻找空位。右键旋转，双击快速卸回仓库。</p>
             {profile.loadout.backpack && bagCells > 0 ? (
               <InventoryGrid
                 ariaLabel={`${profile.backpack.width}乘${profile.backpack.height}随身背包`}
@@ -221,6 +250,7 @@ export function BaseScreen({
                 size={profile.backpack}
                 source="backpack"
                 selected={selected}
+                activeDrag={activeDrag}
                 getActiveDrag={() => activeDragRef.current}
                 onSelect={setSelected}
                 onDragStart={beginInventoryDrag}
@@ -247,6 +277,7 @@ export function BaseScreen({
               size={profile.warehouseSize}
               source="warehouse"
               selected={selected}
+              activeDrag={activeDrag}
               getActiveDrag={() => activeDragRef.current}
               onSelect={setSelected}
               onDragStart={beginInventoryDrag}

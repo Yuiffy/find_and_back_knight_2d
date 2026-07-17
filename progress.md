@@ -176,3 +176,10 @@ ok，你来创作这个理想的游戏！当然我们可以分批次，你可以
 - Added the same R-key behavior for active drags in the raid inventory; its drag ghost reports the new dimensions.
 - Added `tests/drag-rotate-flow.mjs`, which verifies a 1×2 item previews and lands as 2×1 after R during a drag.
 - Verified with `npm run build`, the official Playwright game client, `drag-rotate-flow`, and `combat-polish-flow`; no browser errors.
+
+## 2026-07-17 · Drag rotation follow-up
+
+- Replaced the base inventory's native HTML drag flow with pointer tracking, because browsers suppress keyboard events during an active native drag. R now reaches the game reliably while an item is held.
+- Raid dragging now renders a full-size red/green grid footprint at the intended landing cells instead of only a small text ghost; the footprint updates immediately after R.
+- Added `tests/raid-drag-rotate-flow.mjs`; it verifies real KeyR input rotates a held 1×4 item to a visible 4×1 preview and preserves that orientation on drop.
+- Re-ran `npm run build`, `drag-rotate-flow`, `raid-drag-rotate-flow`, and the official Playwright client with no browser errors.

@@ -26,11 +26,7 @@ try {
   await page.mouse.down();
   await page.mouse.move(itemBox.x + itemBox.width / 2 + 12, itemBox.y + itemBox.height * 0.75, { steps: 3 });
   await page.waitForTimeout(100);
-  await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', {
-    key: 'r',
-    bubbles: true,
-    cancelable: true,
-  })));
+  await page.keyboard.press('KeyR');
   await page.mouse.move(gridBox.x + gridBox.width * (6.5 / 9), gridBox.y + gridBox.height * (0.5 / 10), { steps: 6 });
 
   const preview = page.locator('.inventory-grid-warehouse .inventory-drop-preview');

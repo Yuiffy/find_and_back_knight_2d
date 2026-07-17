@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import {
   addStacks,
+  canPlaceGridItem,
   cloneGridItems,
   getGridItemSize,
   insertGridStack,
@@ -173,6 +174,7 @@ export class RaidScene extends Phaser.Scene {
   private overlayNotice = '';
   private activeInventoryDrag: RaidInventoryDrag | null = null;
   private inventoryDragGhost: Phaser.GameObjects.Text | null = null;
+  private inventoryDragPreview: Phaser.GameObjects.Rectangle | null = null;
   private discoveredItems = new Set<string>();
   private discoveredClues = new Set<string>();
   private endingTriggered = false;
@@ -1034,6 +1036,7 @@ export class RaidScene extends Phaser.Scene {
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
       if (this.activeInventoryDrag && this.inventoryDragGhost) {
         this.inventoryDragGhost.setPosition(pointer.x + 18, pointer.y + 18);
+        this.updateRaidInventoryDragPreview(pointer);
       }
     });
     this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
@@ -1042,6 +1045,8 @@ export class RaidScene extends Phaser.Scene {
       this.activeInventoryDrag = null;
       this.inventoryDragGhost?.destroy();
       this.inventoryDragGhost = null;
+      this.inventoryDragPreview?.destroy();
+      this.inventoryDragPreview = null;
       if (!this.handleRaidInventoryPointerDrop(drag, pointer)) this.refreshBackpackOverlay();
     });
   }
@@ -1792,6 +1797,8 @@ export class RaidScene extends Phaser.Scene {
     this.activeInventoryDrag = null;
     this.inventoryDragGhost?.destroy();
     this.inventoryDragGhost = null;
+    this.inventoryDragPreview?.destroy();
+    this.inventoryDragPreview = null;
     this.abortHoldStartedAt = 0;
     this.pauseAbortText = null;
     this.overlay?.destroy(true);
@@ -2026,6 +2033,51 @@ export class RaidScene extends Phaser.Scene {
     const footprint = getGridItemSize({ itemId: stack.itemId, rotated });
     this.inventoryDragGhost?.setText(`${item.icon} ${item.name} ↻ ${footprint.width}×${footprint.height}`);
     this.overlayNotice = `拖动中已旋转：${footprint.width}×${footprint.height}`;
+    this.createRaidInventoryDragPreview();
+    this.updateRaidInventoryDragPreview(this.input.activePointer);
+  }
+
+  private createRaidInventoryDragPreview(): void {
+    this.inventoryDragPreview?.destroy();
+    this.inventoryDragPreview = null;
+    const drag = this.activeInventoryDrag;
+    if (drag?.source !== 'backpack' || !drag.uid) return;
+    const stack = this.backpack.find((entry) => entry.uid === drag.uid);
+    if (!stack) return;
+    const footprint = getGridItemSize({ itemId: stack.itemId, rotated: drag.rotated ?? stack.rotated });
+    const cellSize = Math.min(62, 340 / Math.max(1, this.profile.backpack.height), 340 / Math.max(1, this.profile.backpack.width));
+    this.inventoryDragPreview = this.add.rectangle(0, 0, footprint.width * cellSize - 7, footprint.height * cellSize - 7, 0x75d7c2, 0.24)
+      .setStrokeStyle(3, 0x9ef0dc, 0.96)
+      .setScrollFactor(0)
+      .setDepth(221)
+      .setVisible(false);
+  }
+
+  private updateRaidInventoryDragPreview(pointer: Phaser.Input.Pointer): void {
+    const drag = this.activeInventoryDrag;
+    const preview = this.inventoryDragPreview;
+    if (!preview || drag?.source !== 'backpack' || !drag.uid) return;
+    const cellSize = Math.min(62, 340 / Math.max(1, this.profile.backpack.height), 340 / Math.max(1, this.profile.backpack.width));
+    const gridWidth = this.profile.backpack.width * cellSize;
+    const gridHeight = this.profile.backpack.height * cellSize;
+    const gridLeft = 625 - gridWidth / 2;
+    const gridTop = 171;
+    if (pointer.x < gridLeft || pointer.x >= gridLeft + gridWidth || pointer.y < gridTop || pointer.y >= gridTop + gridHeight) {
+      preview.setVisible(false);
+      return;
+    }
+    const stack = this.backpack.find((entry) => entry.uid === drag.uid);
+    if (!stack) return;
+    const candidate = { ...stack, rotated: drag.rotated ?? stack.rotated };
+    const footprint = getGridItemSize(candidate);
+    const x = Math.floor((pointer.x - gridLeft) / cellSize) - (drag.grabOffsetX ?? 0);
+    const y = Math.floor((pointer.y - gridTop) / cellSize) - (drag.grabOffsetY ?? 0);
+    const valid = canPlaceGridItem(this.backpack, this.profile.backpack, candidate, x, y, drag.uid);
+    preview
+      .setPosition(gridLeft + (x + footprint.width / 2) * cellSize, gridTop + (y + footprint.height / 2) * cellSize)
+      .setFillStyle(valid ? 0x75d7c2 : 0xdf7d83, 0.24)
+      .setStrokeStyle(3, valid ? 0x9ef0dc : 0xffa7a5, 0.96)
+      .setVisible(true);
   }
 
   private createInventoryDragCard(
@@ -2082,6 +2134,8 @@ export class RaidScene extends Phaser.Scene {
         stroke: '#07151d',
         strokeThickness: 3,
       }).setScrollFactor(0).setDepth(220);
+      this.createRaidInventoryDragPreview();
+      this.updateRaidInventoryDragPreview(pointer);
       card.setScale(1.025).setAlpha(0.92);
     });
     container.add([card, hitArea]);
@@ -2143,7 +2197,7 @@ export class RaidScene extends Phaser.Scene {
       shade,
       panel,
       this.add.text(90, 70, '远征整备', { fontFamily: 'Georgia, serif', fontSize: '30px', color: '#d8eee8' }),
-      this.add.text(90, 109, '拖动物品可换装、整理或丢弃；抓取格决定落点，右键可旋转背包物品。', {
+      this.add.text(90, 109, '拖动物品可换装、整理或丢弃；抓取格决定落点，拖动时按 R 可旋转。', {
         fontFamily: 'Arial, sans-serif', fontSize: '13px', color: '#789795',
       }),
       this.add.text(90, 148, '当前装备', { fontFamily: 'Arial, sans-serif', fontSize: '15px', color: '#9ee6d5', fontStyle: 'bold' }),

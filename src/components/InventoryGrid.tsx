@@ -1,4 +1,4 @@
-import { useState, type DragEvent, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent } from 'react';
 import { ITEMS, RARITY_NAMES } from '../game/items';
 import { getGridItemSize } from '../game/inventory';
 import type { GearSlot, GridItem, GridSize } from '../types/game';
@@ -13,6 +13,12 @@ export interface InventoryDragPayload {
   rotated?: boolean;
   grabOffsetX?: number;
   grabOffsetY?: number;
+  pointerId?: number;
+  pointerX?: number;
+  pointerY?: number;
+  dragStartX?: number;
+  dragStartY?: number;
+  dragMoved?: boolean;
 }
 
 export function rotateInventoryDragPayload(payload: InventoryDragPayload): InventoryDragPayload {
@@ -43,6 +49,7 @@ interface InventoryGridProps {
   size: GridSize;
   source: 'warehouse' | 'backpack';
   selected: InventoryDragPayload | null;
+  activeDrag: InventoryDragPayload | null;
   getActiveDrag: () => InventoryDragPayload | null;
   onSelect: (payload: InventoryDragPayload | null) => void;
   onDragStart: (payload: InventoryDragPayload) => void;
@@ -77,6 +84,7 @@ export function InventoryGrid({
   size,
   source,
   selected,
+  activeDrag,
   getActiveDrag,
   onSelect,
   onDragStart,
@@ -86,22 +94,33 @@ export function InventoryGrid({
   onQuickTransfer,
 }: InventoryGridProps) {
   const [preview, setPreview] = useState<null | { x: number; y: number; width: number; height: number; valid: boolean }>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
 
-  function getCell(
-    event: DragEvent<HTMLDivElement> | MouseEvent<HTMLDivElement>,
+  function getCellAtPoint(
+    clientX: number,
+    clientY: number,
+    bounds: DOMRect,
     payload?: InventoryDragPayload | null,
   ): { x: number; y: number } {
-    const bounds = event.currentTarget.getBoundingClientRect();
     return {
-      x: Math.floor(((event.clientX - bounds.left) / bounds.width) * size.width) - (payload?.grabOffsetX ?? 0),
-      y: Math.floor(((event.clientY - bounds.top) / bounds.height) * size.height) - (payload?.grabOffsetY ?? 0),
+      x: Math.floor(((clientX - bounds.left) / bounds.width) * size.width) - (payload?.grabOffsetX ?? 0),
+      y: Math.floor(((clientY - bounds.top) / bounds.height) * size.height) - (payload?.grabOffsetY ?? 0),
     };
   }
 
-  function updatePreview(event: DragEvent<HTMLDivElement>): void {
-    const payload = getActiveDrag() ?? readInventoryDrag(event);
-    if (!payload?.itemId || !ITEMS[payload.itemId]) return;
-    const anchor = getCell(event, payload);
+  function updatePreview(payload: InventoryDragPayload): void {
+    const bounds = gridRef.current?.getBoundingClientRect();
+    if (!bounds || !payload.itemId || !ITEMS[payload.itemId] || !payload.dragMoved) {
+      setPreview(null);
+      return;
+    }
+    if (payload.pointerX == null || payload.pointerY == null
+      || payload.pointerX < bounds.left || payload.pointerX >= bounds.right
+      || payload.pointerY < bounds.top || payload.pointerY >= bounds.bottom) {
+      setPreview(null);
+      return;
+    }
+    const anchor = getCellAtPoint(payload.pointerX, payload.pointerY, bounds, payload);
     const footprint = getGridItemSize({ itemId: payload.itemId, rotated: payload.rotated });
     const inBounds = anchor.x >= 0 && anchor.y >= 0
       && anchor.x + footprint.width <= size.width
@@ -117,8 +136,35 @@ export function InventoryGrid({
     setPreview({ ...anchor, ...footprint, valid: inBounds && !collides });
   }
 
+  useEffect(() => {
+    if (activeDrag) updatePreview(activeDrag);
+    else setPreview(null);
+  }, [activeDrag, items, size]);
+
+  useEffect(() => {
+    const handlePointerUp = (event: globalThis.PointerEvent) => {
+      const payload = getActiveDrag();
+      const bounds = gridRef.current?.getBoundingClientRect();
+      if (!payload || !bounds || payload.pointerId !== event.pointerId) return;
+      const isInside = event.clientX >= bounds.left && event.clientX < bounds.right
+        && event.clientY >= bounds.top && event.clientY < bounds.bottom;
+      if (!isInside) return;
+      if (!payload.dragMoved) {
+        if (payload.source === source) onSelect(payload);
+      } else {
+        const cell = getCellAtPoint(event.clientX, event.clientY, bounds, payload);
+        onDropItem(payload, cell.x, cell.y);
+        onSelect(null);
+      }
+      onDragEnd();
+    };
+    window.addEventListener('pointerup', handlePointerUp, true);
+    return () => window.removeEventListener('pointerup', handlePointerUp, true);
+  }, [getActiveDrag, onDragEnd, onDropItem, onSelect, source]);
+
   return (
     <div
+      ref={gridRef}
       className={`inventory-grid inventory-grid-${source}`}
       role="grid"
       aria-label={ariaLabel}
@@ -127,26 +173,10 @@ export function InventoryGrid({
         gridTemplateRows: `repeat(${size.height}, minmax(0, 1fr))`,
         aspectRatio: `${size.width} / ${size.height}`,
       }}
-      onDragOver={(event) => {
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'move';
-        updatePreview(event);
-      }}
-      onDragLeave={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setPreview(null);
-      }}
-      onDrop={(event) => {
-        event.preventDefault();
-        const payload = getActiveDrag() ?? readInventoryDrag(event);
-        if (!payload) return;
-        const cell = getCell(event, payload);
-        onDropItem(payload, cell.x, cell.y);
-        onSelect(null);
-        setPreview(null);
-      }}
       onClick={(event) => {
         if (!selected) return;
-        const cell = getCell(event);
+        const bounds = event.currentTarget.getBoundingClientRect();
+        const cell = getCellAtPoint(event.clientX, event.clientY, bounds);
         onDropItem(selected, cell.x, cell.y);
         onSelect(null);
       }}
@@ -178,7 +208,7 @@ export function InventoryGrid({
             }}
             key={gridItem.uid}
             type="button"
-            draggable
+            draggable={false}
             aria-pressed={isSelected}
             aria-label={`${item.name}，${footprint.width}乘${footprint.height}格，${RARITY_NAMES[item.rarity]}`}
             title={`${item.name} · ${footprint.width}×${footprint.height}\n${item.description}\n右键或选中后按 R 旋转；双击快速转移`}
@@ -195,17 +225,24 @@ export function InventoryGrid({
               event.preventDefault();
               onRotateItem(payload);
             }}
-            onDragStart={(event) => {
+            onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {
+              if (event.button !== 0) return;
+              event.preventDefault();
+              event.stopPropagation();
               const bounds = event.currentTarget.getBoundingClientRect();
               const dragPayload = {
                 ...payload,
                 grabOffsetX: Math.min(footprint.width - 1, Math.max(0, Math.floor(((event.clientX - bounds.left) / bounds.width) * footprint.width))),
                 grabOffsetY: Math.min(footprint.height - 1, Math.max(0, Math.floor(((event.clientY - bounds.top) / bounds.height) * footprint.height))),
+                pointerId: event.pointerId,
+                pointerX: event.clientX,
+                pointerY: event.clientY,
+                dragStartX: event.clientX,
+                dragStartY: event.clientY,
+                dragMoved: false,
               };
-              writeInventoryDrag(event, dragPayload);
               onDragStart(dragPayload);
             }}
-            onDragEnd={onDragEnd}
           >
             <span>{item.icon}</span>
             <strong>{item.name}</strong>
