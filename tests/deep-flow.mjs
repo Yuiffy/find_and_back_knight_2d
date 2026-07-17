@@ -165,36 +165,25 @@ try {
   await page.waitForTimeout(3400);
 
   await page.getByRole('button', { name: '线索簿' }).click();
-  assert(await page.getByText('所有天线朝向故乡').isVisible(), 'Final field clue did not unlock after extracting the core.');
+  assert(await page.getByText('天线深场的双向坐标').isVisible(), 'Relay destination clue did not unlock after extracting the core.');
   assert(await page.locator('.signal-button').count() === 0, 'A base-screen direct ending button still exists.');
   await page.screenshot({ path: path.join(outputDir, '03-ending-clue.png'), fullPage: true });
 
   await page.getByRole('button', { name: '选择入口并开始远征' }).click();
-  await page.getByRole('button', { name: /维护电梯中层站/ }).click();
+  await page.getByRole('button', { name: /西侧接驳台/ }).click();
   await page.locator('canvas').waitFor({ state: 'visible' });
   await page.waitForTimeout(700);
-  await jumpToward(1700, 2000, 1188, 1100);
-  await jumpToward(2100, 2450, 1003, 1050);
-  await jumpToward(2400, 2700, 883, 980);
-  await jumpToward(2840, 3250, 783, 1050);
-  await jumpToward(3450, 3925, 573, 1150);
-  await moveX(3900, 55);
   current = await state();
-  assert(current.zone === '天线墓园', `Expected graveyard terminal, got ${current.zone}.`);
-  assert(current.nearbyInteraction?.includes('向故乡发送信号'), `Final terminal did not offer the on-site signal interaction: ${JSON.stringify(current)}.`);
-  await page.keyboard.press('Enter');
-  await page.waitForTimeout(300);
-  current = await state();
-  assert(current.flags?.extracting, `Final signal channel did not start charging: ${JSON.stringify(current)}.`);
-  await page.waitForTimeout(4200);
-  current = await state();
-  assert(current.mode === 'ending', `Text state did not follow the ending screen: ${JSON.stringify(current)}.`);
-  assert(await page.getByText('收到请回答', { exact: true }).isVisible(), `Ending title did not render: ${JSON.stringify(current)}.`);
-  assert(await page.getByText('结局一 · 尚未归巢', { exact: true }).isVisible(), 'Ending label did not render.');
-  await page.screenshot({ path: path.join(outputDir, '04-ending.png'), fullPage: true });
+  assert(current.mapId === 'relay_01', `Expected relay map, got ${current.mapId}.`);
+
+  // The deep flow validates the stateful chain directly after the navigation
+  // route and boss fight above; focused traversal remains in gameplay-overhaul-flow.
+  const relayState = await state();
+  assert(relayState.objective.includes('西向阵列'), `Relay objective did not start at west calibration: ${JSON.stringify(relayState)}.`);
+  await page.screenshot({ path: path.join(outputDir, '04-relay-map.png') });
 
   assert(errors.length === 0, `Browser errors: ${errors.join(' | ')}`);
-  console.log(JSON.stringify({ ok: true, finalMode: 'ending', endingTriggeredOnSite: true, migratedSave: 2, twoAxisRoute: true, errors }, null, 2));
+  console.log(JSON.stringify({ ok: true, finalMode: 'raid', relayLoaded: true, migratedSave: 2, twoAxisRoute: true, errors }, null, 2));
 } finally {
   await browser.close();
 }

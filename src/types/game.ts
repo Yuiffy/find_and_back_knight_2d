@@ -72,7 +72,7 @@ export interface ActiveRaid {
   mapId: string;
   startedAt: string;
   backpack: GridItem[];
-  entryId?: 'foyer' | 'lift';
+  entryId?: string;
 }
 
 export interface PlayerProfile {
@@ -119,6 +119,29 @@ export interface TextGameState {
     grounded: boolean;
   };
   zone?: string;
+  mapId?: string;
+  zoneId?: string | null;
+  zoneReveal?: {
+    candidateZoneId: string | null;
+    candidateSince: number | null;
+    revealedZoneIds: string[];
+    lastRevealAt: number | null;
+    visible: boolean;
+  };
+  render?: {
+    logicalWidth: number;
+    logicalHeight: number;
+    backingWidth: number;
+    backingHeight: number;
+    renderScale: 1 | 1.5 | 2;
+  };
+  visibleStoryEchoes?: Array<{
+    id: string;
+    x: number;
+    y: number;
+    heard: boolean;
+    pulsing: boolean;
+  }>;
   backpack?: GridItem[];
   loadout?: Loadout;
   nearbyLoot?: Array<{ id: string; itemId: string; quantity: number; distance: number }>;
@@ -138,6 +161,8 @@ export interface TextGameState {
 
 export interface RaidResult {
   outcome: 'extracted' | 'died';
+  mapId: string;
+  entryId: string;
   backpack: GridItem[];
   loadout: Loadout;
   recoveredItems: ItemStack[];

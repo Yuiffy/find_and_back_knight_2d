@@ -214,6 +214,7 @@ export function InventoryGrid({
             title={`${item.name} · ${footprint.width}×${footprint.height}\n${item.description}\n右键或选中后按 R 旋转；双击快速转移`}
             onClick={(event) => {
               event.stopPropagation();
+              if (event.detail > 0) return;
               onSelect(isSelected ? null : payload);
             }}
             onDoubleClick={(event) => {

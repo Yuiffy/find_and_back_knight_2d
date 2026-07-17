@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react';
-import { countItem, GEAR_SLOTS, getArmorMaximum, getClueRecords, ITEMS, MARKET_ITEM_IDS, SLOT_NAMES } from '../game/items';
+import { countItem, GEAR_SLOTS, getArmorMaximum, getClueRecords, getObjectiveSteps, ITEMS, MARKET_ITEM_IDS, SLOT_NAMES } from '../game/items';
+import { MAP_REGISTRY, isEntryUnlocked, isMapUnlocked } from '../game/maps';
 import { occupiedGridCells } from '../game/inventory';
 import type { GearSlot, PlayerProfile } from '../types/game';
 import {
@@ -17,7 +18,7 @@ interface BaseScreenProps {
   profile: PlayerProfile;
   objective: string;
   notice: string | null;
-  onBeginRaid: (entryId: 'foyer' | 'lift') => void;
+  onBeginRaid: (mapId: string, entryId: string) => void;
   onMoveItem: (payload: InventoryDragPayload, target: Exclude<InventorySource, 'loadout'>, x: number, y: number) => void;
   onRotateItem: (payload: InventoryDragPayload) => void;
   onQuickTransfer: (payload: InventoryDragPayload) => void;
@@ -64,6 +65,8 @@ export function BaseScreen({
   const warehouseCells = profile.warehouseSize.width * profile.warehouseSize.height;
   const bagCells = profile.backpack.width * profile.backpack.height;
   const clues = getClueRecords(profile);
+  const objectiveSteps = getObjectiveSteps(profile);
+  const availableMaps = Object.values(MAP_REGISTRY).filter((map) => isMapUnlocked(map, profile as unknown as Record<string, unknown>));
   const discoveredItems = profile.discoveredItems ?? [];
   const selectedItem = selected?.itemId ? ITEMS[selected.itemId] : null;
   const selectedStack = selected?.uid && (selected.source === 'warehouse' || selected.source === 'backpack')
@@ -179,7 +182,10 @@ export function BaseScreen({
         <button className={activeTab === 'workshop' ? 'is-active' : ''} type="button" onClick={() => setActiveTab('workshop')}>工作台</button>
         <button className={activeTab === 'market' ? 'is-active' : ''} type="button" onClick={() => setActiveTab('market')}>拾荒交易台</button>
         <button className={activeTab === 'clues' ? 'is-active' : ''} type="button" onClick={() => setActiveTab('clues')}>线索簿</button>
-        <span className="base-objective"><small>电台低语</small>{objective}</span>
+        <span className="base-objective"><small>当前目标</small>{objective}</span>
+        <ol className="objective-step-list" aria-label="远征进度">
+          {objectiveSteps.map((step) => <li className={step.done ? 'done' : ''} key={step.id}>{step.done ? '✓' : '○'} {step.label}</li>)}
+        </ol>
       </nav>
 
       {notice && <div className="notice" role="status">{notice}</div>}
@@ -413,14 +419,31 @@ export function BaseScreen({
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setEntryOpen(false)}>
           <section className="entry-modal" role="dialog" aria-modal="true" aria-labelledby="entry-title" onMouseDown={(event) => event.stopPropagation()}>
             <span className="eyebrow">DEPLOYMENT</span>
-            <h2 id="entry-title">选择远征入口</h2>
-            <p>入口只决定出生房间；身上装备和随身背包内容都会带入。</p>
-            <button ref={firstEntryRef} className="entry-option" type="button" onClick={() => onBeginRaid('foyer')}>
-              <span>⌂</span><div><strong>失落前庭</strong><small>风险 I · 适合初次探索 · 最近撤离点</small></div>
-            </button>
-            <button className="entry-option" type="button" disabled={!profile.shortcutUnlocked} onClick={() => onBeginRaid('lift')}>
-              <span>⇣</span><div><strong>维护电梯中层站</strong><small>{profile.shortcutUnlocked ? '风险 II · 直接进入二维地图中层' : '需要先在裂谷启动电梯'}</small></div>
-            </button>
+            <h2 id="entry-title">选择地图与入口</h2>
+            <p>每轮只加载一张完整地图；身上装备和随身背包内容都会带入。</p>
+            {availableMaps.map((map, mapIndex) => (
+              <div className="destination-group" key={map.id}>
+                <h3>{map.name}<small>{map.subtitle}</small></h3>
+                {Object.values(map.entries).map((entry, entryIndex) => {
+                  const unlocked = isEntryUnlocked(entry, profile as unknown as Record<string, unknown>);
+                  const entryZone = map.zones.find((zone) => zone.id === entry.zoneId);
+                  return (
+                    <button
+                      ref={mapIndex === 0 && entryIndex === 0 ? firstEntryRef : undefined}
+                      className="entry-option"
+                      type="button"
+                      disabled={!unlocked}
+                      onClick={() => onBeginRaid(map.id, entry.id)}
+                      key={`${map.id}:${entry.id}`}
+                    >
+                      <span>{map.id === 'relay_01' ? '📡' : (entry.id === 'lift' ? '⇣' : '⌂')}</span>
+                      <div><strong>{entry.name}</strong><small>{unlocked ? `${map.name} · ${entryZone?.risk ?? 'I'} 级区域` : '需要先启动维护电梯'}</small></div>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+            {!profile.bossDefeated && <p className="destination-locked">带回回声核心后，天线深场目的地将解锁。</p>}
             <button className="text-button modal-cancel" type="button" onClick={() => setEntryOpen(false)}>取消</button>
           </section>
         </div>

@@ -280,18 +280,21 @@ export function getClueRecords(profile: PlayerProfile): ClueRecord[] {
   if (profile.bossDefeated || discoveredClues.includes('home-trace')) records.push({
     id: 'home-trace',
     icon: '📡',
-    title: '所有天线朝向故乡',
+    title: '天线深场的双向坐标',
     text: profile.endingSeen
-      ? '已回应：直播频道重新连通，但岁己仍没有离开空洞。'
-      : '回声核心能让天线墓园最深处的终端重新工作。真正的回答，应该在空洞里亲手发出去。',
+      ? '已回应：东西阵列同时锁定，直播频道重新连通。'
+      : '回声核心恢复了一张新地图：天线深场。必须校准东西阵列，再从冠顶终端发出回答。',
     resolved: profile.endingSeen,
-    tag: '天线墓园',
+    tag: '天线深场',
   });
   const lore: Record<string, Omit<ClueRecord, 'id' | 'resolved'>> = {
     'foyer-manifest': { icon: '⌁', title: '褪色的入井名册', text: '“听见自己声音的人，不要回答。” 名册最后一页只留下了这句话。', tag: '环境回声' },
     'archive-recorder': { icon: '⌁', title: '一百七十年前的评论', text: '无主记录器仍在滚动评论，而那些账号早已停止活动。', tag: '环境回声' },
     'cistern-bell': { icon: '⌁', title: '被水淹没的钟', text: '蓄水池不是为了储水，而是为了淹没一口不该再响起的钟。', tag: '环境回声' },
-    'graveyard-terminal': { icon: '⌁', title: '朝向故乡的终端', text: '所有天线都指向同一颗看不见的星——那里也许就是饼干岛。', tag: '环境回声' },
+    'graveyard-terminal': { icon: '⌁', title: '朝向故乡的旧终端', text: '断开的终端把更远的深场坐标写入了核心。', tag: '环境回声' },
+    'relay-arrival-log': { icon: '⌁', title: '深场值守日志', text: '东阵列听见过去，西阵列听见未来。', tag: '天线深场' },
+    'relay-cookie-call': { icon: '⌁', title: '断续的饼干岁呼叫', text: '先把两边都调亮。留言在东边的箱子里。', tag: '天线深场' },
+    'relay-last-watch': { icon: '⌁', title: '最后一班守望', text: '终端需要两束相反方向的信号。', tag: '天线深场' },
   };
   for (const id of discoveredClues) {
     const clue = lore[id];
@@ -311,11 +314,27 @@ export function getArmorMaximum(profile: Pick<PlayerProfile, 'loadout'>): number
   return armorId ? (ITEMS[armorId]?.stats?.armor ?? 0) : 0;
 }
 
+export interface ObjectiveStep {
+  id: string;
+  label: string;
+  destination: string;
+  done: boolean;
+}
+
+export function getObjectiveSteps(profile: PlayerProfile): ObjectiveStep[] {
+  const clues = profile.discoveredClues ?? [];
+  return [
+    { id: 'first-extraction', label: '完成首次安全撤离', destination: '寂羽空洞 · 前庭撤离点', done: profile.successfulExtractions > 0 },
+    { id: 'map-feather', label: '带回导航羽片', destination: '寂羽空洞 · 荧菌裂谷', done: profile.mapUnlocked },
+    { id: 'lift', label: '启动维护电梯', destination: '寂羽空洞 · 裂谷中层', done: profile.shortcutUnlocked },
+    { id: 'warden-core', label: '击败守卫并带回回声核心', destination: '寂羽空洞 · 静默机房', done: profile.bossDefeated },
+    { id: 'relay-west', label: '校准西向阵列', destination: '天线深场 · 西向阵列', done: clues.includes('relay-west-calibrated') },
+    { id: 'relay-east', label: '校准东向阵列', destination: '天线深场 · 东向阵列', done: clues.includes('relay-east-calibrated') },
+    { id: 'terminal', label: '在归航终端锁定频道', destination: '天线深场 · 冠顶终端', done: profile.endingSeen },
+  ];
+}
+
 export function getCurrentObjective(profile: PlayerProfile): string {
-  if (profile.successfulExtractions === 0) return '前庭的绿色信号很稳定，也许能送回捡到的东西。';
-  if (!profile.mapUnlocked) return '破碎坐标指向前庭上方，一片发光的裂谷。';
-  if (!profile.shortcutUnlocked) return '地图上有一台沉睡的电梯，靠近它也许能恢复供电。';
-  if (!profile.bossDefeated) return '电梯日志反复提到：静默机房的核心仍在跳动。';
-  if (!profile.endingSeen) return '核心在回应天线墓园。真正的信号必须从现场发出。';
-  return '频道仍然开着。空洞里还有没有被听见的回声。';
+  const next = getObjectiveSteps(profile).find((step) => !step.done);
+  return next ? `${next.label} · ${next.destination}` : '频道仍然开着。空洞里还有没有被听见的回声。';
 }

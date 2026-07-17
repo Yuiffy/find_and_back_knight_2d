@@ -30,7 +30,8 @@ const GameCanvas = lazy(() => import('./components/GameCanvas').then((module) =>
 export function App() {
   const [profile, setProfile] = useState<PlayerProfile>(() => saveRepository.load());
   const [mode, setMode] = useState<AppMode>('base');
-  const [raidEntryId, setRaidEntryId] = useState<'foyer' | 'lift'>('foyer');
+  const [raidMapId, setRaidMapId] = useState('hollow_01');
+  const [raidEntryId, setRaidEntryId] = useState('foyer');
   const [notice, setNotice] = useState<string | null>('饼干台上线。浏览器自动存档已启用。');
   const objective = getCurrentObjective(profile);
 
@@ -292,26 +293,27 @@ export function App() {
     commit({ ...profile, warehouse: nextWarehouse, warehouseSize: { width: 10, height: 10 } }, '基地仓库已扩建为 10×10；随身背包保持不变。');
   }
 
-  function handleBeginRaid(entryId: 'foyer' | 'lift'): void {
+  function handleBeginRaid(mapId: string, entryId: string): void {
     const raidId = profile.raidsStarted + 1;
     const next = saveRepository.save({
       ...profile,
       raidsStarted: raidId,
       activeRaid: {
         raidId,
-        mapId: 'hollow_01',
+        mapId,
         startedAt: new Date().toISOString(),
         backpack: cloneGridItems(profile.backpack.items),
         entryId,
       },
     });
     setProfile(next);
+    setRaidMapId(mapId);
     setRaidEntryId(entryId);
     setNotice(null);
     publishDomainEvent({
       type: 'raid.started',
       raidId,
-      mapId: 'hollow_01',
+      mapId,
       entryId,
       at: new Date().toISOString(),
     });
@@ -322,13 +324,13 @@ export function App() {
     publishDomainEvent({
       type: 'raid.settled',
       raidId: profile.raidsStarted,
-      mapId: 'hollow_01',
+      mapId: result.mapId,
       result,
       at: new Date().toISOString(),
     });
     if (result.outcome === 'extracted') {
       const nextMapUnlocked = profile.mapUnlocked || result.mapUnlocked;
-      const extractedCore = result.backpack.some((stack) => stack.itemId === 'echo_core');
+      const extractedCore = [...result.backpack, ...result.recoveredItems].some((stack) => stack.itemId === 'echo_core');
       const nextBossDefeated = profile.bossDefeated || (result.bossDefeated && extractedCore);
       const recoveredWarehouse = insertGridStacks(profile.warehouse, profile.warehouseSize, result.recoveredItems);
       const next = saveRepository.save({
@@ -383,7 +385,7 @@ export function App() {
       discoveredClues: Array.from(new Set([...profile.discoveredClues, ...(result.discoveredClues ?? [])])),
       shortcutUnlocked: profile.shortcutUnlocked || result.shortcutUnlocked,
       lostEcho: {
-        mapId: 'hollow_01',
+        mapId: result.mapId,
         x: deathPosition.x,
         y: deathPosition.y,
         items: lostItems,
@@ -414,8 +416,8 @@ export function App() {
 
   if (mode === 'raid') {
     return (
-      <Suspense fallback={<main className="game-loading">正在打开寂羽空洞…</main>}>
-        <GameCanvas profile={profile} entryId={raidEntryId} onResult={handleRaidResult} />
+      <Suspense fallback={<main className="game-loading">正在打开远征地图…</main>}>
+        <GameCanvas profile={profile} mapId={raidMapId} entryId={raidEntryId} onResult={handleRaidResult} />
       </Suspense>
     );
   }

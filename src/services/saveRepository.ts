@@ -6,6 +6,7 @@ import {
   insertGridStacks,
   validateGrid,
 } from '../game/inventory';
+import { MAP_REGISTRY, normalizeMapEntry } from '../game/maps';
 import { getArmorMaximum, ITEMS } from '../game/items';
 import type {
   ActiveRaid,
@@ -141,6 +142,18 @@ function normalizeProfile(value: unknown): PlayerProfile {
     ? normalizeGrid(candidate.backpack?.items, packSize)
     : [];
 
+  const rawLostEcho = candidate.lostEcho;
+  const lostEchoMap = rawLostEcho && typeof rawLostEcho.mapId === 'string'
+    ? MAP_REGISTRY[rawLostEcho.mapId]
+    : null;
+  const hasValidLostEchoPosition = Boolean(rawLostEcho && lostEchoMap
+    && Number.isFinite(rawLostEcho.x)
+    && Number.isFinite(rawLostEcho.y)
+    && rawLostEcho.x >= 0
+    && rawLostEcho.x <= lostEchoMap.worldWidth
+    && rawLostEcho.y >= 0
+    && rawLostEcho.y <= lostEchoMap.worldHeight);
+
   const normalized: PlayerProfile = {
     ...defaults,
     version: 2,
@@ -167,15 +180,19 @@ function normalizeProfile(value: unknown): PlayerProfile {
     bossDefeated: Boolean(candidate.bossDefeated),
     endingUnlocked: Boolean(candidate.endingUnlocked),
     endingSeen: Boolean(candidate.endingSeen),
-    lostEcho: candidate.lostEcho ? {
-      ...candidate.lostEcho,
-      items: cloneStacks(candidate.lostEcho.items ?? []),
+    lostEcho: rawLostEcho && hasValidLostEchoPosition ? {
+      mapId: lostEchoMap!.id,
+      x: Math.round(rawLostEcho.x),
+      y: Math.round(rawLostEcho.y),
+      items: cloneStacks(rawLostEcho.items ?? []).filter((stack) => Boolean(ITEMS[stack.itemId])),
+      createdAtRaid: Math.max(0, Math.floor(Number(rawLostEcho.createdAtRaid) || 0)),
     } : null,
     activeRaid: null,
   };
   normalized.armorCondition = Math.min(normalized.armorCondition, getArmorMaximum(normalized));
 
   if (candidate.activeRaid) {
+    const { map, entry } = normalizeMapEntry(candidate.activeRaid.mapId, candidate.activeRaid.entryId);
     const activeItems = candidate.version === 2
       ? gridItemsToStacks(normalizeGrid(candidate.activeRaid.backpack, packSize))
       : cloneStacks((candidate.activeRaid.backpack ?? []) as ItemStack[]);
@@ -183,11 +200,11 @@ function normalizeProfile(value: unknown): PlayerProfile {
       .filter((itemId): itemId is string => Boolean(itemId))
       .map((itemId) => ({ itemId, quantity: 1 }));
     normalized.lostEcho = {
-      mapId: candidate.activeRaid.mapId,
-      x: candidate.activeRaid.entryId === 'lift' ? 1500 : 240,
-      y: candidate.activeRaid.entryId === 'lift' ? 1270 : 1940,
+      mapId: map.id,
+      x: entry.x,
+      y: entry.y,
       items: addStacks(activeItems, abandonedGear),
-      createdAtRaid: candidate.activeRaid.raidId,
+      createdAtRaid: Math.max(0, Math.floor(Number(candidate.activeRaid.raidId) || 0)),
     };
     normalized.loadout = {
       weapon: 'rust_nail',
@@ -225,7 +242,16 @@ export const saveRepository = {
   },
 
   save(profile: PlayerProfile): PlayerProfile {
-    const saved = { ...profile, version: 2 as const, updatedAt: now() };
+    const saved = normalizeProfile({ ...profile, version: 2 as const, activeRaid: null });
+    saved.activeRaid = profile.activeRaid ? {
+      ...profile.activeRaid,
+      ...(() => {
+        const normalized = normalizeMapEntry(profile.activeRaid?.mapId, profile.activeRaid?.entryId);
+        return { mapId: normalized.map.id, entryId: normalized.entry.id };
+      })(),
+      backpack: cloneGridItems(profile.activeRaid.backpack),
+    } : null;
+    saved.updatedAt = now();
     window.localStorage.setItem(SAVE_KEY, JSON.stringify(saved));
     return saved;
   },

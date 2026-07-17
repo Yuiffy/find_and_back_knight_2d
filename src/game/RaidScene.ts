@@ -11,27 +11,28 @@ import {
   rotateGridItem,
   splitGridItem,
 } from './inventory';
-import { getArmorMaximum, getCurrentObjective, ITEMS, RARITY_NAMES, SLOT_NAMES } from './items';
-import { DEMO_MAP } from './maps';
+import { getArmorMaximum, ITEMS, RARITY_NAMES, SLOT_NAMES } from './items';
+import { containsPoint, findZoneAt, getMapDefinition, type MapDefinition, type MapZoneDefinition } from './maps';
 import {
-  MAP_ROUTES,
-  MAP_ROOM_SHAPES,
-  STORY_ECHOES,
-  TERRAIN_SEGMENTS,
+  getWorldLayout,
+  type RelayInteractionDefinition,
   type StoryEchoDefinition,
   type TerrainSegment,
   type TerrainStyle,
+  type WorldLayoutDefinition,
 } from './worldLayout';
 import type { GearSlot, GridItem, ItemStack, Loadout, PlayerProfile, RaidResult, TextGameState } from '../types/game';
 
 const VIEW_WIDTH = 1280;
 const VIEW_HEIGHT = 720;
-const WORLD_WIDTH = DEMO_MAP.worldWidth;
-const WORLD_HEIGHT = DEMO_MAP.worldHeight;
+const ZONE_HYSTERESIS = 40;
+const ZONE_CANDIDATE_DWELL = 600;
 
 interface RaidSceneOptions {
   profile: PlayerProfile;
-  entryId: 'foyer' | 'lift';
+  mapId: string;
+  entryId: string;
+  renderScale: 1 | 1.5 | 2;
   onResult: (result: RaidResult) => void;
 }
 
@@ -108,6 +109,9 @@ interface RaidInventoryDrag {
 interface StoryEchoEntity extends StoryEchoDefinition {
   marker: Phaser.GameObjects.Text;
   halo: Phaser.GameObjects.Arc;
+  label: Phaser.GameObjects.Text;
+  heard: boolean;
+  pulseTween: Phaser.Tweens.Tween | null;
 }
 
 const RAID_EQUIPMENT_SLOTS: GearSlot[] = ['weapon', 'armor', 'head', 'shoes'];
@@ -115,7 +119,13 @@ const NEARBY_LOOT_RADIUS = 240;
 
 export class RaidScene extends Phaser.Scene {
   private readonly profile: PlayerProfile;
-  private readonly entryId: 'foyer' | 'lift';
+  private readonly mapId: string;
+  private readonly mapDefinition: MapDefinition;
+  private readonly layout: WorldLayoutDefinition;
+  private readonly entryId: string;
+  private readonly renderScale: 1 | 1.5 | 2;
+  private readonly worldWidth: number;
+  private readonly worldHeight: number;
   private readonly onResult: (result: RaidResult) => void;
   private player!: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
   private platforms!: Phaser.Physics.Arcade.StaticGroup;
@@ -157,16 +167,15 @@ export class RaidScene extends Phaser.Scene {
   private extractionDuration = 2500;
   private extractionPoint: { x: number; y: number } | null = null;
   private nearbyInteraction: string | null = null;
-  private lastZoneName = '';
+  private currentZone: MapZoneDefinition | null = null;
+  private zoneCandidate: MapZoneDefinition | null = null;
+  private zoneCandidateSince: number | null = null;
+  private lastZoneRevealAt: number | null = null;
+  private revealedZoneIds = new Set<string>();
   private lostEchoIcon: Phaser.GameObjects.Text | null = null;
   private lostEchoHalo: Phaser.GameObjects.Arc | null = null;
   private readonly elevatorPoint = { x: 1450, y: 1330 };
-  private readonly extractionPoints = [
-    { x: 520, y: 1995, label: '前庭撤离点' },
-    { x: 3010, y: 1415, label: '沉钟应急浮标' },
-    { x: 3620, y: 745, label: '机房信号井' },
-    { x: 4000, y: 535, label: '墓园远距天线' },
-  ];
+  private extractionPoints: Array<{ x: number; y: number; label: string }> = [];
   private attackGraphics: Phaser.GameObjects.Rectangle | null = null;
   private lastTextStateAt = 0;
   private overlay: Phaser.GameObjects.Container | null = null;
@@ -182,11 +191,18 @@ export class RaidScene extends Phaser.Scene {
   private abortHoldStartedAt = 0;
   private pauseAbortText: Phaser.GameObjects.Text | null = null;
 
-  constructor({ profile, entryId, onResult }: RaidSceneOptions) {
+  constructor({ profile, mapId, entryId, renderScale, onResult }: RaidSceneOptions) {
     super('raid');
     this.profile = profile;
     this.loadout = { ...profile.loadout };
-    this.entryId = entryId;
+    this.mapId = mapId;
+    this.mapDefinition = getMapDefinition(mapId);
+    this.layout = getWorldLayout(this.mapDefinition.id);
+    this.worldWidth = this.mapDefinition.worldWidth;
+    this.worldHeight = this.mapDefinition.worldHeight;
+    this.extractionPoints = this.layout.extractionPoints;
+    this.entryId = this.mapDefinition.entries[entryId] ? entryId : Object.keys(this.mapDefinition.entries)[0];
+    this.renderScale = renderScale;
     this.onResult = onResult;
   }
 
@@ -213,11 +229,16 @@ export class RaidScene extends Phaser.Scene {
     this.createForeground();
     this.createInput();
     this.createHud();
+    this.applyRenderScale();
+    this.currentZone = findZoneAt(this.mapDefinition, this.player.x, this.player.y);
+    if (this.currentZone) this.showZoneReveal(this.currentZone, this.time.now);
     this.invulnerableUntil = this.time.now + 3000;
 
-    this.physics.world.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+    this.physics.world.setBounds(0, 0, this.worldWidth, this.worldHeight);
     this.physics.world.setBoundsCollision(true, true, true, false);
-    this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+    this.cameras.main.setBounds(0, 0, this.worldWidth, this.worldHeight);
+    this.cameras.main.setViewport(0, 0, VIEW_WIDTH * this.renderScale, VIEW_HEIGHT * this.renderScale);
+    this.cameras.main.setZoom(this.renderScale);
     this.cameras.main.startFollow(this.player, true, 0.085, 0.1, -120, 20);
     this.cameras.main.setDeadzone(330, 150);
     this.cameras.main.setBackgroundColor('#07151d');
@@ -275,7 +296,7 @@ export class RaidScene extends Phaser.Scene {
     this.updateInteractions(time);
     this.updateHud();
 
-    if (this.player.y > WORLD_HEIGHT + 100) {
+    if (this.player.y > this.worldHeight + 100) {
       this.respawnFromPit();
     }
 
@@ -291,6 +312,7 @@ export class RaidScene extends Phaser.Scene {
       cistern: { body: 0x173541, lip: 0x4d8997, seam: 0x8ec4ca },
       machine: { body: 0x242d3b, lip: 0x75658a, seam: 0xb19ad0 },
       graveyard: { body: 0x292d40, lip: 0x8871a2, seam: 0xc7a8e9 },
+      relay: { body: 0x1a3040, lip: 0x638aa6, seam: 0xa7d9e8 },
     };
     for (const style of Object.keys(terrainPalettes) as TerrainStyle[]) {
       const palette = terrainPalettes[style];
@@ -392,8 +414,8 @@ export class RaidScene extends Phaser.Scene {
     const farCaves = this.add.graphics();
     farCaves.setScrollFactor(0.12, 0.08);
     farCaves.fillStyle(0x0e2932, 1);
-    for (let y = 240; y < WORLD_HEIGHT + 600; y += 520) {
-      for (let x = -200; x < WORLD_WIDTH + 500; x += 300) {
+    for (let y = 240; y < this.worldHeight + 600; y += 520) {
+      for (let x = -200; x < this.worldWidth + 500; x += 300) {
         const peak = y - 360 - ((x / 300) % 3) * 45;
         farCaves.fillTriangle(x, y, x + 165, peak, x + 340, y);
       }
@@ -402,14 +424,14 @@ export class RaidScene extends Phaser.Scene {
     const midCaves = this.add.graphics();
     midCaves.setScrollFactor(0.34, 0.22);
     midCaves.fillStyle(0x102f36, 0.85);
-    for (let y = 380; y < WORLD_HEIGHT + 500; y += 620) {
-      for (let x = -80; x < WORLD_WIDTH + 500; x += 430) midCaves.fillEllipse(x + 90, y, 470, 390);
+    for (let y = 380; y < this.worldHeight + 500; y += 620) {
+      for (let x = -80; x < this.worldWidth + 500; x += 430) midCaves.fillEllipse(x + 90, y, 470, 390);
     }
 
     for (let i = 0; i < 72; i += 1) {
       const mote = this.add.circle(
-        Phaser.Math.Between(0, WORLD_WIDTH),
-        Phaser.Math.Between(80, WORLD_HEIGHT - 80),
+        Phaser.Math.Between(0, this.worldWidth),
+        Phaser.Math.Between(80, this.worldHeight - 80),
         Phaser.Math.Between(1, 3),
         i % 5 === 0 ? 0xe8c77b : 0x75d7c2,
         Phaser.Math.FloatBetween(0.12, 0.4),
@@ -426,11 +448,12 @@ export class RaidScene extends Phaser.Scene {
       });
     }
 
-    this.add.text(90, 1790, '失落前庭', {
+    this.add.text(90, this.worldHeight - 410, this.mapDefinition.name, {
       fontFamily: 'Georgia, serif',
       fontSize: '48px',
       color: '#c7e8df',
     }).setAlpha(0.12);
+    if (this.mapId === 'relay_01') return;
     this.add.text(96, 1844, 'THE HOLLOW OF LOST FEATHERS', {
       fontFamily: 'Arial, sans-serif',
       fontSize: '11px',
@@ -651,7 +674,7 @@ export class RaidScene extends Phaser.Scene {
 
   private createPlatforms(): void {
     this.platforms = this.physics.add.staticGroup();
-    for (const segment of TERRAIN_SEGMENTS) {
+    for (const segment of this.layout.terrain) {
       this.drawTerrainMass(segment);
       this.add.image(segment.x, segment.y, `terrain-${segment.style}`)
         .setDisplaySize(segment.width, 38)
@@ -677,12 +700,13 @@ export class RaidScene extends Phaser.Scene {
       cistern: { body: 0x112f3a, shadow: 0x061a24, accent: 0x4a8392 },
       machine: { body: 0x202936, shadow: 0x0d1520, accent: 0x655877 },
       graveyard: { body: 0x24283a, shadow: 0x101420, accent: 0x75628d },
+      relay: { body: 0x172d3a, shadow: 0x091924, accent: 0x648aa1 },
     };
     const colors = palette[segment.style];
     const left = segment.x - segment.width / 2;
     const right = segment.x + segment.width / 2;
     const top = segment.y - 19;
-    const bottom = Math.min(WORLD_HEIGHT + 80, top + (segment.massDepth ?? 120));
+    const bottom = Math.min(this.worldHeight + 80, top + (segment.massDepth ?? 120));
     const mass = this.add.graphics().setDepth(4);
     mass.fillStyle(colors.body, 0.98);
     mass.beginPath();
@@ -707,7 +731,7 @@ export class RaidScene extends Phaser.Scene {
     mass.lineTo(right - 20, top + 66);
     mass.strokePath();
 
-    if (segment.style === 'machine' || segment.style === 'graveyard') {
+    if (segment.style === 'machine' || segment.style === 'graveyard' || segment.style === 'relay') {
       mass.lineStyle(3, colors.accent, 0.24);
       for (let x = left + 34; x < right; x += 84) {
         mass.strokeRect(x, top + 20, Math.min(62, right - x - 5), Math.min(70, bottom - top - 34));
@@ -761,7 +785,15 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private createEnemies(): void {
-    this.spawnHusk('husk-foyer-1', 1120, 2010, 1040, 1260);
+    if (this.mapId === 'relay_01') {
+      this.spawnHusk('husk-relay-west', 520, 1510, 390, 740);
+      this.spawnMoth('moth-relay-trench', 1550, 1160, 1250, 1950);
+      this.spawnHusk('husk-relay-east', 2480, 1160, 2320, 2720);
+      this.spawnMoth('moth-relay-crown', 3150, 720, 2940, 3440);
+      return;
+    }
+    // Keep the manifest's open floor clear; its former overlapping patrol is moved east.
+    this.spawnHusk('husk-foyer-1', 1080, 2010, 1000, 1180);
     this.spawnHusk('husk-foyer-2', 1570, 1870, 1450, 1690);
     this.spawnHusk('husk-shaft-1', 470, 1530, 420, 540);
     this.spawnHusk('husk-archive-1', 650, 840, 480, 790);
@@ -776,6 +808,12 @@ export class RaidScene extends Phaser.Scene {
 
   private createLandmarks(): void {
     for (const extraction of this.extractionPoints) this.createExtractionBeacon(extraction.x, extraction.y, extraction.label);
+    if (this.mapId === 'relay_01') {
+      this.createRelayLandmarks();
+      this.layout.storyEchoes.forEach((echo) => this.createStoryEcho(echo));
+      this.createMatchingLostEcho();
+      return;
+    }
 
     this.spawnCrate('crate-foyer', 390, 2030, [
       { itemId: 'echo_dust', quantity: 4 },
@@ -802,7 +840,7 @@ export class RaidScene extends Phaser.Scene {
       { itemId: 'echo_lance', quantity: 1 },
     ]);
     this.spawnLoot('map-feather', 'map_feather', 1, 1220, 995);
-    STORY_ECHOES.forEach((echo) => this.createStoryEcho(echo));
+    this.layout.storyEchoes.forEach((echo) => this.createStoryEcho(echo));
 
     const liftBase = this.add.rectangle(this.elevatorPoint.x, this.elevatorPoint.y, 118, 118, 0x152f3a, 0.92)
       .setStrokeStyle(3, 0x75d7c2, 0.28)
@@ -817,57 +855,71 @@ export class RaidScene extends Phaser.Scene {
     this.tweens.add({ targets: liftLamp, alpha: 0.35, duration: 700, yoyo: true, repeat: -1 });
     liftBase.setData('landmark', 'elevator');
 
-    if (this.profile.lostEcho) {
-      const x = Phaser.Math.Clamp(this.profile.lostEcho.x, 120, WORLD_WIDTH - 120);
-      const y = Phaser.Math.Clamp(this.profile.lostEcho.y - 40, 120, WORLD_HEIGHT - 120);
-      this.lostEchoHalo = this.add.circle(x, y, 38, 0x8c69e8, 0.1)
-        .setStrokeStyle(2, 0xb999ff, 0.52)
-        .setDepth(15);
-      this.lostEchoIcon = this.add.text(x, y, '◉', {
-        fontFamily: 'Georgia, serif',
-        fontSize: '34px',
-        color: '#c6a8ff',
-        stroke: '#211835',
-        strokeThickness: 5,
-      }).setOrigin(0.5).setDepth(16);
-      this.tweens.add({
-        targets: [this.lostEchoHalo, this.lostEchoIcon],
-        alpha: { from: 0.45, to: 1 },
-        scale: { from: 0.92, to: 1.08 },
-        duration: 900,
-        yoyo: true,
-        repeat: -1,
-      });
+    this.createMatchingLostEcho();
+  }
+
+  private createRelayLandmarks(): void {
+    this.spawnCrate('crate-relay-west', 440, 1530, [{ itemId: 'echo_dust', quantity: 5 }, { itemId: 'repair_patch', quantity: 1 }]);
+    this.spawnCrate('crate-relay-east', 2450, 1170, [{ itemId: 'biscuit_note', quantity: 1 }, { itemId: 'echo_dust', quantity: 4 }]);
+    this.spawnCrate('crate-relay-crown', 3100, 990, [{ itemId: 'storm_feather', quantity: 1 }]);
+    for (const relay of this.layout.relayInteractions ?? []) this.createRelayInteraction(relay);
+    const terminal = this.layout.terminal;
+    if (terminal) {
+      this.add.rectangle(terminal.x, terminal.y, 124, 112, 0x17273b, 0.96).setStrokeStyle(3, 0xb99cff, 0.48).setDepth(8);
+      this.add.text(terminal.x, terminal.y, '⌁', { fontFamily: 'Georgia, serif', fontSize: '40px', color: '#d7c0ff' }).setOrigin(0.5).setDepth(9);
+      this.add.text(terminal.x, terminal.y - 78, terminal.name, { fontFamily: 'Arial, sans-serif', fontSize: '13px', color: '#a994c4' }).setOrigin(0.5).setDepth(9);
     }
   }
 
+  private createRelayInteraction(relay: RelayInteractionDefinition): void {
+    const calibrated = this.discoveredClues.has(relay.id);
+    this.add.rectangle(relay.x, relay.y, 104, 92, calibrated ? 0x215749 : 0x17313c, 0.96)
+      .setStrokeStyle(3, calibrated ? 0x89f1d0 : 0x6c9fb2, 0.5)
+      .setDepth(8);
+    this.add.text(relay.x, relay.y - 64, relay.name, { fontFamily: 'Arial, sans-serif', fontSize: '13px', color: calibrated ? '#9cebd4' : '#7f9da6' }).setOrigin(0.5).setDepth(9);
+  }
+
+  private createMatchingLostEcho(): void {
+    if (!this.profile.lostEcho || this.profile.lostEcho.mapId !== this.mapId) return;
+    const x = Phaser.Math.Clamp(this.profile.lostEcho.x, 120, this.worldWidth - 120);
+    const y = Phaser.Math.Clamp(this.profile.lostEcho.y - 40, 120, this.worldHeight - 120);
+    this.lostEchoHalo = this.add.circle(x, y, 38, 0x8c69e8, 0.1)
+      .setStrokeStyle(2, 0xb999ff, 0.52)
+      .setDepth(15);
+    this.lostEchoIcon = this.add.text(x, y, '◉', {
+      fontFamily: 'Georgia, serif', fontSize: '34px', color: '#c6a8ff', stroke: '#211835', strokeThickness: 5,
+    }).setOrigin(0.5).setDepth(16);
+    this.tweens.add({ targets: [this.lostEchoHalo, this.lostEchoIcon], alpha: { from: 0.45, to: 1 }, scale: { from: 0.92, to: 1.08 }, duration: 900, yoyo: true, repeat: -1 });
+  }
+
   private createStoryEcho(definition: StoryEchoDefinition): void {
-    const halo = this.add.circle(definition.x, definition.y, 28, definition.color, 0.06)
-      .setStrokeStyle(2, definition.color, 0.32)
+    const heard = this.discoveredClues.has(definition.id);
+    const halo = this.add.circle(definition.x, definition.y, 28, definition.color, heard ? 0.025 : 0.06)
+      .setStrokeStyle(2, definition.color, heard ? 0.16 : 0.32)
       .setDepth(10);
     const marker = this.add.text(definition.x, definition.y, '⌁', {
-      fontFamily: 'Georgia, serif',
-      fontSize: '30px',
+      fontFamily: 'Georgia, serif', fontSize: '30px',
       color: Phaser.Display.Color.IntegerToColor(definition.color).rgba,
-      stroke: '#07151d',
-      strokeThickness: 5,
-    }).setOrigin(0.5).setDepth(11);
-    this.add.text(definition.x, definition.y - 48, definition.title, {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '10px',
-      color: '#799693',
-      letterSpacing: 1,
+      stroke: '#07151d', strokeThickness: 5,
+    }).setOrigin(0.5).setDepth(11).setAlpha(heard ? 0.48 : 1);
+    const label = this.add.text(definition.x, definition.y - 48, definition.title, {
+      fontFamily: 'Arial, sans-serif', fontSize: '12px', color: heard ? '#566e6c' : '#799693', letterSpacing: 1,
     }).setOrigin(0.5).setDepth(10);
-    this.tweens.add({
-      targets: [halo, marker],
-      alpha: { from: 0.38, to: 0.92 },
-      scale: { from: 0.94, to: 1.08 },
-      duration: 1250 + this.storyEchoes.length * 130,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.InOut',
+    const pulseTween = heard ? null : this.tweens.add({
+      targets: [halo, marker], alpha: { from: 0.38, to: 0.92 }, scale: { from: 0.94, to: 1.08 },
+      duration: 1250 + this.storyEchoes.length * 130, yoyo: true, repeat: -1, ease: 'Sine.InOut',
     });
-    this.storyEchoes.push({ ...definition, marker, halo });
+    this.storyEchoes.push({ ...definition, marker, halo, label, heard, pulseTween });
+  }
+
+  private markStoryEchoHeard(echo: StoryEchoEntity): void {
+    if (echo.heard) return;
+    echo.heard = true;
+    echo.pulseTween?.stop();
+    echo.pulseTween = null;
+    echo.marker.setAlpha(0.48).setScale(1);
+    echo.halo.setAlpha(0.025).setScale(1).setStrokeStyle(2, echo.color, 0.16);
+    echo.label.setColor('#566e6c');
   }
 
   private createExtractionBeacon(x: number, y: number, label: string): void {
@@ -1079,7 +1131,7 @@ export class RaidScene extends Phaser.Scene {
       strokeThickness: 6,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(96).setAlpha(0);
 
-    this.objectiveText = this.add.text(26, 55, `线索  ${getCurrentObjective(this.profile)}`, {
+    this.objectiveText = this.add.text(26, 55, `目标  ${this.getRaidObjective()}`, {
       fontFamily: 'Arial, sans-serif',
       fontSize: '13px',
       color: '#f0c981',
@@ -1285,7 +1337,7 @@ export class RaidScene extends Phaser.Scene {
   private updateEnemies(): void {
     for (const enemy of this.enemies) {
       if (!enemy.sprite.active) continue;
-      if (enemy.sprite.y > WORLD_HEIGHT + 100) {
+      if (enemy.sprite.y > this.worldHeight + 100) {
         enemy.sprite.setPosition((enemy.patrolLeft + enemy.patrolRight) / 2, enemy.baseY ?? 600);
         enemy.sprite.setVelocity(0, 0);
       }
@@ -1591,7 +1643,7 @@ export class RaidScene extends Phaser.Scene {
         const item = ITEMS[nearbyLoot.itemId];
         prompt = `E · 拾取 ${item.icon} ${item.name}${nearbyLoot.quantity > 1 ? ` ×${nearbyLoot.quantity}` : ''}`;
         if (interactPressed) this.collectLoot(nearbyLoot);
-      } else if (Phaser.Math.Distance.Between(
+      } else if (this.mapId === 'hollow_01' && Phaser.Math.Distance.Between(
         this.player.x,
         this.player.y,
         this.elevatorPoint.x,
@@ -1605,6 +1657,32 @@ export class RaidScene extends Phaser.Scene {
           this.showHint('维护电梯已记录到基地。以后可快速进入深层。', 2200);
         }
       } else {
+        const nearbyRelay = this.layout.relayInteractions?.find((relay) => Phaser.Math.Distance.Between(
+          this.player.x, this.player.y, relay.x, relay.y,
+        ) < 105);
+        const terminal = this.layout.terminal;
+        const nearTerminal = terminal && Phaser.Math.Distance.Between(this.player.x, this.player.y, terminal.x, terminal.y) < 110;
+        if (nearbyRelay) {
+          const calibrated = this.discoveredClues.has(nearbyRelay.id);
+          prompt = calibrated ? `${nearbyRelay.name} · 已校准` : `E · 校准${nearbyRelay.name}`;
+          if (interactPressed && !calibrated) {
+            this.discoveredClues.add(nearbyRelay.id);
+            this.showHint(`${nearbyRelay.name}已锁定。`, 1800);
+          }
+        } else if (nearTerminal) {
+          const ready = this.discoveredClues.has('relay-west-calibrated') && this.discoveredClues.has('relay-east-calibrated');
+          prompt = ready ? 'E · 锁定饼干岛频道（3.5 秒）' : '归航终端等待东西阵列校准';
+          if (interactPressed && ready) {
+            this.endingTriggered = true;
+            this.extractionDuration = 3500;
+            this.invulnerableUntil = Number.POSITIVE_INFINITY;
+            this.staggerEndsAt = time;
+            this.player.setPosition(terminal.x, this.player.y).setVelocity(0, 0);
+            this.extractionPoint = { x: terminal.x, y: terminal.y };
+            this.extractingUntil = time + 3500;
+            this.showHint('双向信号重合。留在终端旁，直到频道锁定。', 1700);
+          }
+        } else {
         const nearbyEcho = this.storyEchoes.find((echo) => Phaser.Math.Distance.Between(
           this.player.x,
           this.player.y,
@@ -1612,30 +1690,13 @@ export class RaidScene extends Phaser.Scene {
           echo.y,
         ) < 92);
         if (nearbyEcho) {
-          const canSendHome = nearbyEcho.id === 'graveyard-terminal' && this.profile.endingUnlocked && !this.profile.endingSeen;
-          prompt = canSendHome ? 'E · 将回声核心接入终端，向故乡发送信号' : `E · 聆听「${nearbyEcho.title}」`;
+          prompt = `E · ${nearbyEcho.heard ? '重听' : '聆听'}「${nearbyEcho.title}」`;
           if (interactPressed) {
             this.discoveredClues.add(nearbyEcho.id);
             if (nearbyEcho.id === 'graveyard-terminal') this.discoveredClues.add('home-trace');
-            if (canSendHome) {
-              this.endingTriggered = true;
-              this.extractionDuration = 3500;
-              this.invulnerableUntil = Number.POSITIVE_INFINITY;
-              this.staggerEndsAt = time;
-              this.player.setPosition(nearbyEcho.x, this.player.y).setVelocity(0, 0);
-              this.extractionPoint = { x: nearbyEcho.x, y: nearbyEcho.y };
-              this.extractingUntil = time + 3500;
-              this.showHint('核心开始跳动。留在终端旁，直到频道锁定。', 1700);
-            } else {
-              this.showHint(nearbyEcho.message, 5200);
-            }
-            this.tweens.add({
-              targets: [nearbyEcho.marker, nearbyEcho.halo],
-              scale: 1.42,
-              alpha: 1,
-              duration: 180,
-              yoyo: true,
-            });
+            this.markStoryEchoHeard(nearbyEcho);
+            this.showHint(nearbyEcho.message, 5200);
+            this.tweens.add({ targets: [nearbyEcho.marker, nearbyEcho.halo], scale: 1.22, duration: 180, yoyo: true });
           }
         }
         const extraction = this.extractionPoints.find((point) => Phaser.Math.Distance.Between(
@@ -1653,6 +1714,7 @@ export class RaidScene extends Phaser.Scene {
           }
         }
       }
+    }
     }
 
     this.nearbyInteraction = prompt;
@@ -1703,6 +1765,8 @@ export class RaidScene extends Phaser.Scene {
 
     const result: RaidResult = {
       outcome,
+      mapId: this.mapId,
+      entryId: this.entryId,
       backpack: cloneGridItems(this.backpack),
       loadout: { ...this.loadout },
       recoveredItems: this.recoveredEchoItems.map((stack) => ({ ...stack })),
@@ -1718,8 +1782,8 @@ export class RaidScene extends Phaser.Scene {
 
     if (outcome === 'died') {
       result.deathPosition = {
-        x: Math.round(Phaser.Math.Clamp(this.player.x, 80, WORLD_WIDTH - 80)),
-        y: Math.round(Phaser.Math.Clamp(this.player.y, 120, WORLD_HEIGHT - 80)),
+        x: Math.round(Phaser.Math.Clamp(this.player.x, 80, this.worldWidth - 80)),
+        y: Math.round(Phaser.Math.Clamp(this.player.y, 120, this.worldHeight - 80)),
       };
       this.player.setTint(0x6e5b80);
       this.add.rectangle(VIEW_WIDTH / 2, VIEW_HEIGHT / 2, VIEW_WIDTH, VIEW_HEIGHT, 0x03070c, 0.72)
@@ -1753,22 +1817,10 @@ export class RaidScene extends Phaser.Scene {
     const bagTotal = this.profile.backpack.width * this.profile.backpack.height;
     const patches = this.backpack.filter((item) => item.itemId === 'repair_patch').reduce((sum, item) => sum + item.quantity, 0);
     this.statusText.setText(`生命  ${hearts}    蓝甲  ${armor}    背包  ${bagUsed}/${bagTotal} 格${patches > 0 ? `    修补 R×${patches}` : ''}`);
-    const zone = this.getZone();
-    this.zoneText.setText(`${zone.name} · 风险 ${zone.risk}`);
-    if (zone.name !== this.lastZoneName) {
-      this.lastZoneName = zone.name;
-      this.tweens.killTweensOf(this.zoneRevealText);
-      this.zoneRevealText.setText(`${zone.name}\n风险 ${zone.risk}`).setAlpha(0).setY(190);
-      this.tweens.add({
-        targets: this.zoneRevealText,
-        alpha: { from: 0, to: 0.78 },
-        y: 174,
-        duration: 520,
-        hold: 1250,
-        yoyo: true,
-        ease: 'Sine.InOut',
-      });
-    }
+    this.objectiveText.setText(`目标  ${this.getRaidObjective()}`);
+    this.updateZoneState(this.time.now);
+    const zone = this.currentZone;
+    this.zoneText.setText(zone ? `${zone.name} · 风险 ${zone.risk}` : `${this.mapDefinition.name} · 过渡区`);
     const boss = this.enemies.find((enemy) => enemy.boss && enemy.sprite.active);
     if (boss && Phaser.Math.Distance.Between(this.player.x, this.player.y, boss.sprite.x, boss.sprite.y) < 760) {
       const filled = Math.ceil((boss.health / boss.maxHealth) * 18);
@@ -1867,13 +1919,14 @@ export class RaidScene extends Phaser.Scene {
     const shade = this.add.rectangle(VIEW_WIDTH / 2, VIEW_HEIGHT / 2, VIEW_WIDTH, VIEW_HEIGHT, 0x02090d, 0.9);
     const panel = this.add.rectangle(VIEW_WIDTH / 2, VIEW_HEIGHT / 2, 1090, 540, 0x0a2028, 0.98)
       .setStrokeStyle(2, 0x75d7c2, 0.24);
-    const title = this.add.text(145, 135, this.mapUnlocked ? '寂羽空洞 · 完整测绘' : '寂羽空洞 · 相对定位', {
+    const mapKnown = this.mapId === 'relay_01' || this.mapUnlocked;
+    const title = this.add.text(145, 135, `${this.mapDefinition.name} · ${mapKnown ? '完整测绘' : '相对定位'}`, {
       fontFamily: 'Georgia, serif',
       fontSize: '30px',
       color: '#d8eee8',
     });
-    const subtitle = this.add.text(145, 176, this.mapUnlocked
-      ? '导航羽片已解析房间、捷径与撤离信号。'
+    const subtitle = this.add.text(145, 176, mapKnown
+      ? `${this.mapDefinition.subtitle} · 目标标记随当前进度更新。`
       : '地图数据损坏，但你的相对位置与主目标仍然可见。找到导航羽片可恢复细节。', {
       fontFamily: 'Arial, sans-serif',
       fontSize: '13px',
@@ -1883,21 +1936,21 @@ export class RaidScene extends Phaser.Scene {
     const mapTop = 215;
     const mapWidth = 970;
     const mapHeight = 300;
-    const sx = (x: number) => mapLeft + (x / WORLD_WIDTH) * mapWidth;
-    const sy = (y: number) => mapTop + (y / WORLD_HEIGHT) * mapHeight;
+    const sx = (x: number) => mapLeft + (x / this.worldWidth) * mapWidth;
+    const sy = (y: number) => mapTop + (y / this.worldHeight) * mapHeight;
     const mapGraphic = this.add.graphics();
-    for (const room of MAP_ROOM_SHAPES) {
-      mapGraphic.fillStyle(room.color, this.mapUnlocked ? 0.22 : 0.1);
+    for (const room of this.layout.roomShapes) {
+      mapGraphic.fillStyle(room.color, mapKnown ? 0.22 : 0.1);
       mapGraphic.fillRoundedRect(
         sx(room.x),
         sy(room.y),
-        (room.width / WORLD_WIDTH) * mapWidth,
-        (room.height / WORLD_HEIGHT) * mapHeight,
+        (room.width / this.worldWidth) * mapWidth,
+        (room.height / this.worldHeight) * mapHeight,
         8,
       );
     }
-    for (const route of MAP_ROUTES) {
-      mapGraphic.lineStyle(5, this.mapUnlocked ? 0x67cbb6 : 0x4e6669, this.mapUnlocked ? 0.66 : 0.28);
+    for (const route of this.layout.routes) {
+      mapGraphic.lineStyle(5, mapKnown ? 0x67cbb6 : 0x4e6669, mapKnown ? 0.66 : 0.28);
       mapGraphic.beginPath();
       route.forEach((point, index) => {
         if (index === 0) mapGraphic.moveTo(sx(point.x), sy(point.y));
@@ -1907,8 +1960,8 @@ export class RaidScene extends Phaser.Scene {
     }
     container.add([shade, panel, title, subtitle, mapGraphic]);
 
-    if (this.mapUnlocked) {
-      for (const room of MAP_ROOM_SHAPES) {
+    if (mapKnown) {
+      for (const room of this.layout.roomShapes) {
         const roomLabel = this.add.text(
           sx(room.x + room.width / 2),
           sy(room.y + room.height / 2),
@@ -1919,7 +1972,16 @@ export class RaidScene extends Phaser.Scene {
       }
     }
 
-    const nodes = [
+    const nodes = this.mapId === 'relay_01'
+      ? [
+        { x: 230, y: 1510, known: '入口', unknown: '入口' },
+        { x: 760, y: 1515, known: '西向校准', unknown: '西向校准' },
+        { x: 2525, y: 1155, known: '东向校准', unknown: '东向校准' },
+        { x: 2920, y: 985, known: '东侧撤离', unknown: '东侧撤离' },
+        { x: 3310, y: 775, known: '归航终端', unknown: '归航终端' },
+        { x: 350, y: 1515, known: '西侧撤离', unknown: '西侧撤离' },
+      ]
+      : [
       { x: 240, y: 1960, known: '入口', unknown: '入口' },
       { x: 520, y: 1995, known: '前庭撤离', unknown: '安全信号' },
       { x: 1220, y: 995, known: '导航羽片', unknown: '未知目标' },
@@ -1934,7 +1996,7 @@ export class RaidScene extends Phaser.Scene {
       const deepNode = index >= 5;
       const node = this.add.circle(x, y, deepNode ? 12 : 9, deepNode ? 0xa281df : 0x74d6bf, 0.9)
         .setStrokeStyle(4, 0x07151d, 1);
-      const label = this.add.text(x, y + 19, this.mapUnlocked ? entry.known : entry.unknown, {
+      const label = this.add.text(x, y + 19, mapKnown ? entry.known : entry.unknown, {
         fontFamily: 'Arial, sans-serif',
         fontSize: '11px',
         color: '#8da9a7',
@@ -1949,9 +2011,7 @@ export class RaidScene extends Phaser.Scene {
       stroke: '#07151d',
       strokeThickness: 4,
     }).setOrigin(0.5);
-    const targetPosition = !this.mapUnlocked
-      ? { x: 1220, y: 995 }
-      : (this.bossDefeated ? { x: 520, y: 1995 } : { x: 3400, y: 750 });
+    const targetPosition = this.getMapTarget();
     const targetMarker = this.add.text(sx(targetPosition.x), sy(targetPosition.y) - 34, '◇ 主目标', {
       fontFamily: 'Arial, sans-serif',
       fontSize: '13px',
@@ -2527,18 +2587,82 @@ export class RaidScene extends Phaser.Scene {
     return container;
   }
 
-  private getZone(): { name: string; risk: string } {
-    const zone = DEMO_MAP.zones.find((entry) => this.player.x >= entry.bounds.x
-      && this.player.x < entry.bounds.x + entry.bounds.width
-      && this.player.y >= entry.bounds.y
-      && this.player.y < entry.bounds.y + entry.bounds.height)
-      ?? DEMO_MAP.zones[DEMO_MAP.zones.length - 1];
-    return { name: zone.name, risk: zone.risk };
+  private updateZoneState(time: number): void {
+    const exact = findZoneAt(this.mapDefinition, this.player.x, this.player.y);
+    if (this.currentZone && containsPoint(this.currentZone, this.player.x, this.player.y, ZONE_HYSTERESIS)) {
+      this.zoneCandidate = null;
+      this.zoneCandidateSince = null;
+      return;
+    }
+    if (!exact) {
+      // Transition gaps are real map space. Preserve the previous label without
+      // falling back to foyer, and require a fresh dwell on the far side.
+      this.zoneCandidate = null;
+      this.zoneCandidateSince = null;
+      return;
+    }
+    if (exact.id === this.currentZone?.id) return;
+    if (this.zoneCandidate?.id !== exact.id) {
+      this.zoneCandidate = exact;
+      this.zoneCandidateSince = time;
+      return;
+    }
+    if (this.zoneCandidateSince === null || time - this.zoneCandidateSince < ZONE_CANDIDATE_DWELL) return;
+    this.currentZone = exact;
+    this.zoneCandidate = null;
+    this.zoneCandidateSince = null;
+    if (this.revealedZoneIds.has(exact.id)) return;
+    this.showZoneReveal(exact, time);
+  }
+
+  private showZoneReveal(zone: MapZoneDefinition, time: number): void {
+    this.revealedZoneIds.add(zone.id);
+    this.lastZoneRevealAt = time;
+    this.tweens.killTweensOf(this.zoneRevealText);
+    this.zoneRevealText.setText(`${zone.name}\n风险 ${zone.risk}`).setAlpha(0).setY(190);
+    this.tweens.add({ targets: this.zoneRevealText, alpha: { from: 0, to: 0.78 }, y: 174, duration: 520, hold: 1250, yoyo: true, ease: 'Sine.InOut' });
   }
 
   private getEntryPosition(): { x: number; y: number } {
-    const entry = DEMO_MAP.entries[this.entryId];
+    const entry = this.mapDefinition.entries[this.entryId] ?? Object.values(this.mapDefinition.entries)[0];
     return { x: entry.x, y: entry.y };
+  }
+
+  private getMapTarget(): { x: number; y: number } {
+    if (this.mapId === 'relay_01') {
+      if (!this.discoveredClues.has('relay-west-calibrated')) return { x: 760, y: 1515 };
+      if (!this.discoveredClues.has('relay-east-calibrated')) return { x: 2525, y: 1155 };
+      return { x: 3310, y: 775 };
+    }
+    if (this.profile.successfulExtractions === 0) return { x: 520, y: 1995 };
+    if (!this.mapUnlocked) return { x: 1220, y: 995 };
+    if (!this.shortcutUnlocked) return this.elevatorPoint;
+    if (!this.bossDefeated) return { x: 3400, y: 750 };
+    return { x: 3620, y: 745 };
+  }
+
+  private getRaidObjective(): string {
+    if (this.mapId === 'relay_01') {
+      const west = this.discoveredClues.has('relay-west-calibrated');
+      const east = this.discoveredClues.has('relay-east-calibrated');
+      if (!west) return '校准西向阵列';
+      if (!east) return '校准东向阵列';
+      return '前往冠顶终端，锁定频道';
+    }
+    if (this.profile.successfulExtractions === 0) return '在前庭完成首次安全撤离';
+    if (!this.mapUnlocked) return '找到导航羽片并安全撤离';
+    if (!this.shortcutUnlocked) return '启动裂谷维护电梯';
+    if (!this.bossDefeated) return '击败失频守卫，带回回声核心';
+    return '探索回声，或安全撤离';
+  }
+
+  private applyRenderScale(): void {
+    this.children.list.forEach((child) => {
+      if (child instanceof Phaser.GameObjects.Text) child.setResolution(this.renderScale);
+    });
+    this.events.on(Phaser.Scenes.Events.ADDED_TO_SCENE, (child: Phaser.GameObjects.GameObject) => {
+      if (child instanceof Phaser.GameObjects.Text) child.setResolution(this.renderScale);
+    });
   }
 
   private showHint(message: string, duration: number): void {
@@ -2553,9 +2677,25 @@ export class RaidScene extends Phaser.Scene {
     const body = this.player.body;
     const state: TextGameState = {
       mode: 'raid',
-      coordinateSystem: `World origin is top-left; +x right, +y down; two-axis room network ${WORLD_WIDTH}x${WORLD_HEIGHT}.`,
-      objective: getCurrentObjective(this.profile),
-      zone: this.getZone().name,
+      coordinateSystem: `World origin is top-left; +x right, +y down; two-axis room network ${this.worldWidth}x${this.worldHeight}.`,
+      objective: this.getRaidObjective(),
+      mapId: this.mapId,
+      zone: this.currentZone?.name,
+      zoneId: this.currentZone?.id ?? null,
+      zoneReveal: {
+        candidateZoneId: this.zoneCandidate?.id ?? null,
+        candidateSince: this.zoneCandidateSince,
+        revealedZoneIds: Array.from(this.revealedZoneIds),
+        lastRevealAt: this.lastZoneRevealAt,
+        visible: this.zoneRevealText.alpha > 0,
+      },
+      render: {
+        logicalWidth: VIEW_WIDTH,
+        logicalHeight: VIEW_HEIGHT,
+        backingWidth: VIEW_WIDTH * this.renderScale,
+        backingHeight: VIEW_HEIGHT * this.renderScale,
+        renderScale: this.renderScale,
+      },
       player: {
         x: Math.round(this.player.x),
         y: Math.round(this.player.y),
@@ -2608,6 +2748,9 @@ export class RaidScene extends Phaser.Scene {
           x: Math.round(entry.icon.x),
           y: Math.round(entry.icon.y),
         })),
+      visibleStoryEchoes: this.storyEchoes
+        .filter((echo) => Phaser.Math.Distance.Between(echo.x, echo.y, this.player.x, this.player.y) < 850)
+        .map((echo) => ({ id: echo.id, x: echo.x, y: echo.y, heard: echo.heard, pulsing: Boolean(echo.pulseTween?.isPlaying()) })),
       nearbyInteraction: this.nearbyInteraction,
       flags: {
         dashReady: this.time.now >= this.dashReadyAt,
