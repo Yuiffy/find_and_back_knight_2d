@@ -23,7 +23,7 @@ ok，你来创作这个理想的游戏！当然我们可以分批次，你可以
 - 基地整备界面、装备/卸下、护甲修复、仓库升级和 localStorage 自动存档/导入/导出模型已完成。
 - `npm run build` 通过。官方 Playwright 客户端缺少相邻依赖，因此安装了项目本地 `playwright` 并复制同一客户端脚本到 `tests/` 执行。
 - 发现 5173 已被另一个“猫羊牌”项目占用；未干扰原进程。本项目改用 4175 且启用 `strictPort`。
-- Playwright 基地检查通过：`artifacts/base-4175/shot-0.png`；文本状态为 base + 当前主目标，无控制台错误。
+- Playwright 基地检查通过：`.tmp/test-artifacts/base-4175/shot-0.png`；文本状态为 base + 当前主目标，无控制台错误。
 
 ## 2026-07-16 · Demo 闭环完成
 
@@ -35,7 +35,7 @@ ok，你来创作这个理想的游戏！当然我们可以分批次，你可以
 - 完成浏览器自动存档、异常刷新按死亡结算、JSON 导入/导出/重置，以及未来服务端可替换的 `ProfileGateway` 与领域事件边界。
 - 完成首个结局动画“收到请回答 / 结局一·尚未归巢”。
 - 修复测试中发现的问题：敌人越过巡逻边界、重型护甲首跳容错不足、深层出生保护不足、Phaser 4 旧染色 API 警告、React StrictMode 双画布、Boss 标记未跟随/销毁、重复装备列表键。
-- 官方 Playwright 客户端反复验证基地、战斗、拾取、撤离、地图、背包和死亡；最终结果 `artifacts/final-official`，文本状态已返回基地并推进到导航羽片目标，无控制台错误。
+- 官方 Playwright 客户端反复验证基地、战斗、拾取、撤离、地图、背包和死亡；最终结果 `.tmp/test-artifacts/final-official`，文本状态已返回基地并推进到导航羽片目标，无控制台错误。
 - `tests/deep-flow.mjs` 完整跑通深层捷径→Boss→核心拾取→深层撤离→结局，结果 `{ ok: true, finalMode: "ending", errors: [] }`。
 - `tests/lost-echo-flow.mjs` 跑通找回归仓与再次死亡覆盖，结果 `{ ok: true, recovered: true, overwritten: true, errors: [] }`。
 - `tests/save-roundtrip.mjs` 跑通导出→重置→导入，结果 `{ ok: true, exported: true, reset: true, imported: true, errors: [] }`。
@@ -72,7 +72,7 @@ ok，你来创作这个理想的游戏！当然我们可以分批次，你可以
 - 地图由 4,800×720 单横轴改为 3,200×2,200 二维房间网络，包含下层前庭、回声竖井、荧菌折返路线、地图支路、上层机房和 Boss 房。
 - 平台采用从下方可穿过、下落时承接的探索碰撞；主路线所有高度差按跳跃能力重新约束。Boss 后移到房间内部，避免守在入口平台。
 - 远征 M 地图重画为同时使用 X/Y 的房间图；文本状态明确输出 3,200×2,200 两轴坐标与物理体尺寸。
-- 官方游戏客户端验证新版基地、入场、朝向、首次搜刮与撤离：`artifacts/v2-base-official`、`artifacts/v2-game-official`、`artifacts/v2-first-extraction-official`，无浏览器错误。
+- 官方游戏客户端验证新版基地、入场、朝向、首次搜刮与撤离：`.tmp/test-artifacts/v2-base-official`、`.tmp/test-artifacts/v2-game-official`、`.tmp/test-artifacts/v2-first-extraction-official`，无浏览器错误。
 - `tests/v2-base-inventory.mjs` 验证 9×10 仓库、4×5 背包、仓库↔背包双向拖放和入口弹窗。
 - `tests/v2-two-axis-navigation.mjs` 用真实移动/跳跃从 y=2033 攀爬到 y=1373，垂直推进 660px，并检查二维地图叠层。
 - `tests/deep-flow.mjs` 从维护电梯沿二维路线爬到机房，击败 Boss，将 3×3 核心与 2×2 影步靴装入 4×5 背包，撤离并播放结局；v1 存档迁移正常。
@@ -82,3 +82,21 @@ ok，你来创作这个理想的游戏！当然我们可以分批次，你可以
 
 - 增加背包内旋转物品、拆分堆叠与丢弃操作。
 - 给二维房间增加更完整的墙体、门、隐藏支路与下劈反弹。
+
+## 2026-07-17 · 远征现场整备
+
+- 用户要求：远征中打开背包后，可把背包物品拖到地面、列出附近地面物品，并能随时将新武器或护甲直接换上。
+- 已接入三栏远征整备界面：当前装备、二维随身背包、240 像素范围内的附近物品。
+- 背包物品支持拖动整理、拖到脚边整组丢弃；附近物品支持拖入背包或对应装备槽。
+- 武器、护甲、头部和鞋可现场更换。旧装备优先放回背包；无连续空格时会落在脚边并出现在附近列表。
+- 现场装备会立即影响攻击、移速、黑冲和蓝甲；撤离结算保存新配装，死亡回声使用死亡时的实际配装。
+- 修复相机纵向滚动时 UI 交互热区偏移的问题；拖拽使用屏幕坐标手势与跟随鼠标的幽灵标签。
+- `tests/raid-inventory-flow.mjs` 已验证背包装备、地面武器直接换装、蓝甲即时生效、附近拾取和拖回地面，控制台无错误。
+- 官方游戏客户端截图 `.tmp/test-artifacts/raid-nearby-loot-final/shot-0.png` 已检查，三栏整备界面与附近物品列表显示正常。
+- `npm run build`、`tests/v2-base-inventory.mjs` 与 `tests/deep-flow.mjs` 均通过；深层流程仍能完成 Boss、撤离与结局。
+
+## 2026-07-17 · 测试产物清理
+
+- 将仓库中的自动化截图、状态 JSON 与错误日志统一迁移到 `.tmp/test-artifacts/`。
+- `.tmp/`、`artifacts/` 与 `output/` 已加入 `.gitignore`；测试脚本不再向受 Git 管理的目录写产物。
+- `public/assets/` 中的正式游戏素材保持不变。

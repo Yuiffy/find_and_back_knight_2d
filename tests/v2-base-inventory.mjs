@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
 
-const outputDir = path.resolve('artifacts/v2-base-inventory');
+const outputDir = path.resolve('.tmp/test-artifacts/v2-base-inventory');
 fs.mkdirSync(outputDir, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });

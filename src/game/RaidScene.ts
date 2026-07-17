@@ -1,8 +1,14 @@
 import Phaser from 'phaser';
-import { addStacks, cloneGridItems, insertGridStack, occupiedGridCells } from './inventory';
-import { getArmorMaximum, getCurrentObjective, ITEMS } from './items';
+import {
+  addStacks,
+  cloneGridItems,
+  insertGridStack,
+  moveGridItem,
+  occupiedGridCells,
+} from './inventory';
+import { getArmorMaximum, getCurrentObjective, ITEMS, RARITY_NAMES, SLOT_NAMES } from './items';
 import { DEMO_MAP } from './maps';
-import type { GridItem, ItemStack, PlayerProfile, RaidResult, TextGameState } from '../types/game';
+import type { GearSlot, GridItem, ItemStack, Loadout, PlayerProfile, RaidResult, TextGameState } from '../types/game';
 
 const VIEW_WIDTH = 1280;
 const VIEW_HEIGHT = 720;
@@ -67,6 +73,15 @@ interface RaidCrate {
   broken: boolean;
 }
 
+interface RaidInventoryDrag {
+  source: 'backpack' | 'ground';
+  uid?: string;
+  lootId?: string;
+}
+
+const RAID_EQUIPMENT_SLOTS: GearSlot[] = ['weapon', 'armor', 'head', 'shoes'];
+const NEARBY_LOOT_RADIUS = 240;
+
 export class RaidScene extends Phaser.Scene {
   private readonly profile: PlayerProfile;
   private readonly entryId: 'foyer' | 'lift';
@@ -78,6 +93,7 @@ export class RaidScene extends Phaser.Scene {
   private loot: LootEntity[] = [];
   private crates: RaidCrate[] = [];
   private backpack: GridItem[] = [];
+  private loadout: Loadout;
   private recoveredEchoItems: ItemStack[] = [];
   private recoveredEcho = false;
   private mapUnlocked = false;
@@ -118,10 +134,14 @@ export class RaidScene extends Phaser.Scene {
   private lastTextStateAt = 0;
   private overlay: Phaser.GameObjects.Container | null = null;
   private overlayMode: 'map' | 'backpack' | null = null;
+  private overlayNotice = '';
+  private activeInventoryDrag: RaidInventoryDrag | null = null;
+  private inventoryDragGhost: Phaser.GameObjects.Text | null = null;
 
   constructor({ profile, entryId, onResult }: RaidSceneOptions) {
     super('raid');
     this.profile = profile;
+    this.loadout = { ...profile.loadout };
     this.entryId = entryId;
     this.onResult = onResult;
   }
@@ -132,7 +152,7 @@ export class RaidScene extends Phaser.Scene {
 
   create(): void {
     this.health = this.maxHealth;
-    this.maxArmor = getArmorMaximum(this.profile);
+    this.maxArmor = getArmorMaximum({ loadout: this.loadout });
     this.armor = Math.min(this.profile.armorCondition, this.maxArmor);
     this.mapUnlocked = this.profile.mapUnlocked;
     this.shortcutUnlocked = this.profile.shortcutUnlocked;
@@ -653,7 +673,22 @@ export class RaidScene extends Phaser.Scene {
       Phaser.Input.Keyboard.KeyCodes.LEFT,
       Phaser.Input.Keyboard.KeyCodes.RIGHT,
     ]);
-    this.input.on('pointerdown', () => this.tryAttack(this.time.now));
+    this.input.on('pointerdown', () => {
+      if (!this.overlayMode) this.tryAttack(this.time.now);
+    });
+    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+      if (this.activeInventoryDrag && this.inventoryDragGhost) {
+        this.inventoryDragGhost.setPosition(pointer.x + 18, pointer.y + 18);
+      }
+    });
+    this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
+      if (!this.activeInventoryDrag || this.overlayMode !== 'backpack') return;
+      const drag = this.activeInventoryDrag;
+      this.activeInventoryDrag = null;
+      this.inventoryDragGhost?.destroy();
+      this.inventoryDragGhost = null;
+      if (!this.handleRaidInventoryPointerDrop(drag, pointer)) this.refreshBackpackOverlay();
+    });
   }
 
   private createHud(): void {
@@ -742,9 +777,9 @@ export class RaidScene extends Phaser.Scene {
 
     if (time < this.staggerEndsAt) return;
 
-    const weapon = this.profile.loadout.weapon ? ITEMS[this.profile.loadout.weapon] : ITEMS.rust_nail;
-    const shoes = this.profile.loadout.shoes ? ITEMS[this.profile.loadout.shoes] : null;
-    const armor = this.profile.loadout.armor ? ITEMS[this.profile.loadout.armor] : null;
+    const weapon = this.loadout.weapon ? ITEMS[this.loadout.weapon] : ITEMS.rust_nail;
+    const shoes = this.loadout.shoes ? ITEMS[this.loadout.shoes] : null;
+    const armor = this.loadout.armor ? ITEMS[this.loadout.armor] : null;
     const speedMultiplier = (shoes?.stats?.speedMultiplier ?? 1) * (armor?.stats?.speedMultiplier ?? 1);
     const moveSpeed = 300 * speedMultiplier;
     const leftDown = this.keys.left.isDown || this.keys.leftArrow.isDown;
@@ -814,7 +849,7 @@ export class RaidScene extends Phaser.Scene {
 
   private tryAttack(time: number): void {
     if (time < this.attackReadyAt || this.isDashing || !this.player.active) return;
-    const weapon = this.profile.loadout.weapon ? ITEMS[this.profile.loadout.weapon] : ITEMS.rust_nail;
+    const weapon = this.loadout.weapon ? ITEMS[this.loadout.weapon] : ITEMS.rust_nail;
     const range = weapon.stats?.range ?? 84;
     const damage = weapon.stats?.attack ?? 2;
     this.attackReadyAt = time + (weapon.stats?.attackCooldown ?? 340);
@@ -1124,6 +1159,7 @@ export class RaidScene extends Phaser.Scene {
     const result: RaidResult = {
       outcome,
       backpack: cloneGridItems(this.backpack),
+      loadout: { ...this.loadout },
       recoveredItems: this.recoveredEchoItems.map((stack) => ({ ...stack })),
       armorCondition: this.armor,
       mapUnlocked: this.mapUnlocked,
@@ -1189,10 +1225,13 @@ export class RaidScene extends Phaser.Scene {
     this.closeOverlay();
     this.overlayMode = mode;
     this.physics.pause();
-    this.overlay = mode === 'map' ? this.createMapOverlay() : this.createBackpackOverlay();
+    this.overlay = mode === 'map' ? this.createMapOverlay() : this.createRaidInventoryOverlay();
   }
 
   private closeOverlay(): void {
+    this.activeInventoryDrag = null;
+    this.inventoryDragGhost?.destroy();
+    this.inventoryDragGhost = null;
     this.overlay?.destroy(true);
     this.overlay = null;
     if (this.overlayMode && !this.runEnded) this.physics.resume();
@@ -1287,6 +1326,347 @@ export class RaidScene extends Phaser.Scene {
     }).setOrigin(0.5);
     container.add([playerMarker, targetMarker, footer]);
     return container;
+  }
+
+  private getNearbyLoot(): LootEntity[] {
+    return this.loot
+      .filter((entry) => entry.icon.active && Phaser.Math.Distance.Between(
+        this.player.x,
+        this.player.y,
+        entry.icon.x,
+        entry.icon.y,
+      ) <= NEARBY_LOOT_RADIUS)
+      .sort((left, right) => Phaser.Math.Distance.Between(this.player.x, this.player.y, left.icon.x, left.icon.y)
+        - Phaser.Math.Distance.Between(this.player.x, this.player.y, right.icon.x, right.icon.y));
+  }
+
+  private refreshBackpackOverlay(): void {
+    if (this.overlayMode !== 'backpack') return;
+    this.overlay?.destroy(true);
+    this.overlay = this.createRaidInventoryOverlay();
+    this.updateHud();
+    this.publishTextState(true);
+  }
+
+  private createInventoryDragCard(
+    container: Phaser.GameObjects.Container,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    itemId: string,
+    quantity: number,
+    drag: RaidInventoryDrag,
+    compact = false,
+  ): Phaser.GameObjects.Container {
+    const item = ITEMS[itemId];
+    const fill = item.rarity === 'relic' ? 0x6f5730 : item.rarity === 'rare' ? 0x3f4777 : item.rarity === 'uncommon' ? 0x225b57 : 0x173d3b;
+    const border = item.rarity === 'relic' ? 0xf1ca7a : item.rarity === 'rare' ? 0xb8afff : 0x78d9c4;
+    const panel = this.add.rectangle(0, 0, width, height, fill, 0.98).setStrokeStyle(2, border, 0.64);
+    const icon = this.add.text(compact ? -width / 2 + 25 : 0, compact ? 0 : -Math.min(14, height * 0.16), item.icon, {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: `${compact ? 24 : Math.min(30, Math.max(18, height * 0.34))}px`,
+    }).setOrigin(0.5);
+    const name = this.add.text(compact ? -width / 2 + 50 : 0, compact ? -9 : Math.min(22, height * 0.23), item.name, {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: compact ? '13px' : '10px',
+      color: '#e5f5f0',
+      fontStyle: 'bold',
+    }).setOrigin(compact ? 0 : 0.5, 0.5);
+    const detail = compact
+      ? `${RARITY_NAMES[item.rarity]} · ${item.size.width}×${item.size.height}${quantity > 1 ? ` · ×${quantity}` : ''}`
+      : (quantity > 1 ? `×${quantity}` : `${item.size.width}×${item.size.height}`);
+    const detailText = this.add.text(compact ? -width / 2 + 50 : width / 2 - 5, compact ? 12 : -height / 2 + 5, detail, {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: compact ? '10px' : '9px',
+      color: '#f1c879',
+    }).setOrigin(compact ? 0 : 1, compact ? 0.5 : 0);
+    const card = this.add.container(x, y, [panel, icon, name, detailText]);
+    const hitArea = this.add.zone(x, y, width, height).setScrollFactor(0).setInteractive({ cursor: 'grab' });
+    hitArea.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      this.activeInventoryDrag = drag;
+      this.inventoryDragGhost?.destroy();
+      this.inventoryDragGhost = this.add.text(pointer.x + 18, pointer.y + 18, `${item.icon} ${item.name}`, {
+        fontFamily: 'Arial, sans-serif',
+        fontSize: '14px',
+        color: '#effffb',
+        backgroundColor: '#173d3b',
+        padding: { x: 9, y: 6 },
+        stroke: '#07151d',
+        strokeThickness: 3,
+      }).setScrollFactor(0).setDepth(220);
+      card.setScale(1.025).setAlpha(0.92);
+    });
+    container.add([card, hitArea]);
+    return card;
+  }
+
+  private createRaidInventoryOverlay(): Phaser.GameObjects.Container {
+    const container = this.add.container(0, 0).setScrollFactor(0).setDepth(170);
+    const shade = this.add.rectangle(VIEW_WIDTH / 2, VIEW_HEIGHT / 2, VIEW_WIDTH, VIEW_HEIGHT, 0x02090d, 0.92);
+    const panel = this.add.rectangle(VIEW_WIDTH / 2, VIEW_HEIGHT / 2, 1160, 610, 0x0a2028, 0.99)
+      .setStrokeStyle(2, 0x75d7c2, 0.3);
+    const used = occupiedGridCells(this.backpack);
+    const total = this.profile.backpack.width * this.profile.backpack.height;
+    container.add([
+      shade,
+      panel,
+      this.add.text(90, 70, '远征整备', { fontFamily: 'Georgia, serif', fontSize: '30px', color: '#d8eee8' }),
+      this.add.text(90, 109, '拖动物品即可换装、整理或丢到脚边；附近战利品也能直接拿取。', {
+        fontFamily: 'Arial, sans-serif', fontSize: '13px', color: '#789795',
+      }),
+      this.add.text(90, 148, '当前装备', { fontFamily: 'Arial, sans-serif', fontSize: '15px', color: '#9ee6d5', fontStyle: 'bold' }),
+      this.add.text(455, 148, `随身背包  ${this.profile.backpack.width}×${this.profile.backpack.height} · ${used}/${total} 格`, {
+        fontFamily: 'Arial, sans-serif', fontSize: '15px', color: '#9ee6d5', fontStyle: 'bold',
+      }),
+      this.add.text(855, 148, `附近物品  ${NEARBY_LOOT_RADIUS} 范围`, {
+        fontFamily: 'Arial, sans-serif', fontSize: '15px', color: '#9ee6d5', fontStyle: 'bold',
+      }),
+    ]);
+
+    RAID_EQUIPMENT_SLOTS.forEach((slot, index) => {
+      const y = 196 + index * 86;
+      const slotPanel = this.add.rectangle(220, y, 260, 70, 0x07171e, 0.9)
+        .setStrokeStyle(1, 0x6bcbb6, 0.3)
+        .setInteractive({ dropZone: true, cursor: 'copy' });
+      slotPanel.setData('inventoryTarget', 'equip');
+      slotPanel.setData('gearSlot', slot);
+      const itemId = this.loadout[slot];
+      const item = itemId ? ITEMS[itemId] : null;
+      container.add([
+        slotPanel,
+        this.add.text(108, y - 22, SLOT_NAMES[slot], { fontSize: '10px', color: '#698b88' }),
+        this.add.text(116, y + 5, item?.icon ?? '＋', { fontSize: '26px', color: '#5e7d7a' }).setOrigin(0, 0.5),
+        this.add.text(158, y - 5, item?.name ?? '空槽位', { fontSize: '13px', color: item ? '#e3f4ef' : '#5e7d7a', fontStyle: 'bold' }),
+        this.add.text(158, y + 15, item ? this.getEquipmentSummary(item.id) : `拖入${SLOT_NAMES[slot]}类物品`, {
+          fontSize: '10px', color: '#86aaa7',
+        }),
+      ]);
+    });
+
+    const backpackItem = this.loadout.backpack ? ITEMS[this.loadout.backpack] : null;
+    container.add([
+      this.add.rectangle(220, 555, 260, 54, 0x0c1e25, 0.72).setStrokeStyle(1, 0x516c70, 0.28),
+      this.add.text(108, 548, `背包本体  ${backpackItem?.icon ?? ''} ${backpackItem?.name ?? '无'}`, { fontSize: '11px', color: '#91aaa7' }),
+      this.add.text(108, 565, '远征中锁定，返回基地后可更换', { fontSize: '9px', color: '#58716f' }),
+    ]);
+
+    const cellSize = Math.min(62, 340 / Math.max(1, this.profile.backpack.height), 340 / Math.max(1, this.profile.backpack.width));
+    const gridWidth = this.profile.backpack.width * cellSize;
+    const gridHeight = this.profile.backpack.height * cellSize;
+    const gridLeft = 625 - gridWidth / 2;
+    const gridTop = 171;
+    const gridDropZone = this.add.rectangle(gridLeft + gridWidth / 2, gridTop + gridHeight / 2, gridWidth, gridHeight, 0x07171e, 0.7)
+      .setStrokeStyle(2, 0x6bcbb6, 0.28)
+      .setInteractive({ dropZone: true, cursor: 'copy' });
+    gridDropZone.setData('inventoryTarget', 'backpack');
+    gridDropZone.setData('gridLeft', gridLeft);
+    gridDropZone.setData('gridTop', gridTop);
+    gridDropZone.setData('cellSize', cellSize);
+    container.add(gridDropZone);
+    for (let row = 0; row < this.profile.backpack.height; row += 1) {
+      for (let column = 0; column < this.profile.backpack.width; column += 1) {
+        container.add(this.add.rectangle(
+          gridLeft + column * cellSize + cellSize / 2,
+          gridTop + row * cellSize + cellSize / 2,
+          cellSize - 3,
+          cellSize - 3,
+          0x102a31,
+          0.42,
+        ).setStrokeStyle(1, 0x6bcbb6, 0.15));
+      }
+    }
+    for (const stack of this.backpack) {
+      const item = ITEMS[stack.itemId];
+      const width = item.size.width * cellSize - 7;
+      const height = item.size.height * cellSize - 7;
+      this.createInventoryDragCard(
+        container,
+        gridLeft + stack.x * cellSize + width / 2 + 3,
+        gridTop + stack.y * cellSize + height / 2 + 3,
+        width,
+        height,
+        stack.itemId,
+        stack.quantity,
+        { source: 'backpack', uid: stack.uid },
+      );
+    }
+
+    const dropZone = this.add.rectangle(625, 570, 300, 62, 0x391d25, 0.78)
+      .setStrokeStyle(2, 0xdf7d83, 0.58)
+      .setInteractive({ dropZone: true, cursor: 'move' });
+    dropZone.setData('inventoryTarget', 'ground');
+    container.add([
+      dropZone,
+      this.add.text(625, 560, '↓  丢到脚边', { fontSize: '15px', color: '#f1b0af', fontStyle: 'bold' }).setOrigin(0.5),
+      this.add.text(625, 580, '整组物品会回到地面，可再次拾取', { fontSize: '9px', color: '#a77578' }).setOrigin(0.5),
+    ]);
+
+    const nearby = this.getNearbyLoot().slice(0, 6);
+    if (nearby.length === 0) {
+      container.add([
+        this.add.text(1010, 280, '脚边没有可拾取物品', { fontSize: '14px', color: '#688481' }).setOrigin(0.5),
+        this.add.text(1010, 308, '靠近战利品后再打开背包', { fontSize: '10px', color: '#4f6967' }).setOrigin(0.5),
+      ]);
+    } else {
+      nearby.forEach((entry, index) => {
+        this.createInventoryDragCard(
+          container,
+          1010,
+          205 + index * 64,
+          300,
+          52,
+          entry.itemId,
+          entry.quantity,
+          { source: 'ground', lootId: entry.id },
+          true,
+        );
+      });
+    }
+    if (this.getNearbyLoot().length > 6) {
+      container.add(this.add.text(1010, 602, `另有 ${this.getNearbyLoot().length - 6} 组物品，拾取后会继续显示`, {
+        fontSize: '10px', color: '#789795',
+      }).setOrigin(0.5));
+    }
+
+    const notice = this.overlayNotice || '拖到装备槽可立即换上；拖到背包格可拿取或调整位置。';
+    container.add([
+      this.add.text(625, 630, notice, {
+        fontFamily: 'Arial, sans-serif', fontSize: '11px', color: this.overlayNotice ? '#f1c879' : '#63817f',
+      }).setOrigin(0.5),
+      this.add.text(VIEW_WIDTH - 92, 630, 'Tab 关闭', { fontSize: '11px', color: '#63817f', letterSpacing: 2 }).setOrigin(1, 0.5),
+    ]);
+    return container;
+  }
+
+  private getEquipmentSummary(itemId: string): string {
+    const item = ITEMS[itemId];
+    if (item.stats?.attack) return `伤害 ${item.stats.attack} · 范围 ${item.stats.range ?? 0}`;
+    if (item.stats?.armor) return `蓝甲 ${item.stats.armor}${item.stats.speedMultiplier ? ' · 移速修正' : ''}`;
+    if (item.stats?.dashEnabled) return '解锁黑冲';
+    if (item.stats?.speedMultiplier) return `移速 ×${item.stats.speedMultiplier.toFixed(2)}`;
+    return RARITY_NAMES[item.rarity];
+  }
+
+  private handleRaidInventoryPointerDrop(drag: RaidInventoryDrag, pointer: Phaser.Input.Pointer): boolean {
+    if (pointer.x >= 475 && pointer.x <= 775 && pointer.y >= 539 && pointer.y <= 601) {
+      if (drag.source !== 'backpack' || !drag.uid) {
+        this.overlayNotice = '地面物品已经在脚边了。';
+        this.refreshBackpackOverlay();
+        return true;
+      }
+      const stack = this.backpack.find((entry) => entry.uid === drag.uid);
+      if (!stack) return false;
+      this.backpack = this.backpack.filter((entry) => entry.uid !== drag.uid).map((entry) => ({ ...entry }));
+      this.spawnLoot(`manual-drop-${stack.uid}-${Math.round(this.time.now)}`, stack.itemId, stack.quantity, this.player.x + this.facing * 54, this.player.y - 20);
+      this.overlayNotice = `已丢到脚边：${ITEMS[stack.itemId].name}${stack.quantity > 1 ? ` ×${stack.quantity}` : ''}`;
+      this.refreshBackpackOverlay();
+      return true;
+    }
+
+    if (pointer.x >= 90 && pointer.x <= 350) {
+      const slotIndex = RAID_EQUIPMENT_SLOTS.findIndex((_slot, index) => {
+        const centerY = 196 + index * 86;
+        return pointer.y >= centerY - 35 && pointer.y <= centerY + 35;
+      });
+      if (slotIndex >= 0) {
+        this.equipRaidItem(drag, RAID_EQUIPMENT_SLOTS[slotIndex]);
+        this.refreshBackpackOverlay();
+        return true;
+      }
+    }
+
+    const cellSize = Math.min(62, 340 / Math.max(1, this.profile.backpack.height), 340 / Math.max(1, this.profile.backpack.width));
+    const gridWidth = this.profile.backpack.width * cellSize;
+    const gridHeight = this.profile.backpack.height * cellSize;
+    const gridLeft = 625 - gridWidth / 2;
+    const gridTop = 171;
+    if (pointer.x < gridLeft || pointer.x > gridLeft + gridWidth || pointer.y < gridTop || pointer.y > gridTop + gridHeight) {
+      return false;
+    }
+
+    if (drag.source === 'backpack' && drag.uid) {
+      const x = Math.floor((pointer.x - gridLeft) / cellSize);
+      const y = Math.floor((pointer.y - gridTop) / cellSize);
+      const moved = moveGridItem(this.backpack, this.profile.backpack, drag.uid, x, y);
+      if (moved) {
+        this.backpack = moved;
+        this.overlayNotice = '背包布局已调整。';
+      } else {
+        this.overlayNotice = '这里放不下：需要完整连续空格。';
+      }
+      this.refreshBackpackOverlay();
+      return true;
+    }
+
+    if (drag.source === 'ground' && drag.lootId) {
+      const loot = this.loot.find((entry) => entry.id === drag.lootId && entry.icon.active);
+      if (!loot) return false;
+      const inserted = insertGridStack(this.backpack, this.profile.backpack, { itemId: loot.itemId, quantity: loot.quantity });
+      if (!inserted) {
+        const item = ITEMS[loot.itemId];
+        this.overlayNotice = `${item.name} 需要 ${item.size.width}×${item.size.height} 连续空格。`;
+      } else {
+        this.backpack = inserted;
+        if (loot.itemId === 'map_feather') this.mapUnlocked = true;
+        loot.icon.destroy();
+        loot.halo.destroy();
+        this.overlayNotice = `已装入背包：${ITEMS[loot.itemId].name}`;
+      }
+      this.refreshBackpackOverlay();
+      return true;
+    }
+    return false;
+  }
+
+  private equipRaidItem(drag: RaidInventoryDrag, slot: GearSlot): void {
+    let itemId: string | null = null;
+    let sourceLoot: LootEntity | null = null;
+    let nextBackpack = cloneGridItems(this.backpack);
+    if (drag.source === 'backpack' && drag.uid) {
+      const carried = this.backpack.find((entry) => entry.uid === drag.uid);
+      if (carried) {
+        itemId = carried.itemId;
+        nextBackpack = this.backpack.filter((entry) => entry.uid !== drag.uid).map((entry) => ({ ...entry }));
+      }
+    } else if (drag.source === 'ground' && drag.lootId) {
+      sourceLoot = this.loot.find((entry) => entry.id === drag.lootId && entry.icon.active) ?? null;
+      itemId = sourceLoot?.itemId ?? null;
+    }
+    if (!itemId) return;
+    const item = ITEMS[itemId];
+    if (item.category !== slot) {
+      this.overlayNotice = `${item.name} 不能装备到${SLOT_NAMES[slot]}槽。`;
+      return;
+    }
+
+    const oldItemId = this.loadout[slot];
+    if (oldItemId === itemId && drag.source === 'backpack') {
+      this.overlayNotice = `${item.name} 已经装备。`;
+      return;
+    }
+    let oldWentToBackpack = false;
+    if (oldItemId) {
+      const insertedOld = insertGridStack(nextBackpack, this.profile.backpack, { itemId: oldItemId, quantity: 1 });
+      if (insertedOld) {
+        nextBackpack = insertedOld;
+        oldWentToBackpack = true;
+      } else {
+        this.spawnLoot(`swap-drop-${oldItemId}-${Math.round(this.time.now)}`, oldItemId, 1, this.player.x - this.facing * 58, this.player.y - 20);
+      }
+    }
+
+    this.backpack = nextBackpack;
+    this.loadout = { ...this.loadout, [slot]: itemId };
+    if (sourceLoot) {
+      sourceLoot.icon.destroy();
+      sourceLoot.halo.destroy();
+    }
+    if (slot === 'armor') {
+      this.maxArmor = getArmorMaximum({ loadout: this.loadout });
+      this.armor = this.maxArmor;
+    }
+    this.overlayNotice = `${item.icon} 已装备 ${item.name}${oldItemId ? (oldWentToBackpack ? '；旧装备已放回背包。' : '；背包无空位，旧装备落在脚边。') : ''}`;
   }
 
   private createBackpackOverlay(): Phaser.GameObjects.Container {
@@ -1398,6 +1778,13 @@ export class RaidScene extends Phaser.Scene {
         grounded: body.blocked.down || body.touching.down,
       },
       backpack: this.backpack.map((stack) => ({ ...stack })),
+      loadout: { ...this.loadout },
+      nearbyLoot: this.getNearbyLoot().map((entry) => ({
+        id: entry.id,
+        itemId: entry.itemId,
+        quantity: entry.quantity,
+        distance: Math.round(Phaser.Math.Distance.Between(this.player.x, this.player.y, entry.icon.x, entry.icon.y)),
+      })),
       visibleEnemies: this.enemies
         .filter((enemy) => enemy.sprite.active && Phaser.Math.Distance.Between(enemy.sprite.x, enemy.sprite.y, this.player.x, this.player.y) < 850)
         .map((enemy) => ({
@@ -1418,11 +1805,12 @@ export class RaidScene extends Phaser.Scene {
       nearbyInteraction: this.nearbyInteraction,
       flags: {
         dashReady: this.time.now >= this.dashReadyAt,
-        dashEquipped: Boolean(this.profile.loadout.shoes && ITEMS[this.profile.loadout.shoes]?.stats?.dashEnabled),
+        dashEquipped: Boolean(this.loadout.shoes && ITEMS[this.loadout.shoes]?.stats?.dashEnabled),
         mapUnlocked: this.mapUnlocked,
         shortcutUnlocked: this.shortcutUnlocked,
         recoveredEcho: this.recoveredEcho,
         extracting: this.extractingUntil > 0,
+        inventoryOpen: this.overlayMode === 'backpack',
       },
     };
     window.__SUI_GAME_STATE__ = state;

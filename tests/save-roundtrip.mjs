@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
 
-const outputDir = path.resolve('artifacts/save-roundtrip');
+const outputDir = path.resolve('.tmp/test-artifacts/save-roundtrip');
 fs.mkdirSync(outputDir, { recursive: true });
 const exportPath = path.join(outputDir, 'exported-save.json');
 

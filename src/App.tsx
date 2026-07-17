@@ -237,6 +237,7 @@ export function App() {
         ...profile,
         warehouse: recoveredWarehouse ?? profile.warehouse,
         backpack: { ...profile.backpack, items: cloneGridItems(result.backpack) },
+        loadout: { ...result.loadout },
         armorCondition: result.armorCondition,
         successfulExtractions: profile.successfulExtractions + 1,
         mapUnlocked: nextMapUnlocked,
@@ -252,7 +253,7 @@ export function App() {
       return;
     }
 
-    const carriedGear = Object.values(profile.loadout)
+    const carriedGear = Object.values(result.loadout)
       .filter((itemId): itemId is string => Boolean(itemId))
       .map((itemId) => ({ itemId, quantity: 1 }));
     const lostItems = addStacks(addStacks(gridItemsToStacks(result.backpack), result.recoveredItems), carriedGear);

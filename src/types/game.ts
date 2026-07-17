@@ -112,6 +112,8 @@ export interface TextGameState {
   };
   zone?: string;
   backpack?: GridItem[];
+  loadout?: Loadout;
+  nearbyLoot?: Array<{ id: string; itemId: string; quantity: number; distance: number }>;
   visibleEnemies?: Array<{ id: string; kind: string; x: number; y: number; health: number }>;
   visibleLoot?: Array<{ id: string; itemId: string; x: number; y: number }>;
   nearbyInteraction?: string | null;
@@ -121,6 +123,7 @@ export interface TextGameState {
 export interface RaidResult {
   outcome: 'extracted' | 'died';
   backpack: GridItem[];
+  loadout: Loadout;
   recoveredItems: ItemStack[];
   deathPosition?: { x: number; y: number };
   armorCondition: number;

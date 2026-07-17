@@ -8,7 +8,7 @@ function parseArgs(argv) {
     iterations: 3,
     pauseMs: 250,
     headless: true,
-    screenshotDir: "output/web-game",
+    screenshotDir: ".tmp/test-artifacts/web-game",
     actionsFile: null,
     actionsJson: null,
     click: null,

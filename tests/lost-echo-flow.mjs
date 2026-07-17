@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
 
-const outputDir = path.resolve('artifacts/lost-echo-flow');
+const outputDir = path.resolve('.tmp/test-artifacts/lost-echo-flow');
 fs.mkdirSync(outputDir, { recursive: true });
 
 const browser = await chromium.launch({ headless: true });
