@@ -207,13 +207,17 @@ body::after {
 .compact-panel-heading { padding: 15px 16px 12px; }
 .compact-panel-heading h2 { font-size: 1.12rem; }
 .equipment-slots { display: grid; gap: 7px; padding: 12px; }
-.equipment-slot { display: grid; grid-template-columns: 42px 1fr; align-items: center; gap: 10px; min-height: 58px; padding: 8px 10px; text-align: left; border: 1px solid var(--line); background: rgba(5, 18, 24, .62); cursor: grab; }
+.equipment-slot { display: grid; grid-template-columns: 42px minmax(0, 1fr); align-items: center; gap: 10px; min-height: 72px; padding: 8px 10px; text-align: left; border: 1px solid var(--line); background: rgba(5, 18, 24, .62); cursor: grab; }
 .equipment-slot:hover, .equipment-slot.is-selected { border-color: rgba(137, 241, 208, .52); background: rgba(22, 66, 65, .48); }
 .equipment-slot.is-empty { color: #537170; cursor: pointer; }
 .equipment-slot > span { display: grid; place-items: center; height: 38px; font-size: 1.45rem; border-right: 1px solid var(--line); }
-.equipment-slot div { display: grid; gap: 2px; }
+.equipment-slot div { display: grid; min-width: 0; gap: 2px; }
 .equipment-slot small { color: var(--muted); font-size: .58rem; letter-spacing: .14em; }
 .equipment-slot strong { overflow: hidden; font-family: Georgia, "Noto Serif SC", serif; font-size: .84rem; text-overflow: ellipsis; white-space: nowrap; }
+.equipment-slot em { display: -webkit-box; overflow: hidden; color: #789594; font-size: .61rem; font-style: normal; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.equipment-slot.is-empty em { color: #537170; }
+.selection-toolbar > span { display: grid; gap: 2px; }
+.selection-toolbar > span small { max-width: 460px; color: #b5c9c3; font-size: .66rem; line-height: 1.35; }
 .loadout-summary { display: flex; justify-content: space-between; gap: 8px; padding: 10px 13px 13px; color: #9fd9ce; font-size: .7rem; }
 
 .grid-explainer { min-height: 42px; margin: 0; padding: 10px 14px 0; color: #769392; font-size: .7rem; line-height: 1.5; }

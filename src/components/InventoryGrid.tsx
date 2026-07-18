@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent } from 'react';
+import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { ITEMS, RARITY_NAMES } from '../game/items';
 import { getGridItemSize } from '../game/inventory';
 import type { GearSlot, GridItem, GridSize } from '../types/game';
@@ -57,25 +57,6 @@ interface InventoryGridProps {
   onDropItem: (payload: InventoryDragPayload, x: number, y: number) => void;
   onRotateItem: (payload: InventoryDragPayload) => void;
   onQuickTransfer: (payload: InventoryDragPayload) => void;
-}
-
-const DRAG_TYPE = 'application/x-sui-grid-item';
-
-export function writeInventoryDrag(event: DragEvent, payload: InventoryDragPayload): void {
-  event.dataTransfer.effectAllowed = 'move';
-  const serialized = JSON.stringify(payload);
-  event.dataTransfer.setData(DRAG_TYPE, serialized);
-  event.dataTransfer.setData('text/plain', serialized);
-}
-
-export function readInventoryDrag(event: DragEvent): InventoryDragPayload | null {
-  const raw = event.dataTransfer.getData(DRAG_TYPE) || event.dataTransfer.getData('text/plain');
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as InventoryDragPayload;
-  } catch {
-    return null;
-  }
 }
 
 export function InventoryGrid({

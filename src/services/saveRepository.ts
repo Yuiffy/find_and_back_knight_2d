@@ -147,7 +147,7 @@ function normalizeProfile(value: unknown): PlayerProfile {
     weapon: canonicalItemId(candidate.loadout.weapon) ?? defaults.loadout.weapon,
     armor: candidate.loadout.armor === null ? null : canonicalItemId(candidate.loadout.armor),
     head: candidate.loadout.head === null ? null : canonicalItemId(candidate.loadout.head),
-    shoes: canonicalItemId(candidate.loadout.shoes) ?? defaults.loadout.shoes,
+    shoes: candidate.loadout.shoes === null ? null : (canonicalItemId(candidate.loadout.shoes) ?? defaults.loadout.shoes),
     backpack: candidate.version === 2
       ? (canonicalItemId(candidate.loadout.backpack) ?? null)
       : (canonicalItemId(candidate.loadout.backpack) ?? 'field_pack'),

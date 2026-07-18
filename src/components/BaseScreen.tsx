@@ -1,13 +1,11 @@
-import { useEffect, useRef, useState, type DragEvent } from 'react';
+import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { countItem, GEAR_SLOTS, getArmorMaximum, getClueRecords, getObjectiveSteps, ITEMS, MARKET_ITEM_IDS, SLOT_NAMES } from '../game/items';
 import { MAP_REGISTRY, isEntryUnlocked, isMapUnlocked } from '../game/maps';
 import { occupiedGridCells } from '../game/inventory';
 import type { GearSlot, PlayerProfile } from '../types/game';
 import {
   InventoryGrid,
-  readInventoryDrag,
   rotateInventoryDragPayload,
-  writeInventoryDrag,
   type InventoryDragPayload,
   type InventorySource,
 } from './InventoryGrid';
@@ -130,7 +128,10 @@ export function BaseScreen({
       setActiveDrag(next);
     };
     const endInventoryDragOnMiss = (event: globalThis.PointerEvent) => {
-      if (activeDragRef.current?.pointerId === event.pointerId) endInventoryDrag();
+      const pointerId = event.pointerId;
+      requestAnimationFrame(() => {
+        if (activeDragRef.current?.pointerId === pointerId) endInventoryDrag();
+      });
     };
     const cancelInventoryDrag = () => endInventoryDrag();
     const cancelWhenHidden = () => {
@@ -172,12 +173,31 @@ export function BaseScreen({
     setActiveDrag(null);
   }
 
-  function acceptSlotDrop(event: DragEvent<HTMLButtonElement>, slot: GearSlot): void {
+  function beginLoadoutDrag(event: PointerEvent<HTMLButtonElement>, slot: GearSlot, itemId: string): void {
+    if (event.button !== 0) return;
     event.preventDefault();
-    const payload = readInventoryDrag(event);
-    if (payload) onEquipItem(payload, slot);
-    setSelected(null);
+    event.stopPropagation();
+    beginInventoryDrag({
+      source: 'loadout',
+      slot,
+      itemId,
+      pointerId: event.pointerId,
+      pointerX: event.clientX,
+      pointerY: event.clientY,
+      dragStartX: event.clientX,
+      dragStartY: event.clientY,
+      dragMoved: false,
+    });
   }
+
+  function handleEquipmentSlotPointerUp(event: PointerEvent<HTMLButtonElement>, slot: GearSlot): void {
+    const payload = activeDragRef.current;
+    if (!payload || payload.pointerId !== event.pointerId || !payload.dragMoved) return;
+    if (payload.source !== 'loadout') onEquipItem(payload, slot);
+    setSelected(null);
+    endInventoryDrag();
+  }
+
 
   return (
     <main className="base-shell base-shell-v2">
@@ -222,10 +242,11 @@ export function BaseScreen({
 
       {selectedItem && selected && (
         <div className="selection-toolbar" role="toolbar" aria-label="所选物品操作">
-          <span>{selectedItem.icon} <strong>{selectedItem.name}</strong></span>
+          <span>{selectedItem.icon} <strong>{selectedItem.name}</strong>{selected.source === 'loadout' && <small>{selectedItem.description}</small>}</span>
           {selected.source !== 'loadout' && <button type="button" onClick={() => onRotateItem(selected)}>↻ 旋转（R / 右键）</button>}
           {selectedStack && selectedStack.quantity > 1 && <button type="button" onClick={() => { onSplitItem(selected); setSelected(null); }}>½ 拆分堆叠</button>}
           {selected.source !== 'loadout' && <button type="button" onClick={() => { onQuickTransfer(selected); setSelected(null); }}>⇆ 快速转移</button>}
+          {selected.source === 'loadout' && <button type="button" onClick={() => { onMoveItem(selected, 'warehouse', -1, -1); setSelected(null); }}>卸到仓库</button>}
           <button type="button" onClick={() => setSelected(null)}>取消选择</button>
         </div>
       )}
@@ -247,11 +268,9 @@ export function BaseScreen({
                     className={`equipment-slot${item ? ` rarity-${item.rarity}` : ' is-empty'}${isSelected ? ' is-selected' : ''}`}
                     key={slot}
                     type="button"
-                    draggable={Boolean(item)}
                     aria-pressed={isSelected}
-                    onDragStart={(event) => item && writeInventoryDrag(event, { source: 'loadout', slot, itemId: item.id })}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={(event) => acceptSlotDrop(event, slot)}
+                    onPointerDown={(event) => item && beginLoadoutDrag(event, slot, item.id)}
+                    onPointerUpCapture={(event) => handleEquipmentSlotPointerUp(event, slot)}
                     onClick={() => {
                       if (selected && selected.source !== 'loadout') {
                         onEquipItem(selected, slot);
@@ -262,7 +281,11 @@ export function BaseScreen({
                     }}
                   >
                     <span>{item?.icon ?? '＋'}</span>
-                    <div><small>{SLOT_NAMES[slot]}</small><strong>{item?.name ?? '空槽位'}</strong></div>
+                    <div>
+                      <small>{SLOT_NAMES[slot]}</small>
+                      <strong>{item?.name ?? '空槽位'}</strong>
+                      <em>{item?.description ?? '从仓库或背包拖入，也可先选择物品再点击此处。'}</em>
+                    </div>
                   </button>
                 );
               })}
