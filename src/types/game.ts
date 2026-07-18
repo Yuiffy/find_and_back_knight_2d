@@ -167,7 +167,7 @@ export interface TextGameState {
     x: number;
     y: number;
     health: number;
-    state?: 'patrol' | 'telegraph' | 'charge';
+    state?: 'patrol' | 'telegraph' | 'charge' | 'aim' | 'burst';
   }>;
   visibleLoot?: Array<{ id: string; itemId: string; x: number; y: number }>;
   nearbyInteraction?: string | null;

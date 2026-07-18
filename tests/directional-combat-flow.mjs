@@ -53,16 +53,22 @@ try {
   await page.waitForTimeout(180);
   let current = await state();
   assert(current.lastAttack?.direction === 'up', `W+J did not create an upstrike: ${JSON.stringify(current.lastAttack)}.`);
+  await page.waitForTimeout(420);
 
   await moveX(390);
-  await page.keyboard.down('Space');
-  await page.waitForTimeout(180);
   await page.keyboard.down('KeyD');
-  await page.waitForTimeout(120);
-  await page.keyboard.down('KeyS');
-  await page.keyboard.press('KeyJ');
-  await page.keyboard.up('KeyS');
+  await page.keyboard.down('Space');
+  await page.waitForTimeout(160);
   await page.keyboard.up('Space');
+  await page.waitForFunction(() => {
+    const current = JSON.parse(window.render_game_to_text?.() ?? '{}');
+    return current.mode === 'raid' && current.player && !current.player.grounded && current.player.velocityY > 0;
+  }, undefined, { timeout: 1200 });
+  await page.keyboard.down('KeyS');
+  await page.keyboard.down('KeyJ');
+  await page.waitForTimeout(80);
+  await page.keyboard.up('KeyJ');
+  await page.keyboard.up('KeyS');
   await page.keyboard.up('KeyD');
   await page.waitForTimeout(180);
   current = await state();

@@ -205,6 +205,7 @@ export function InventoryGrid({
             }}
             onContextMenu={(event) => {
               event.preventDefault();
+              event.stopPropagation();
               onRotateItem(payload);
             }}
             onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {

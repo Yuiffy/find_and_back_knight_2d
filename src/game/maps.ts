@@ -12,6 +12,7 @@ export interface MapEntryDefinition {
   y: number;
   zoneId: string;
   unlockedBy?: 'shortcutUnlocked';
+  requiredClues?: string[];
 }
 
 export interface MapDefinition {
@@ -57,7 +58,8 @@ export const MAP_REGISTRY: Record<string, MapDefinition> = {
     worldHeight: 1800,
     unlockedBy: 'bossDefeated',
     entries: {
-      west: { id: 'west', name: '西侧随机接驳', x: 230, y: 1510, zoneId: 'west-array' },
+      west: { id: 'west', name: '西侧随机接驳', x: 230, y: 1510, zoneId: 'west-array', requiredClues: ['home-trace'] },
+      crown: { id: 'crown', name: '冠顶终端接驳', x: 3200, y: 800, zoneId: 'terminal-crown', requiredClues: ['home-trace', 'relay-west-calibrated', 'relay-east-calibrated'] },
     },
     zones: [
       { id: 'west-array', name: '西向阵列', risk: 'III', bounds: { x: 0, y: 1120, width: 1050, height: 680 } },
@@ -81,7 +83,9 @@ export function isMapUnlocked(map: MapDefinition, profile: Record<string, unknow
 }
 
 export function isEntryUnlocked(entry: MapEntryDefinition, profile: Record<string, unknown>): boolean {
-  return !entry.unlockedBy || Boolean(profile[entry.unlockedBy]);
+  if (entry.unlockedBy && !profile[entry.unlockedBy]) return false;
+  const clues = Array.isArray(profile.discoveredClues) ? profile.discoveredClues : [];
+  return !entry.requiredClues || entry.requiredClues.every((clueId) => clues.includes(clueId));
 }
 
 export function normalizeMapEntry(

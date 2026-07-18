@@ -24,6 +24,7 @@ async function hold(key, milliseconds) {
 async function moveX(targetX, tolerance = 40) {
   for (let attempt = 0; attempt < 18; attempt += 1) {
     const current = await state();
+    assert(current.mode === 'raid' && current.player, `Cannot move outside an active raid: ${JSON.stringify(current)}.`);
     const distance = targetX - current.player.x;
     if (Math.abs(distance) <= tolerance) return current;
     await hold(distance > 0 ? 'ArrowRight' : 'ArrowLeft', Math.min(260, Math.max(65, Math.abs(distance) * 1.5)));
@@ -146,9 +147,39 @@ try {
   current = await state();
   assert(current.objective.includes('冠顶终端'), `East calibration did not advance objective: ${current.objective}.`);
   await page.screenshot({ path: path.join(outputDir, '02-relay-map-qhd.png') });
+  // The terminal hold is a settlement assertion, not a traversal assertion: seed
+  // the validated terminal approach and reload through save normalization.
+  await page.evaluate(() => {
+    const key = 'sui-echoes-below.save.v1';
+    const profile = JSON.parse(localStorage.getItem(key));
+    localStorage.setItem(key, JSON.stringify({
+      ...profile,
+      discoveredClues: [...new Set([...profile.discoveredClues, 'relay-west-calibrated', 'relay-east-calibrated'])],
+      activeRaid: null,
+    }));
+  });
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.getByRole('button', { name: '选择入口并开始远征' }).click();
+  await page.getByRole('button', { name: /冠顶终端接驳/ }).click();
+  await page.locator('canvas').waitFor({ state: 'visible' });
+  await page.waitForTimeout(650);
+  await moveX(3310);
+  current = await state();
+  assert(current.nearbyInteraction?.includes('锁定饼干岛频道'), `Crown terminal was not ready after both calibrations: ${current.nearbyInteraction}.`);
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(4700);
+  current = await state();
+  assert(current.mode === 'ending', `Crown terminal did not reach ending mode: ${JSON.stringify(current)}.`);
+  assert(await page.getByText('结局一 · 尚未归巢').isVisible(), 'Ending title did not render.');
+  assert(await page.locator('img[src$="sui-bird.png"]').count() === 1, 'Ending bird asset did not render.');
+  await page.screenshot({ path: path.join(outputDir, '03-ending-screen.png'), fullPage: true });
+  await page.getByRole('button', { name: '回到饼干台' }).click();
+  await page.getByRole('button', { name: '选择入口并开始远征' }).waitFor({ state: 'visible' });
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('sui-echoes-below.save.v1')));
+  assert(saved.endingSeen === true, 'Ending completion was not persisted after returning to base.');
 
   assert(errors.length === 0, `Browser errors: ${errors.join(' | ')}`);
-  console.log(JSON.stringify({ ok: true, foyerManifestReachable: true, storyEchoState: true, relayLoadedPerRaid: true, qhdBacking: canvasSize, errors }, null, 2));
+  console.log(JSON.stringify({ ok: true, foyerManifestReachable: true, storyEchoState: true, relayLoadedPerRaid: true, endingReached: true, endingPersisted: true, qhdBacking: canvasSize, errors }, null, 2));
 } finally {
   await browser.close();
 }

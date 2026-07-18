@@ -69,7 +69,7 @@ interface RaidKeys {
 
 interface EnemyEntity {
   id: string;
-  kind: 'husk' | 'moth' | 'warden';
+  kind: 'husk' | 'moth' | 'warden' | 'sentry';
   sprite: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
   health: number;
   maxHealth: number;
@@ -80,12 +80,19 @@ interface EnemyEntity {
   baseY?: number;
   boss?: boolean;
   label?: Phaser.GameObjects.Text;
-  combatState?: 'patrol' | 'telegraph' | 'charge';
+  combatState?: 'patrol' | 'telegraph' | 'charge' | 'aim' | 'burst';
   attackReadyAt?: number;
   telegraphUntil?: number;
   chargeUntil?: number;
   chargeDirection?: -1 | 1;
   warning?: Phaser.GameObjects.Arc;
+}
+
+interface SentryBolt {
+  orb: Phaser.GameObjects.Arc;
+  velocityX: number;
+  velocityY: number;
+  expiresAt: number;
 }
 
 interface LootEntity {
@@ -138,6 +145,7 @@ export class RaidScene extends Phaser.Scene {
   private hazards!: Phaser.Physics.Arcade.StaticGroup;
   private keys!: RaidKeys;
   private enemies: EnemyEntity[] = [];
+  private sentryBolts: SentryBolt[] = [];
   private loot: LootEntity[] = [];
   private crates: RaidCrate[] = [];
   private storyEchoes: StoryEchoEntity[] = [];
@@ -315,6 +323,7 @@ export class RaidScene extends Phaser.Scene {
     this.updateSafePosition(time);
     this.updateAttack(time);
     this.updateEnemies();
+    this.updateSentryBolts(time);
     this.updateInteractions(time);
     this.updateHud();
 
@@ -872,6 +881,7 @@ export class RaidScene extends Phaser.Scene {
       this.spawnMoth('moth-relay-trench', 1550, 1160, 1250, 1950);
       this.spawnHusk('husk-relay-east', 2480, 1160, 2320, 2720);
       this.spawnMoth('moth-relay-crown', 3150, 720, 2940, 3440);
+      if (this.profile.raidsStarted % 2 === 0) this.spawnSentry('sentry-relay-east', 2680, 1160);
       return;
     }
     // Keep the manifest's open floor clear; its former overlapping patrol is moved east.
@@ -883,6 +893,7 @@ export class RaidScene extends Phaser.Scene {
     this.spawnHusk('husk-rift-1', 2700, 860, 2550, 2840);
     this.spawnMoth('moth-cistern-1', 2620, 1530, 2310, 3000);
     this.spawnHusk('husk-cistern-1', 2800, 1625, 2680, 2930);
+    if (this.profile.raidsStarted % 2 === 0) this.spawnSentry('sentry-cistern', 3030, 1410);
     this.spawnHusk('husk-graveyard-1', 3970, 550, 3830, 4120);
     this.spawnMoth('moth-graveyard-1', 3890, 430, 3780, 4140);
     this.spawnHusk('husk-conservatory-1', 4560, 690, 4350, 4700);
@@ -901,10 +912,7 @@ export class RaidScene extends Phaser.Scene {
       return;
     }
 
-    this.spawnCrate('crate-foyer', 390, 2020, [
-      { itemId: 'echo_dust', quantity: 4 },
-      { itemId: 'echo_tonic', quantity: 1 },
-    ]);
+    this.spawnCrate('crate-foyer', 390, 2020, this.getRaidSupplyDrops('foyer'));
     this.spawnCrate('crate-rift', 1250, 1715, [
       { itemId: 'echo_lance', quantity: 1 },
       { itemId: 'blue_hood', quantity: 1 },
@@ -914,10 +922,7 @@ export class RaidScene extends Phaser.Scene {
       { itemId: 'miner_shell', quantity: 1 },
       { itemId: 'echo_dust', quantity: 3 },
     ]);
-    this.spawnCrate('crate-archive', 390, 1040, [
-      { itemId: 'repair_patch', quantity: 2 },
-      { itemId: 'echo_tonic', quantity: 1 },
-    ]);
+    this.spawnCrate('crate-archive', 390, 1040, this.getRaidSupplyDrops('archive'));
     this.spawnCrate('crate-platforming-cache', 1150, 545, [
       { itemId: 'echo_dust', quantity: 7 },
       { itemId: 'echo_tonic', quantity: 2 },
@@ -961,8 +966,22 @@ export class RaidScene extends Phaser.Scene {
     this.createMatchingLostEcho();
   }
 
+  private getRaidSupplyDrops(cache: 'foyer' | 'archive'): ItemStack[] {
+    const alternate = this.profile.raidsStarted % 2 === 0;
+    if (cache === 'foyer') {
+      return alternate
+        ? [{ itemId: 'echo_dust', quantity: 2 }, { itemId: 'repair_patch', quantity: 1 }]
+        : [{ itemId: 'echo_dust', quantity: 4 }, { itemId: 'echo_tonic', quantity: 1 }];
+    }
+    return alternate
+      ? [{ itemId: 'echo_dust', quantity: 3 }, { itemId: 'echo_tonic', quantity: 2 }]
+      : [{ itemId: 'repair_patch', quantity: 2 }, { itemId: 'echo_tonic', quantity: 1 }];
+  }
+
   private createRelayLandmarks(): void {
-    this.spawnCrate('crate-relay-west', 440, 1530, [{ itemId: 'echo_dust', quantity: 5 }, { itemId: 'repair_patch', quantity: 1 }]);
+    this.spawnCrate('crate-relay-west', 440, 1530, this.profile.raidsStarted % 2 === 0
+      ? [{ itemId: 'echo_dust', quantity: 3 }, { itemId: 'echo_tonic', quantity: 1 }]
+      : [{ itemId: 'echo_dust', quantity: 5 }, { itemId: 'repair_patch', quantity: 1 }]);
     this.spawnCrate('crate-relay-east', 2450, 1170, [{ itemId: 'biscuit_note', quantity: 1 }, { itemId: 'echo_dust', quantity: 4 }]);
     this.spawnCrate('crate-relay-crown', 3100, 990, [{ itemId: 'storm_feather', quantity: 1 }]);
     for (const relay of this.layout.relayInteractions ?? []) this.createRelayInteraction(relay);
@@ -1113,6 +1132,37 @@ export class RaidScene extends Phaser.Scene {
       patrolLeft,
       patrolRight,
       baseY: y,
+    });
+  }
+
+  private spawnSentry(id: string, x: number, y: number): void {
+    const sprite = this.physics.add.sprite(x, y, 'signal-warden');
+    sprite.setScale(0.64);
+    sprite.setTint(0x75c3dd);
+    sprite.setDepth(16);
+    sprite.body.allowGravity = false;
+    sprite.body.setSize(72, 56);
+    sprite.body.setOffset(28, 25);
+    const label = this.add.text(x, y - 54, '回波哨兵', {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: '13px',
+      color: '#9de6f7',
+      stroke: '#07151d',
+      strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(17);
+    this.enemies.push({
+      id,
+      kind: 'sentry',
+      sprite,
+      health: 5,
+      maxHealth: 5,
+      speed: 0,
+      direction: -1,
+      patrolLeft: x,
+      patrolRight: x,
+      baseY: y,
+      label,
+      attackReadyAt: this.time.now + 1200,
     });
   }
 
@@ -1535,6 +1585,10 @@ export class RaidScene extends Phaser.Scene {
         this.updateWarden(enemy, distance);
         continue;
       }
+      if (enemy.kind === 'sentry') {
+        this.updateSentry(enemy, distance);
+        continue;
+      }
       if (Math.abs(distance) < 320 && Math.abs(this.player.y - enemy.sprite.y) < 100) {
         enemy.direction = distance < 0 ? -1 : 1;
       }
@@ -1545,6 +1599,97 @@ export class RaidScene extends Phaser.Scene {
       enemy.sprite.angle = Math.sin(this.time.now / 130 + enemy.sprite.x) * 2;
       enemy.label?.setPosition(enemy.sprite.x, enemy.sprite.y - 86);
     }
+  }
+
+  private updateSentry(enemy: EnemyEntity, distance: number): void {
+    const time = this.time.now;
+    enemy.label?.setPosition(enemy.sprite.x, enemy.sprite.y - 54);
+    const verticalDistance = Math.abs(this.player.y - enemy.sprite.y);
+    const state = enemy.combatState ?? 'patrol';
+    if (state === 'aim') {
+      enemy.sprite.setVelocity(0, 0);
+      enemy.sprite.setTint(0x9de6f7).setTintMode(Phaser.TintModes.FILL);
+      enemy.sprite.setScale(0.64 + Math.sin(time / 48) * 0.06);
+      enemy.label?.setText('回波哨兵 · 锁定').setColor('#d2f8ff');
+      if (time < (enemy.telegraphUntil ?? 0)) return;
+      this.fireSentryBolt(enemy);
+      enemy.combatState = 'burst';
+      enemy.chargeUntil = time + 180;
+      return;
+    }
+    if (state === 'burst') {
+      if (time < (enemy.chargeUntil ?? 0)) return;
+      enemy.combatState = 'patrol';
+      enemy.attackReadyAt = time + 2100;
+      enemy.sprite.clearTint().setScale(0.64);
+      enemy.label?.setText('回波哨兵').setColor('#9de6f7');
+      return;
+    }
+    enemy.sprite.setVelocity(0, Math.sin(time / 320 + enemy.sprite.x) * 18);
+    enemy.sprite.setScale(0.64 + Math.sin(time / 170) * 0.025);
+    if (Math.abs(distance) < 600 && verticalDistance < 250 && time >= (enemy.attackReadyAt ?? 0)) {
+      enemy.direction = distance < 0 ? -1 : 1;
+      enemy.combatState = 'aim';
+      enemy.telegraphUntil = time + 700;
+      enemy.sprite.setVelocity(0, 0);
+      enemy.warning?.destroy();
+      enemy.warning = this.add.arc(
+        enemy.sprite.x + enemy.direction * 82,
+        enemy.sprite.y,
+        56,
+        -28,
+        28,
+        false,
+        0x70dff5,
+        0.22,
+      ).setStrokeStyle(4, 0xc8f7ff, 0.9).setDepth(18).setAngle(enemy.direction < 0 ? 180 : 0);
+      this.tweens.add({
+        targets: enemy.warning,
+        scaleX: 2.6,
+        scaleY: 1.3,
+        alpha: 0.82,
+        duration: 650,
+        ease: 'Sine.In',
+      });
+    }
+  }
+
+  private fireSentryBolt(enemy: EnemyEntity): void {
+    enemy.warning?.destroy();
+    enemy.warning = undefined;
+    const angle = Phaser.Math.Angle.Between(enemy.sprite.x, enemy.sprite.y, this.player.x, this.player.y);
+    const orb = this.add.circle(enemy.sprite.x + enemy.direction * 42, enemy.sprite.y, 10, 0x8eefff, 0.96)
+      .setStrokeStyle(2, 0xe0fbff, 0.9)
+      .setDepth(22);
+    this.sentryBolts.push({
+      orb,
+      velocityX: Math.cos(angle) * 310,
+      velocityY: Math.sin(angle) * 310,
+      expiresAt: this.time.now + 1800,
+    });
+    this.cameras.main.flash(80, 104, 219, 242);
+    this.showHint('回波哨兵发射脉冲；横移或跳跃躲避。', 1050);
+  }
+
+  private updateSentryBolts(time: number): void {
+    this.sentryBolts = this.sentryBolts.filter((bolt) => {
+      if (!bolt.orb.active || time >= bolt.expiresAt) {
+        bolt.orb.destroy();
+        return false;
+      }
+      bolt.orb.x += bolt.velocityX / 60;
+      bolt.orb.y += bolt.velocityY / 60;
+      if (bolt.orb.x < 0 || bolt.orb.x > this.worldWidth || bolt.orb.y < 0 || bolt.orb.y > this.worldHeight) {
+        bolt.orb.destroy();
+        return false;
+      }
+      if (Phaser.Math.Distance.Between(bolt.orb.x, bolt.orb.y, this.player.x, this.player.y) < 38) {
+        bolt.orb.destroy();
+        this.applyPlayerDamage(this.player.x < bolt.orb.x ? -1 : 1);
+        return false;
+      }
+      return true;
+    });
   }
 
   private updateWarden(enemy: EnemyEntity, distance: number): void {
@@ -1678,7 +1823,6 @@ export class RaidScene extends Phaser.Scene {
     if (enemy.boss) {
       this.bossDefeated = true;
       this.discoveredClues.add('warden-trace');
-      this.discoveredClues.add('home-trace');
       this.spawnLoot('boss-core', 'echo_core', 1, x - 34, y - 18);
       this.spawnLoot('boss-boots', 'shadow_boots', 1, x + 36, y - 18);
       this.cameras.main.flash(380, 151, 113, 224);
@@ -2782,7 +2926,7 @@ export class RaidScene extends Phaser.Scene {
     }
     if (slot === 'armor') {
       this.maxArmor = getArmorMaximum({ loadout: this.loadout });
-      this.armor = this.maxArmor;
+      this.armor = Math.min(this.armor, this.maxArmor);
     }
     this.overlayNotice = `${item.icon} 已装备 ${item.name}${oldItemId ? (oldWentToBackpack ? '；旧装备已放回背包。' : '；背包无空位，旧装备落在脚边。') : ''}`;
   }
@@ -2904,6 +3048,10 @@ export class RaidScene extends Phaser.Scene {
     return this.lastSpawnPosition;
   }
 
+  private carriesEchoCore(): boolean {
+    return this.backpack.some((item) => item.itemId === 'echo_core');
+  }
+
   private getMapTarget(): { x: number; y: number } {
     if (this.mapId === 'relay_01') {
       if (!this.discoveredClues.has('relay-west-calibrated')) return { x: 760, y: 1515 };
@@ -2914,6 +3062,7 @@ export class RaidScene extends Phaser.Scene {
     if (!this.mapUnlocked) return { x: 1220, y: 995 };
     if (!this.shortcutUnlocked) return this.elevatorPoint;
     if (!this.bossDefeated) return { x: 3400, y: 750 };
+    if (!this.carriesEchoCore()) return { x: 3400, y: 750 };
     return { x: 3620, y: 745 };
   }
 
@@ -2929,7 +3078,8 @@ export class RaidScene extends Phaser.Scene {
     if (!this.mapUnlocked) return '找到导航羽片并安全撤离';
     if (!this.shortcutUnlocked) return '启动裂谷维护电梯';
     if (!this.bossDefeated) return '击败失频守卫，带回回声核心';
-    return '探索回声，或安全撤离';
+    if (!this.carriesEchoCore()) return '拾取并安全带回回声核心';
+    return '带着回声核心前往机房信号井撤离';
   }
 
   private applyRenderScale(): void {

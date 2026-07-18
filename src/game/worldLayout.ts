@@ -210,6 +210,7 @@ export const WORLD_LAYOUTS: Record<string, WorldLayoutDefinition> = {
           { x: 850, y: 1190 },
         ],
       },
+      { entryId: 'crown', positions: [{ x: 3200, y: 800 }] },
     ],
     storyEchoes: RELAY_ECHOES,
     roomShapes: RELAY_ROOMS,

@@ -16,7 +16,7 @@ import {
   splitGridItem,
   validateGrid,
 } from './game/inventory';
-import { getArmorMaximum, getCurrentObjective, ITEMS } from './game/items';
+import { getArmorMaximum, getCurrentObjective, getDeathPersistentClues, ITEMS } from './game/items';
 import { saveRepository } from './services/saveRepository';
 import { publishDomainEvent } from './services/gameNetworkBoundary';
 import type { GearSlot, GridItem, GridSize, PlayerProfile, RaidResult, TextGameState } from './types/game';
@@ -275,7 +275,7 @@ export function App() {
       backpack: nextBackpack,
       loadout: nextLoadout,
     };
-    if (slot === 'armor') next.armorCondition = getArmorMaximum(next);
+    if (slot === 'armor') next.armorCondition = Math.min(profile.armorCondition, getArmorMaximum(next));
     commit(next, `${item.icon} 已装备：${item.name}`);
   }
 
@@ -350,7 +350,11 @@ export function App() {
           ...(result.discoveredItems ?? []),
           ...result.backpack.map((item) => item.itemId),
         ])),
-        discoveredClues: Array.from(new Set([...profile.discoveredClues, ...(result.discoveredClues ?? [])])),
+        discoveredClues: Array.from(new Set([
+          ...profile.discoveredClues,
+          ...(result.discoveredClues ?? []),
+          ...(nextBossDefeated ? ['home-trace'] : []),
+        ])),
         lostEcho: result.recoveredEcho && recoveredWarehouse ? null : profile.lostEcho,
         activeRaid: null,
       });
@@ -382,7 +386,10 @@ export function App() {
       armorCondition: 0,
       deaths: profile.deaths + 1,
       discoveredItems: Array.from(new Set([...profile.discoveredItems, ...(result.discoveredItems ?? [])])),
-      discoveredClues: Array.from(new Set([...profile.discoveredClues, ...(result.discoveredClues ?? [])])),
+      discoveredClues: Array.from(new Set([
+        ...profile.discoveredClues,
+        ...getDeathPersistentClues(profile.discoveredClues, result.discoveredClues ?? []),
+      ])),
       shortcutUnlocked: profile.shortcutUnlocked || result.shortcutUnlocked,
       lostEcho: {
         mapId: result.mapId,

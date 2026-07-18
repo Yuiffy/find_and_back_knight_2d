@@ -292,7 +292,7 @@ export function BaseScreen({
             </div>
             <div className="loadout-summary">
               <span>生命 ♥♥♥♥♥</span>
-              <span>蓝甲 {'◆'.repeat(profile.armorCondition)}{'◇'.repeat(Math.max(0, armorMax - profile.armorCondition)) || '无'}</span>
+              <span>蓝甲 {'◆'.repeat(profile.armorCondition)}{'◇'.repeat(Math.max(0, armorMax - profile.armorCondition)) || '无'}{armorMax > 0 ? ' · 换装不维修' : ''}</span>
             </div>
           </aside>
 

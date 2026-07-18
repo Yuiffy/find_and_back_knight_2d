@@ -266,6 +266,19 @@ export const MARKET_ITEM_IDS = [
   'survey_pack',
 ] as const;
 
+// These discoveries can guide the current expedition, but only become permanent
+// after a safe extraction. Keeping the rule here makes both settlement paths
+// agree and prevents a failed relay run from quietly advancing the finale.
+export const EXTRACTION_CONFIRMED_CLUE_IDS = new Set([
+  'relay-west-calibrated',
+  'relay-east-calibrated',
+]);
+
+export function getDeathPersistentClues(current: readonly string[], discoveredDuringRaid: readonly string[]): string[] {
+  const existing = new Set(current);
+  return discoveredDuringRaid.filter((clueId) => !EXTRACTION_CONFIRMED_CLUE_IDS.has(clueId) || existing.has(clueId));
+}
+
 export interface ClueRecord {
   id: string;
   icon: string;

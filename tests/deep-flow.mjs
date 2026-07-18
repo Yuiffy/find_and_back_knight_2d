@@ -104,14 +104,14 @@ try {
   let current = await state();
   assert(current.mode === 'raid' && current.player.x > 2700 && current.player.y < 1000, 'Lift entry did not spawn in the deep rift.');
   await attackBurst(3);
-  await jumpToward(2840, 3250, 783, 1050);
+  await jumpToward(2840, 3250, 783, 1200);
   await page.locator('canvas').screenshot({ path: path.join(outputDir, '01-two-axis-deep-route.png') });
   current = await state();
   assert(current.zone === '静默机房', `Expected machine room, got ${current.zone}.`);
 
   let sawBossWindup = false;
   let capturedBossWindup = false;
-  for (let strike = 0; strike < 12; strike += 1) {
+  for (let strike = 0; strike < 16; strike += 1) {
     current = await state();
     assert(current.mode === 'raid', 'Player died during the boss fight.');
     const boss = current.visibleEnemies.find((enemy) => enemy.kind === 'warden');
@@ -140,20 +140,20 @@ try {
   assert(sawBossWindup, 'Boss fight never exposed a telegraph or charge state to the player.');
   assert(capturedBossWindup, 'Boss telegraph was not visible long enough to capture before its charge.');
 
-  for (let pickup = 0; pickup < 4; pickup += 1) {
+  for (let pickup = 0; pickup < 8; pickup += 1) {
     current = await state();
     const nextLoot = current.visibleLoot.find((loot) => loot.itemId === 'echo_core') ?? current.visibleLoot[0];
     if (!nextLoot) break;
     await moveX(nextLoot.x, 45);
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(180);
+    await page.waitForTimeout(260);
   }
   current = await state();
   assert(current.backpack.some((item) => item.itemId === 'echo_core'), '3x3 Echo Core was not placed in the 4x5 backpack.');
   await page.locator('canvas').screenshot({ path: path.join(outputDir, '02-boss-loot-in-grid-pack.png') });
 
   if (current.player.y > 820) {
-    await jumpToward(2840, 3250, 783, 1050);
+    await jumpToward(2840, 3250, 783, 1200);
   }
   await moveX(3620, 65);
   current = await state();

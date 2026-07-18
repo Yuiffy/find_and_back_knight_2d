@@ -74,7 +74,7 @@ try {
   await dragCanvas(equipmentPage, { x: 656, y: 264 }, { x: 220, y: 282 });
   state = await readState(equipmentPage);
   assert(state.loadout.armor === 'miner_shell', 'Dragging the armor did not equip it.');
-  assert(state.player.maxArmor === 4 && state.player.armor === 4, 'Equipped armor did not apply immediately.');
+  assert(state.player.maxArmor === 4 && state.player.armor === 2, 'Equipping armor changed its maximum but incorrectly repaired the damaged armor.');
   assert(state.backpack.some((item) => item.itemId === 'stream_shell'), 'Replaced armor did not return to the backpack.');
   await equipmentPage.waitForTimeout(500);
   await equipmentPage.screenshot({ path: path.join(outputDir, '02-equipped-in-raid.png') });

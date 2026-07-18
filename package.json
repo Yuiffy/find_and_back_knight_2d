@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:flows": "node tests/v2-base-inventory.mjs && node tests/progression-pass-flow.mjs && node tests/directional-combat-flow.mjs && node tests/combat-polish-flow.mjs && node tests/raid-inventory-flow.mjs && node tests/pause-guard-flow.mjs && node tests/extraction-settlement-flow.mjs && node tests/deep-flow.mjs && node tests/gameplay-overhaul-flow.mjs && node tests/lost-echo-flow.mjs && node tests/save-roundtrip.mjs"
   },
   "dependencies": {
     "phaser": "4.2.1",

@@ -24,12 +24,20 @@ try {
   await page.reload({ waitUntil: 'networkidle' });
   let profile = await saved();
   assert(profile.credits === 45, `Fresh profile credits mismatch: ${JSON.stringify(profile)}.`);
+  await page.evaluate(() => {
+    const key = 'sui-echoes-below.save.v1';
+    const current = JSON.parse(localStorage.getItem(key));
+    current.warehouse = current.warehouse.map((item) => item.itemId === 'repair_patch' ? { ...item, y: 2 } : item);
+    localStorage.setItem(key, JSON.stringify(current));
+  });
+  await page.reload({ waitUntil: 'networkidle' });
 
   const patchItem = page.getByRole('button', { name: /便携修补片/ });
-  await patchItem.click({ button: 'right' });
+  await patchItem.click();
+  await page.getByRole('button', { name: /旋转/ }).click();
   profile = await saved();
   let patchStack = profile.warehouse.find((item) => item.itemId === 'repair_patch');
-  assert(patchStack?.rotated === true, 'Right-click did not rotate the 1x2 patch to 2x1.');
+  assert(patchStack?.rotated === true, `Selected-item rotation did not turn the 1x2 patch to 2x1: ${JSON.stringify(profile.warehouse)}.`);
 
   await page.getByRole('button', { name: /空响尘/ }).click();
   await page.getByRole('button', { name: /拆分堆叠/ }).click();
