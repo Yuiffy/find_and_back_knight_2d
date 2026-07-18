@@ -22,7 +22,7 @@ function profileWithLostEcho(uniqueOldItem = 'echo_lance') {
     stash: [{ itemId: 'echo_dust', quantity: 2 }],
     loadout: { weapon: 'rust_nail', armor: null, head: null, shoes: 'soft_boots' },
     armorCondition: 0,
-    raidsStarted: 2,
+    raidsStarted: 1,
     successfulExtractions: 1,
     deaths: 1,
     mapUnlocked: false,
@@ -89,7 +89,7 @@ try {
   await page.keyboard.press('Enter');
   await page.waitForTimeout(180);
   let current = await state();
-  assert(current.flags.recoveredEcho, 'Lost Echo was not marked recovered.');
+  assert(current.flags.recoveredEcho, `Lost Echo was not marked recovered: ${JSON.stringify({ player: current.player, nearbyInteraction: current.nearbyInteraction })}.`);
 
   await moveNear(520);
   await page.keyboard.press('Enter');

@@ -199,7 +199,7 @@ export function App() {
     const item = ITEMS[itemId];
     const unitPrice = item?.buyPrice ?? 0;
     const price = unitPrice * quantity;
-    const unlocked = !['echo_lance', 'survey_lens'].includes(itemId) || profile.mapUnlocked;
+    const unlocked = !['echo_lance', 'blue_hood'].includes(itemId) || profile.mapUnlocked;
     const deepUnlocked = !['storm_feather', 'survey_pack'].includes(itemId) || profile.bossDefeated;
     if (!item || price <= 0 || quantity <= 0 || !unlocked || !deepUnlocked || profile.credits < price) return;
     const warehouse = insertGridStack(profile.warehouse, profile.warehouseSize, { itemId, quantity });

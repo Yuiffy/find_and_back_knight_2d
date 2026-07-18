@@ -18,6 +18,9 @@ export interface ItemStats {
   armor?: number;
   speedMultiplier?: number;
   dashEnabled?: boolean;
+  dashMode?: 'normal' | 'shadow';
+  headEffect?: 'kill-heal' | 'scout' | 'tonic-boost' | 'panic-haste';
+  healAmount?: number;
   gridWidth?: number;
   gridHeight?: number;
 }
@@ -124,6 +127,11 @@ export interface TextGameState {
     connected: boolean;
     bounced: boolean;
   } | null;
+  dash?: {
+    mode: 'normal' | 'shadow' | null;
+    active: boolean;
+    ready: boolean;
+  };
   zone?: string;
   mapId?: string;
   zoneId?: string | null;

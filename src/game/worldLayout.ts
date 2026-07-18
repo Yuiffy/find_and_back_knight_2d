@@ -1,4 +1,4 @@
-export type TerrainStyle = 'foyer' | 'shaft' | 'archive' | 'fungal' | 'cistern' | 'machine' | 'graveyard' | 'relay';
+export type TerrainStyle = 'foyer' | 'shaft' | 'archive' | 'fungal' | 'cistern' | 'machine' | 'graveyard' | 'conservatory' | 'relay';
 
 export interface TerrainSegment {
   x: number;
@@ -81,12 +81,23 @@ export const TERRAIN_SEGMENTS: TerrainSegment[] = [
   { x: 3050, y: 1480, width: 340, style: 'cistern', massDepth: 150, edge: 'right' },
   { x: 2660, y: 1300, width: 480, style: 'cistern', massDepth: 140 },
   { x: 3300, y: 830, width: 700, style: 'machine', massDepth: 100 },
-  { x: 3925, y: 620, width: 550, style: 'graveyard', massDepth: 240, edge: 'right' },
-  // 针林上方的可选跳跳乐支路；窄台最终通向隐藏补给。
+  { x: 3925, y: 620, width: 550, style: 'graveyard', massDepth: 240 },
+  // 档案窟的短跳教学支路，避开主线和撤离点。
   { x: 300, y: 760, width: 190, style: 'archive', massDepth: 80 },
   { x: 590, y: 620, width: 170, style: 'archive', massDepth: 76 },
   { x: 875, y: 485, width: 160, style: 'archive', massDepth: 72 },
   { x: 1150, y: 610, width: 180, style: 'archive', massDepth: 80 },
+  // 新区域「沉眠温室」：墓园之后继续向东，形成普通冲刺教学与进阶挑战。
+  { x: 4520, y: 760, width: 520, style: 'conservatory', massDepth: 180 },
+  { x: 4930, y: 620, width: 240, style: 'conservatory', massDepth: 130 },
+  { x: 5260, y: 520, width: 220, style: 'conservatory', massDepth: 120 },
+  { x: 5590, y: 690, width: 260, style: 'conservatory', massDepth: 160 },
+  { x: 5920, y: 510, width: 230, style: 'conservatory', massDepth: 120 },
+  { x: 6200, y: 350, width: 320, style: 'conservatory', massDepth: 140, edge: 'right' },
+  { x: 4750, y: 1120, width: 280, style: 'conservatory', massDepth: 150 },
+  { x: 5140, y: 1260, width: 260, style: 'conservatory', massDepth: 150 },
+  { x: 5530, y: 1140, width: 270, style: 'conservatory', massDepth: 150 },
+  { x: 5920, y: 1320, width: 300, style: 'conservatory', massDepth: 170 },
 ];
 
 export const STORY_ECHOES: StoryEchoDefinition[] = [
@@ -102,6 +113,8 @@ export const STORY_ECHOES: StoryEchoDefinition[] = [
   { id: 'archive-recorder', x: 650, y: 865, title: '无主记录器', message: '回声：屏幕仍在滚动评论，但那些账号早在一百七十年前就停止活动了。', color: 0x78d9c4 },
   { id: 'cistern-bell', x: 2500, y: 1230, title: '沉钟铭牌', message: '回声：蓄水池不是为了储水，而是为了淹没一口不该再次响起的钟。', color: 0x70b7d2 },
   { id: 'graveyard-terminal', x: 3900, y: 550, title: '朝向故乡的旧终端', message: '回声：这里的线路已经断开。核心把一组更远的坐标写入基地终端。', color: 0xb99cff },
+  { id: 'conservatory-log', x: 4540, y: 685, title: '温室培育日志', message: '回声：蓝帽负责找路，花帽负责疗伤，猫帽负责在一切失控时跑得够快。', color: 0x9de6a7 },
+  { id: 'conservatory-gate', x: 6080, y: 285, title: '风道试验记录', message: '回声：先学会借风冲过断桥，再去寻找能穿过黑暗的影步。', color: 0xf0cb75 },
 ];
 
 export const MAP_ROOM_SHAPES: MapRoomShape[] = [
@@ -112,12 +125,15 @@ export const MAP_ROOM_SHAPES: MapRoomShape[] = [
   { id: 'cistern', name: '沉钟蓄水池', x: 1860, y: 1120, width: 1320, height: 980, color: 0x315d72 },
   { id: 'machine', name: '静默机房', x: 2850, y: 520, width: 800, height: 430, color: 0x5f4e7d },
   { id: 'graveyard', name: '天线墓园', x: 3650, y: 420, width: 550, height: 340, color: 0x68557f },
+  { id: 'conservatory', name: '沉眠温室', x: 4210, y: 180, width: 2190, height: 1280, color: 0x3f7866 },
 ];
 
 export const MAP_ROUTES: Array<Array<{ x: number; y: number }>> = [
   [{ x: 240, y: 1990 }, { x: 760, y: 1970 }, { x: 1250, y: 1785 }, { x: 570, y: 1600 }, { x: 1450, y: 1420 }, { x: 2000, y: 1235 }, { x: 2450, y: 1050 }, { x: 2700, y: 930 }, { x: 3250, y: 830 }, { x: 3925, y: 620 }],
   [{ x: 1450, y: 1420 }, { x: 600, y: 1320 }, { x: 250, y: 1120 }, { x: 600, y: 930 }, { x: 1050, y: 1040 }, { x: 1450, y: 1420 }],
   [{ x: 2000, y: 1990 }, { x: 2290, y: 1840 }, { x: 2700, y: 1660 }, { x: 3050, y: 1480 }, { x: 2660, y: 1300 }, { x: 2000, y: 1235 }],
+  [{ x: 3925, y: 620 }, { x: 4520, y: 760 }, { x: 4930, y: 620 }, { x: 5260, y: 520 }, { x: 5590, y: 690 }, { x: 5920, y: 510 }, { x: 6200, y: 350 }],
+  [{ x: 4520, y: 760 }, { x: 4750, y: 1120 }, { x: 5140, y: 1260 }, { x: 5530, y: 1140 }, { x: 5920, y: 1320 }],
 ];
 
 const RELAY_TERRAIN: TerrainSegment[] = [
@@ -149,10 +165,14 @@ export const WORLD_LAYOUTS: Record<string, WorldLayoutDefinition> = {
   hollow_01: {
     terrain: TERRAIN_SEGMENTS,
     hazards: [
-      { id: 'foyer-spikes', x: 1160, y: 2047, width: 120 },
-      { id: 'archive-spike-bed', x: 760, y: 911, width: 220 },
-      { id: 'cistern-spikes', x: 2460, y: 1826, width: 150 },
-      { id: 'machine-spikes', x: 3560, y: 797, width: 140 },
+      // 教学：主线平台中段的短刺床，左右都有充足起跳和落地空间。
+      { id: 'archive-spike-bed', x: 760, y: 911, width: 150 },
+      // 应用：蓄水池侧路的单段危险，撤离浮标周围保持完全安全。
+      { id: 'cistern-spikes', x: 2460, y: 1821, width: 110 },
+      // 掌握：温室高线连续冲刺房，危险只封住奖励路线而不堵主路。
+      { id: 'conservatory-spikes-a', x: 5100, y: 601, width: 120 },
+      { id: 'conservatory-spikes-b', x: 5430, y: 671, width: 100 },
+      { id: 'conservatory-spikes-c', x: 5750, y: 671, width: 100 },
     ],
     spawnClusters: [
       {
@@ -172,6 +192,7 @@ export const WORLD_LAYOUTS: Record<string, WorldLayoutDefinition> = {
       { x: 3010, y: 1415, label: '沉钟应急浮标' },
       { x: 3620, y: 745, label: '机房信号井' },
       { x: 4000, y: 535, label: '墓园远距天线' },
+      { x: 6200, y: 265, label: '温室风顶信标' },
     ],
   },
   relay_01: {

@@ -19,6 +19,22 @@ import type {
 } from '../types/game';
 
 const SAVE_KEY = 'sui-echoes-below.save.v1';
+const LEGACY_ITEM_IDS: Record<string, string> = {
+  survey_lens: 'blue_hood',
+};
+
+function canonicalItemId(itemId: unknown): string | null {
+  if (typeof itemId !== 'string') return null;
+  const canonical = LEGACY_ITEM_IDS[itemId] ?? itemId;
+  return ITEMS[canonical] ? canonical : null;
+}
+
+function canonicalizeStacks(raw: readonly ItemStack[]): ItemStack[] {
+  return raw.flatMap((stack) => {
+    const itemId = canonicalItemId(stack.itemId);
+    return itemId ? [{ ...stack, itemId }] : [];
+  });
+}
 
 interface LegacyProfile {
   version?: number;
@@ -63,17 +79,21 @@ function normalizeGrid(raw: unknown, size: GridSize): GridItem[] {
     const candidate = entry as Partial<GridItem>;
     return typeof candidate.uid === 'string'
       && typeof candidate.itemId === 'string'
-      && Boolean(ITEMS[candidate.itemId])
+      && Boolean(canonicalItemId(candidate.itemId))
       && Number.isFinite(candidate.quantity)
       && Number.isFinite(candidate.x)
       && Number.isFinite(candidate.y);
-  }).map((item) => ({
-    ...item,
-    quantity: Math.min(ITEMS[item.itemId].stackLimit, Math.max(1, Math.floor(item.quantity))),
-    x: Math.max(0, Math.floor(item.x)),
-    y: Math.max(0, Math.floor(item.y)),
-    rotated: Boolean(item.rotated),
-  }));
+  }).map((item) => {
+    const itemId = canonicalItemId(item.itemId)!;
+    return {
+      ...item,
+      itemId,
+      quantity: Math.min(ITEMS[itemId].stackLimit, Math.max(1, Math.floor(item.quantity))),
+      x: Math.max(0, Math.floor(item.x)),
+      y: Math.max(0, Math.floor(item.y)),
+      rotated: Boolean(item.rotated),
+    };
+  });
   if (validateGrid(items, size)) return cloneGridItems(items);
   return packStacks(gridItemsToStacks(items), size);
 }
@@ -83,7 +103,7 @@ export function createDefaultProfile(): PlayerProfile {
   const loadout: Loadout = {
     weapon: 'rust_nail',
     armor: 'stream_shell',
-    head: 'cat_cap',
+    head: 'red_hood',
     shoes: 'soft_boots',
     backpack: 'field_pack',
   };
@@ -94,6 +114,7 @@ export function createDefaultProfile(): PlayerProfile {
     warehouse: packStacks([
       { itemId: 'echo_dust', quantity: 2 },
       { itemId: 'repair_patch', quantity: 1 },
+      { itemId: 'echo_tonic', quantity: 1 },
     ], warehouseSize),
     loadout,
     backpack: { ...getPackSize(loadout), items: [] },
@@ -102,7 +123,7 @@ export function createDefaultProfile(): PlayerProfile {
     successfulExtractions: 0,
     deaths: 0,
     credits: 45,
-    discoveredItems: ['rust_nail', 'stream_shell', 'cat_cap', 'soft_boots', 'field_pack', 'echo_dust', 'repair_patch'],
+    discoveredItems: ['rust_nail', 'stream_shell', 'red_hood', 'soft_boots', 'field_pack', 'echo_dust', 'repair_patch', 'echo_tonic'],
     discoveredClues: ['arrival'],
     mapUnlocked: false,
     shortcutUnlocked: false,
@@ -123,9 +144,13 @@ function normalizeProfile(value: unknown): PlayerProfile {
   const loadout: Loadout = {
     ...defaults.loadout,
     ...candidate.loadout,
+    weapon: canonicalItemId(candidate.loadout.weapon) ?? defaults.loadout.weapon,
+    armor: candidate.loadout.armor === null ? null : canonicalItemId(candidate.loadout.armor),
+    head: candidate.loadout.head === null ? null : canonicalItemId(candidate.loadout.head),
+    shoes: canonicalItemId(candidate.loadout.shoes) ?? defaults.loadout.shoes,
     backpack: candidate.version === 2
-      ? (candidate.loadout.backpack ?? null)
-      : (candidate.loadout.backpack ?? 'field_pack'),
+      ? (canonicalItemId(candidate.loadout.backpack) ?? null)
+      : (canonicalItemId(candidate.loadout.backpack) ?? 'field_pack'),
   };
   const warehouseSize = candidate.version === 2 && candidate.warehouseSize
     ? {
@@ -136,7 +161,7 @@ function normalizeProfile(value: unknown): PlayerProfile {
 
   const warehouse = candidate.version === 2
     ? normalizeGrid(candidate.warehouse, warehouseSize)
-    : packStacks(candidate.stash ?? [], warehouseSize);
+    : packStacks(canonicalizeStacks(candidate.stash ?? []), warehouseSize);
   const packSize = getPackSize(loadout);
   const backpackItems = candidate.version === 2
     ? normalizeGrid(candidate.backpack?.items, packSize)
@@ -169,7 +194,8 @@ function normalizeProfile(value: unknown): PlayerProfile {
     credits: Math.max(0, Math.floor(Number(candidate.credits ?? 45))),
     discoveredItems: Array.from(new Set(
       (Array.isArray(candidate.discoveredItems) ? candidate.discoveredItems : defaults.discoveredItems)
-        .filter((itemId): itemId is string => typeof itemId === 'string' && Boolean(ITEMS[itemId])),
+        .map(canonicalItemId)
+        .filter((itemId): itemId is string => Boolean(itemId)),
     )),
     discoveredClues: Array.from(new Set(
       (Array.isArray(candidate.discoveredClues) ? candidate.discoveredClues : defaults.discoveredClues)
@@ -184,7 +210,7 @@ function normalizeProfile(value: unknown): PlayerProfile {
       mapId: lostEchoMap!.id,
       x: Math.round(rawLostEcho.x),
       y: Math.round(rawLostEcho.y),
-      items: cloneStacks(rawLostEcho.items ?? []).filter((stack) => Boolean(ITEMS[stack.itemId])),
+      items: canonicalizeStacks(cloneStacks(rawLostEcho.items ?? [])),
       createdAtRaid: Math.max(0, Math.floor(Number(rawLostEcho.createdAtRaid) || 0)),
     } : null,
     activeRaid: null,
@@ -195,7 +221,7 @@ function normalizeProfile(value: unknown): PlayerProfile {
     const { map, entry } = normalizeMapEntry(candidate.activeRaid.mapId, candidate.activeRaid.entryId);
     const activeItems = candidate.version === 2
       ? gridItemsToStacks(normalizeGrid(candidate.activeRaid.backpack, packSize))
-      : cloneStacks((candidate.activeRaid.backpack ?? []) as ItemStack[]);
+      : canonicalizeStacks(cloneStacks((candidate.activeRaid.backpack ?? []) as ItemStack[]));
     const abandonedGear = Object.values(normalized.loadout)
       .filter((itemId): itemId is string => Boolean(itemId))
       .map((itemId) => ({ itemId, quantity: 1 }));

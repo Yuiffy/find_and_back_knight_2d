@@ -41,7 +41,7 @@ async function enter(page, buttonName) {
 
 try {
   const spawns = [];
-  let sawFoyerSpikes = false;
+  let closestSpawnHazardDistance = Number.POSITIVE_INFINITY;
   for (const raidsStarted of [0, 1, 2]) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
     page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
@@ -50,11 +50,12 @@ try {
     await enter(page, /失落前庭随机投放/);
     const state = await readState(page);
     spawns.push(`${state.spawn.x},${state.spawn.y}`);
-    sawFoyerSpikes ||= state.visibleHazards.some((hazard) => hazard.id === 'foyer-spikes');
+    const nearestHazard = state.visibleHazards.reduce((nearest, hazard) => Math.min(nearest, Math.hypot(state.spawn.x - hazard.x, state.spawn.y - hazard.y)), Number.POSITIVE_INFINITY);
+    closestSpawnHazardDistance = Math.min(closestSpawnHazardDistance, nearestHazard);
     await page.close();
   }
   assert(new Set(spawns).size === 3, `Expected three rotating foyer spawns, got ${spawns.join(' | ')}.`);
-  assert(sawFoyerSpikes, 'Foyer spikes were not visible from any rotating spawn.');
+  assert(closestSpawnHazardDistance > 420, `A rotating foyer spawn was too close to a hazard: ${closestSpawnHazardDistance}.`);
 
   const liftPage = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   liftPage.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
@@ -86,7 +87,7 @@ try {
   }
 
   assert(errors.length === 0, `Browser errors: ${errors.join(' | ')}`);
-  console.log(JSON.stringify({ ok: true, rotatingSpawns: spawns, deepLift: lift.spawn, layouts: ['1280x720', '1920x1080', '2560x1440'], errors }, null, 2));
+  console.log(JSON.stringify({ ok: true, rotatingSpawns: spawns, closestSpawnHazardDistance, deepLift: lift.spawn, layouts: ['1280x720', '1920x1080', '2560x1440'], errors }, null, 2));
 } finally {
   await browser.close();
 }

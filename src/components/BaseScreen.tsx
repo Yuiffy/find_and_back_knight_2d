@@ -357,7 +357,7 @@ export function BaseScreen({
             <div className="offer-list">
               {MARKET_ITEM_IDS.map((itemId) => {
                 const item = ITEMS[itemId];
-                const mapLocked = ['echo_lance', 'survey_lens'].includes(itemId) && !profile.mapUnlocked;
+                const mapLocked = ['echo_lance', 'blue_hood'].includes(itemId) && !profile.mapUnlocked;
                 const deepLocked = ['storm_feather', 'survey_pack'].includes(itemId) && !profile.bossDefeated;
                 const locked = mapLocked || deepLocked;
                 return (

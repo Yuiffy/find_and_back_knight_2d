@@ -29,8 +29,8 @@ export const MAP_REGISTRY: Record<string, MapDefinition> = {
   hollow_01: {
     id: 'hollow_01',
     name: '寂羽空洞',
-    subtitle: '前庭、裂谷与静默机房',
-    worldWidth: 4200,
+    subtitle: '前庭、裂谷、静默机房与沉眠温室',
+    worldWidth: 6400,
     worldHeight: 2200,
     entries: {
       foyer: { id: 'foyer', name: '失落前庭随机投放', x: 240, y: 1960, zoneId: 'foyer' },
@@ -39,6 +39,7 @@ export const MAP_REGISTRY: Record<string, MapDefinition> = {
     // Bounds intentionally leave narrow transition gaps. Region resolution must
     // preserve the previous zone briefly instead of inventing a foyer fallback.
     zones: [
+      { id: 'conservatory', name: '沉眠温室', risk: 'III', bounds: { x: 4200, y: 0, width: 2200, height: 1600 } },
       { id: 'graveyard', name: '天线墓园', risk: 'IV', bounds: { x: 3700, y: 0, width: 500, height: 800 } },
       { id: 'machine', name: '静默机房', risk: 'III', bounds: { x: 2850, y: 0, width: 800, height: 1000 } },
       { id: 'archive', name: '遗忘档案窟', risk: 'II', bounds: { x: 0, y: 760, width: 1040, height: 680 } },

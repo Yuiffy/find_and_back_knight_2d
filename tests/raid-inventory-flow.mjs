@@ -103,16 +103,16 @@ try {
   await lootPage.waitForTimeout(180);
 
   state = await readState(lootPage);
-  assert(state.nearbyLoot.some((item) => item.itemId === 'repair_patch'), 'Nearby loot list omitted the repair patch.');
+  assert(state.nearbyLoot.some((item) => item.itemId === 'echo_tonic'), 'Nearby loot list omitted the starter-crate Echo Tonic.');
   await dragCanvas(lootPage, { x: 1010, y: 269 }, { x: 530, y: 190 });
   state = await readState(lootPage);
-  assert(state.backpack.some((item) => item.itemId === 'repair_patch'), 'Ground loot did not enter the backpack.');
-  assert(!state.nearbyLoot.some((item) => item.itemId === 'repair_patch'), 'Picked-up loot remained on the ground.');
+  assert(state.backpack.some((item) => item.itemId === 'echo_tonic'), 'Ground loot did not enter the backpack.');
+  assert(!state.nearbyLoot.some((item) => item.itemId === 'echo_tonic'), 'Picked-up loot remained on the ground.');
 
   await dragCanvas(lootPage, { x: 532, y: 233 }, { x: 625, y: 570 });
   state = await readState(lootPage);
-  assert(!state.backpack.some((item) => item.itemId === 'repair_patch'), 'Dropped item remained in the backpack.');
-  assert(state.nearbyLoot.some((item) => item.itemId === 'repair_patch'), 'Dropped item did not reappear in nearby loot.');
+  assert(!state.backpack.some((item) => item.itemId === 'echo_tonic'), 'Dropped item remained in the backpack.');
+  assert(state.nearbyLoot.some((item) => item.itemId === 'echo_tonic'), 'Dropped item did not reappear in nearby loot.');
   await lootPage.waitForTimeout(500);
   await lootPage.screenshot({ path: path.join(outputDir, '04-dropped-to-ground.png') });
   await lootPage.close();
