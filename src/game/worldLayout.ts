@@ -9,6 +9,18 @@ export interface TerrainSegment {
   edge?: 'left' | 'right' | 'both';
 }
 
+export interface HazardDefinition {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+}
+
+export interface SpawnClusterDefinition {
+  entryId: string;
+  positions: Array<{ x: number; y: number }>;
+}
+
 export interface StoryEchoDefinition {
   id: string;
   x: number;
@@ -37,6 +49,8 @@ export interface RelayInteractionDefinition {
 
 export interface WorldLayoutDefinition {
   terrain: TerrainSegment[];
+  hazards: HazardDefinition[];
+  spawnClusters: SpawnClusterDefinition[];
   storyEchoes: StoryEchoDefinition[];
   roomShapes: MapRoomShape[];
   routes: Array<Array<{ x: number; y: number }>>;
@@ -68,6 +82,11 @@ export const TERRAIN_SEGMENTS: TerrainSegment[] = [
   { x: 2660, y: 1300, width: 480, style: 'cistern', massDepth: 140 },
   { x: 3300, y: 830, width: 700, style: 'machine', massDepth: 100 },
   { x: 3925, y: 620, width: 550, style: 'graveyard', massDepth: 240, edge: 'right' },
+  // 针林上方的可选跳跳乐支路；窄台最终通向隐藏补给。
+  { x: 300, y: 760, width: 190, style: 'archive', massDepth: 80 },
+  { x: 590, y: 620, width: 170, style: 'archive', massDepth: 76 },
+  { x: 875, y: 485, width: 160, style: 'archive', massDepth: 72 },
+  { x: 1150, y: 610, width: 180, style: 'archive', massDepth: 80 },
 ];
 
 export const STORY_ECHOES: StoryEchoDefinition[] = [
@@ -129,6 +148,22 @@ const RELAY_ROOMS: MapRoomShape[] = [
 export const WORLD_LAYOUTS: Record<string, WorldLayoutDefinition> = {
   hollow_01: {
     terrain: TERRAIN_SEGMENTS,
+    hazards: [
+      { id: 'foyer-spikes', x: 1160, y: 2047, width: 120 },
+      { id: 'archive-spike-bed', x: 760, y: 911, width: 220 },
+      { id: 'cistern-spikes', x: 2460, y: 1826, width: 150 },
+      { id: 'machine-spikes', x: 3560, y: 797, width: 140 },
+    ],
+    spawnClusters: [
+      {
+        entryId: 'foyer',
+        positions: [
+          { x: 240, y: 1960 },
+          { x: 620, y: 1900 },
+          { x: 1760, y: 1860 },
+        ],
+      },
+    ],
     storyEchoes: STORY_ECHOES,
     roomShapes: MAP_ROOM_SHAPES,
     routes: MAP_ROUTES,
@@ -141,6 +176,20 @@ export const WORLD_LAYOUTS: Record<string, WorldLayoutDefinition> = {
   },
   relay_01: {
     terrain: RELAY_TERRAIN,
+    hazards: [
+      { id: 'relay-trench-spikes', x: 1320, y: 1427, width: 160 },
+      { id: 'relay-east-spikes', x: 2310, y: 1417, width: 150 },
+    ],
+    spawnClusters: [
+      {
+        entryId: 'west',
+        positions: [
+          { x: 230, y: 1510 },
+          { x: 680, y: 1510 },
+          { x: 850, y: 1190 },
+        ],
+      },
+    ],
     storyEchoes: RELAY_ECHOES,
     roomShapes: RELAY_ROOMS,
     routes: [[{ x: 230, y: 1510 }, { x: 1125, y: 1400 }, { x: 1575, y: 1260 }, { x: 2100, y: 1390 }, { x: 2525, y: 1180 }, { x: 2930, y: 990 }, { x: 3310, y: 800 }], [{ x: 500, y: 1510 }, { x: 760, y: 1100 }, { x: 1370, y: 920 }, { x: 1840, y: 1260 }]],

@@ -41,16 +41,15 @@ export function GameCanvas({ profile, mapId, entryId, onResult }: GameCanvasProp
     if (!container) return undefined;
     container.replaceChildren();
 
-    const backingWidth = Math.round(LOGICAL_WIDTH * renderScale);
-    const backingHeight = Math.round(LOGICAL_HEIGHT * renderScale);
     const scene = new RaidScene({ profile, mapId, entryId, renderScale, onResult });
     const game = new Phaser.Game({
       type: Phaser.AUTO,
       parent: container,
-      // Phaser 4 does not document GameConfig.resolution. Use an explicit
-      // backing store and let the scene camera preserve 1280x720 coordinates.
-      width: backingWidth,
-      height: backingHeight,
+      // Keep one logical coordinate space for the camera, HUD and pointer input.
+      // The browser scales this canvas to the available viewport while text uses
+      // renderScale below for a sharper internal texture on high-DPI screens.
+      width: LOGICAL_WIDTH,
+      height: LOGICAL_HEIGHT,
       transparent: false,
       backgroundColor: '#07151d',
       physics: {
@@ -60,8 +59,8 @@ export function GameCanvas({ profile, mapId, entryId, onResult }: GameCanvasProp
       scale: {
         mode: Phaser.Scale.FIT,
         autoCenter: Phaser.Scale.CENTER_BOTH,
-        width: backingWidth,
-        height: backingHeight,
+        width: LOGICAL_WIDTH,
+        height: LOGICAL_HEIGHT,
       },
       render: { antialias: true, roundPixels: false },
       scene: [scene],
@@ -76,7 +75,7 @@ export function GameCanvas({ profile, mapId, entryId, onResult }: GameCanvasProp
 
   return (
     <main className="raid-shell">
-      <div className="game-frame" data-render-scale={renderScale} ref={containerRef} />
+      <div className="game-frame" ref={containerRef} />
     </main>
   );
 }

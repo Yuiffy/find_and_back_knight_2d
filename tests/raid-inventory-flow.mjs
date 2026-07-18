@@ -62,7 +62,7 @@ try {
   });
   await equipmentPage.reload({ waitUntil: 'networkidle' });
   await enterRaid(equipmentPage);
-  await equipmentPage.keyboard.press('ArrowDown');
+  await equipmentPage.keyboard.press('Tab');
   await equipmentPage.waitForTimeout(600);
   await equipmentPage.screenshot({ path: path.join(outputDir, '01-loaded-inventory.png') });
 
@@ -99,7 +99,7 @@ try {
   await lootPage.keyboard.up('ArrowRight');
   await lootPage.keyboard.press('b');
   await lootPage.waitForTimeout(520);
-  await lootPage.keyboard.press('ArrowDown');
+  await lootPage.keyboard.press('Tab');
   await lootPage.waitForTimeout(180);
 
   state = await readState(lootPage);

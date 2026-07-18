@@ -96,16 +96,13 @@ try {
   await page.reload({ waitUntil: 'networkidle' });
 
   await page.getByRole('button', { name: '选择入口并开始远征' }).click();
-  await page.getByRole('button', { name: /维护电梯中层站/ }).click();
+  await page.getByRole('button', { name: /维护电梯深层站/ }).click();
   await page.locator('canvas').waitFor({ state: 'visible' });
   await page.locator('canvas').click({ position: { x: 640, y: 360 } });
   await page.waitForTimeout(700);
 
   let current = await state();
-  assert(current.mode === 'raid' && current.player.x > 1380 && current.player.y > 1200, 'Lift entry did not spawn in the middle room.');
-  await jumpToward(1700, 2000, 1188, 1100);
-  await jumpToward(2100, 2450, 1003, 1050);
-  await jumpToward(2400, 2700, 883, 980);
+  assert(current.mode === 'raid' && current.player.x > 2700 && current.player.y < 1000, 'Lift entry did not spawn in the deep rift.');
   await attackBurst(3);
   await jumpToward(2840, 3250, 783, 1050);
   await page.locator('canvas').screenshot({ path: path.join(outputDir, '01-two-axis-deep-route.png') });
@@ -170,7 +167,7 @@ try {
   await page.screenshot({ path: path.join(outputDir, '03-ending-clue.png'), fullPage: true });
 
   await page.getByRole('button', { name: '选择入口并开始远征' }).click();
-  await page.getByRole('button', { name: /西侧接驳台/ }).click();
+  await page.getByRole('button', { name: /西侧随机接驳/ }).click();
   await page.locator('canvas').waitFor({ state: 'visible' });
   await page.waitForTimeout(700);
   current = await state();

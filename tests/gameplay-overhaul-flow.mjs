@@ -68,17 +68,17 @@ try {
   await page.reload({ waitUntil: 'networkidle' });
 
   await page.getByRole('button', { name: '选择入口并开始远征' }).click();
-  await page.getByRole('button', { name: /失落前庭入口/ }).click();
+  await page.getByRole('button', { name: /失落前庭随机投放/ }).click();
   await page.locator('canvas').waitFor({ state: 'visible' });
   await page.locator('canvas').click({ position: { x: 1280, y: 720 } });
   await page.waitForTimeout(800);
 
   let current = await state();
   assert(current.mapId === 'hollow_01', `Expected hollow map id, got ${current.mapId}.`);
-  assert(current.render?.renderScale === 2, `Expected QHD render scale 2, got ${JSON.stringify(current.render)}.`);
-  assert(current.render.backingWidth === 2560 && current.render.backingHeight === 1440, 'Canvas backing dimensions were not capped at QHD.');
+  assert(current.render?.renderScale === 2, `Expected QHD text resolution 2, got ${JSON.stringify(current.render)}.`);
+  assert(current.render.backingWidth === 1280 && current.render.backingHeight === 720, 'Canvas did not preserve the logical QHD-safe coordinate space.');
   const canvasSize = await page.locator('canvas').evaluate((canvas) => ({ width: canvas.width, height: canvas.height }));
-  assert(canvasSize.width === 2560 && canvasSize.height === 1440, `Unexpected canvas backing size ${JSON.stringify(canvasSize)}.`);
+  assert(canvasSize.width === 1280 && canvasSize.height === 720, `Unexpected logical canvas size ${JSON.stringify(canvasSize)}.`);
 
   const manifest = current.visibleStoryEchoes?.find((echo) => echo.id === 'foyer-manifest');
   assert(manifest && manifest.x === 350 && manifest.y === 1995, `Foyer manifest is not at its reachable open-floor position: ${JSON.stringify(manifest)}.`);
@@ -116,7 +116,7 @@ try {
   await page.reload({ waitUntil: 'networkidle' });
   await page.getByRole('button', { name: '选择入口并开始远征' }).click();
   assert(await page.getByText('天线深场', { exact: false }).first().isVisible(), 'Relay destination did not unlock after bringing back the core.');
-  await page.getByRole('button', { name: /西侧接驳台/ }).click();
+  await page.getByRole('button', { name: /西侧随机接驳/ }).click();
   await page.locator('canvas').waitFor({ state: 'visible' });
   await page.waitForTimeout(800);
   current = await state();

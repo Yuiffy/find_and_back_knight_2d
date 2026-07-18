@@ -312,8 +312,8 @@ body::after {
 .echo-warning { color: #cdb3f1; }
 .base-command-bar .deploy-button { width: auto; min-width: 280px; margin: 0; padding: 13px 18px; text-align: center; }
 
-.modal-backdrop { position: fixed; z-index: 80; inset: 0; display: grid; place-items: center; padding: 18px; background: rgba(1, 8, 12, .78); backdrop-filter: blur(12px); }
-.entry-modal { width: min(560px, 100%); padding: 28px; border: 1px solid rgba(137, 241, 208, .28); background: linear-gradient(145deg, #0c2932, #071820); box-shadow: 0 35px 100px rgba(0, 0, 0, .6); }
+.modal-backdrop { position: fixed; z-index: 80; inset: 0; display: grid; place-items: center; padding: 18px; overflow-y: auto; background: rgba(1, 8, 12, .78); backdrop-filter: blur(12px); }
+.entry-modal { width: min(560px, 100%); max-height: calc(100vh - 36px); padding: 28px; overflow-y: auto; border: 1px solid rgba(137, 241, 208, .28); background: linear-gradient(145deg, #0c2932, #071820); box-shadow: 0 35px 100px rgba(0, 0, 0, .6); }
 .entry-modal h2 { margin: 7px 0 4px; font-family: Georgia, "Noto Serif SC", serif; font-size: 1.8rem; font-weight: 500; }
 .entry-modal > p { margin: 0 0 20px; color: var(--muted); font-size: .875rem; }
 .destination-group { margin-top: 16px; }

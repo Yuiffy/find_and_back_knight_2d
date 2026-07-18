@@ -118,6 +118,12 @@ export interface TextGameState {
     facing: 'left' | 'right';
     grounded: boolean;
   };
+  spawn?: { x: number; y: number };
+  lastAttack?: {
+    direction: 'left' | 'right' | 'up' | 'down';
+    connected: boolean;
+    bounced: boolean;
+  } | null;
   zone?: string;
   mapId?: string;
   zoneId?: string | null;
@@ -146,6 +152,7 @@ export interface TextGameState {
   loadout?: Loadout;
   nearbyLoot?: Array<{ id: string; itemId: string; quantity: number; distance: number }>;
   nearbyTerrain?: Array<{ left: number; right: number; top: number; bottom: number }>;
+  visibleHazards?: Array<{ id: string; x: number; y: number; width: number }>;
   visibleEnemies?: Array<{
     id: string;
     kind: string;

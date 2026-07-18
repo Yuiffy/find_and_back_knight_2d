@@ -46,7 +46,7 @@ try {
   await page.getByRole('button', { name: '选择入口并开始远征' }).click();
   await page.getByRole('dialog').waitFor();
   assert(await page.getByRole('button', { name: /失落前庭/ }).isEnabled(), 'Foyer entry is not selectable.');
-  assert(!(await page.getByRole('button', { name: /维护电梯中层站/ }).isEnabled()), 'Locked lift entry is unexpectedly enabled.');
+  assert(!(await page.getByRole('button', { name: /维护电梯深层站/ }).isEnabled()), 'Locked lift entry is unexpectedly enabled.');
   await page.screenshot({ path: path.join(outputDir, '02-entry-dialog.png'), fullPage: true });
 
   assert(errors.length === 0, `Browser errors: ${errors.join(' | ')}`);

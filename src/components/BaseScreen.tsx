@@ -54,6 +54,8 @@ export function BaseScreen({
   onReset,
 }: BaseScreenProps) {
   const importRef = useRef<HTMLInputElement>(null);
+  const deployButtonRef = useRef<HTMLButtonElement>(null);
+  const entryModalRef = useRef<HTMLElement>(null);
   const firstEntryRef = useRef<HTMLButtonElement>(null);
   const [activeTab, setActiveTab] = useState<BaseTab>('storage');
   const [entryOpen, setEntryOpen] = useState(false);
@@ -76,16 +78,34 @@ export function BaseScreen({
   useEffect(() => {
     if (!entryOpen) return undefined;
     firstEntryRef.current?.focus();
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setEntryOpen(false);
+    const handleModalKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setEntryOpen(false);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = Array.from(entryModalRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), [href], input:not(:disabled), [tabindex]:not([tabindex="-1"])') ?? []);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
-    window.addEventListener('keydown', closeOnEscape);
-    return () => window.removeEventListener('keydown', closeOnEscape);
+    window.addEventListener('keydown', handleModalKey);
+    return () => {
+      window.removeEventListener('keydown', handleModalKey);
+      deployButtonRef.current?.focus();
+    };
   }, [entryOpen]);
 
   useEffect(() => {
     const rotateActiveDrag = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== 'r' || !activeDragRef.current?.uid) return;
+      if (entryOpen || event.key.toLowerCase() !== 'r' || !activeDragRef.current?.uid) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       const rotated = rotateInventoryDragPayload(activeDragRef.current);
@@ -94,7 +114,7 @@ export function BaseScreen({
     };
     window.addEventListener('keydown', rotateActiveDrag);
     return () => window.removeEventListener('keydown', rotateActiveDrag);
-  }, []);
+  }, [entryOpen]);
 
   useEffect(() => {
     const moveInventoryDrag = (event: globalThis.PointerEvent) => {
@@ -112,25 +132,35 @@ export function BaseScreen({
     const endInventoryDragOnMiss = (event: globalThis.PointerEvent) => {
       if (activeDragRef.current?.pointerId === event.pointerId) endInventoryDrag();
     };
+    const cancelInventoryDrag = () => endInventoryDrag();
+    const cancelWhenHidden = () => {
+      if (document.hidden) endInventoryDrag();
+    };
     window.addEventListener('pointermove', moveInventoryDrag);
     window.addEventListener('pointerup', endInventoryDragOnMiss);
+    window.addEventListener('pointercancel', endInventoryDragOnMiss);
+    window.addEventListener('blur', cancelInventoryDrag);
+    document.addEventListener('visibilitychange', cancelWhenHidden);
     return () => {
       window.removeEventListener('pointermove', moveInventoryDrag);
       window.removeEventListener('pointerup', endInventoryDragOnMiss);
+      window.removeEventListener('pointercancel', endInventoryDragOnMiss);
+      window.removeEventListener('blur', cancelInventoryDrag);
+      document.removeEventListener('visibilitychange', cancelWhenHidden);
     };
   }, []);
 
   useEffect(() => {
     if (!selected?.uid) return undefined;
     const rotateSelected = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== 'r') return;
+      if (entryOpen || event.key.toLowerCase() !== 'r') return;
       if (activeDragRef.current?.uid) return;
       event.preventDefault();
       onRotateItem(selected);
     };
     window.addEventListener('keydown', rotateSelected);
     return () => window.removeEventListener('keydown', rotateSelected);
-  }, [onRotateItem, selected]);
+  }, [entryOpen, onRotateItem, selected]);
 
   function beginInventoryDrag(payload: InventoryDragPayload): void {
     activeDragRef.current = payload;
@@ -410,17 +440,17 @@ export function BaseScreen({
             ? <strong className="echo-warning">◉ 遗失回声等待找回；再次死亡会覆盖</strong>
             : <span>{profile.endingUnlocked && !profile.endingSeen ? '回声核心正与天线墓园共鸣——结局需要在远征现场触发。' : '物品：拖拽精确放置 · 右键旋转 · 双击快速转移。'}</span>}
         </div>
-        <button className="deploy-button" type="button" onClick={() => setEntryOpen(true)} disabled={!profile.loadout.weapon || !profile.loadout.backpack}>
+        <button ref={deployButtonRef} className="deploy-button" type="button" onClick={() => setEntryOpen(true)} disabled={!profile.loadout.weapon || !profile.loadout.backpack}>
           选择入口并开始远征
         </button>
       </footer>
 
       {entryOpen && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setEntryOpen(false)}>
-          <section className="entry-modal" role="dialog" aria-modal="true" aria-labelledby="entry-title" onMouseDown={(event) => event.stopPropagation()}>
+          <section ref={entryModalRef} className="entry-modal" role="dialog" aria-modal="true" aria-labelledby="entry-title" onMouseDown={(event) => event.stopPropagation()}>
             <span className="eyebrow">DEPLOYMENT</span>
             <h2 id="entry-title">选择地图与入口</h2>
-            <p>每轮只加载一张完整地图；身上装备和随身背包内容都会带入。</p>
+            <p>每轮只加载一张完整地图；普通入口会在多个安全投放点中轮换，深层电梯则直接前往远端区域。</p>
             {availableMaps.map((map, mapIndex) => (
               <div className="destination-group" key={map.id}>
                 <h3>{map.name}<small>{map.subtitle}</small></h3>

@@ -15,6 +15,7 @@ import { getArmorMaximum, ITEMS, RARITY_NAMES, SLOT_NAMES } from './items';
 import { containsPoint, findZoneAt, getMapDefinition, type MapDefinition, type MapZoneDefinition } from './maps';
 import {
   getWorldLayout,
+  type HazardDefinition,
   type RelayInteractionDefinition,
   type StoryEchoDefinition,
   type TerrainSegment,
@@ -27,6 +28,9 @@ const VIEW_WIDTH = 1280;
 const VIEW_HEIGHT = 720;
 const ZONE_HYSTERESIS = 40;
 const ZONE_CANDIDATE_DWELL = 600;
+const DOWNSTRIKE_BOUNCE_VELOCITY = -760;
+
+type AttackDirection = 'left' | 'right' | 'up' | 'down';
 
 interface RaidSceneOptions {
   profile: PlayerProfile;
@@ -46,6 +50,7 @@ interface RaidKeys {
   attack: Phaser.Input.Keyboard.Key;
   attackAlt: Phaser.Input.Keyboard.Key;
   attackTest: Phaser.Input.Keyboard.Key;
+  aimDown: Phaser.Input.Keyboard.Key;
   dash: Phaser.Input.Keyboard.Key;
   dashAlt: Phaser.Input.Keyboard.Key;
   interact: Phaser.Input.Keyboard.Key;
@@ -129,6 +134,7 @@ export class RaidScene extends Phaser.Scene {
   private readonly onResult: (result: RaidResult) => void;
   private player!: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
   private platforms!: Phaser.Physics.Arcade.StaticGroup;
+  private hazards!: Phaser.Physics.Arcade.StaticGroup;
   private keys!: RaidKeys;
   private enemies: EnemyEntity[] = [];
   private loot: LootEntity[] = [];
@@ -169,6 +175,7 @@ export class RaidScene extends Phaser.Scene {
   private nearbyInteraction: string | null = null;
   private currentZone: MapZoneDefinition | null = null;
   private zoneCandidate: MapZoneDefinition | null = null;
+  private previousInvulnerableUntil = 0;
   private zoneCandidateSince: number | null = null;
   private lastZoneRevealAt: number | null = null;
   private revealedZoneIds = new Set<string>();
@@ -190,6 +197,10 @@ export class RaidScene extends Phaser.Scene {
   private hasteUntil = 0;
   private abortHoldStartedAt = 0;
   private pauseAbortText: Phaser.GameObjects.Text | null = null;
+  private lastSafePosition: { x: number; y: number } | null = null;
+  private lastSafeRecordedAt = 0;
+  private lastSpawnPosition: { x: number; y: number } | null = null;
+  private lastAttack: { direction: AttackDirection; connected: boolean; bounced: boolean } | null = null;
 
   constructor({ profile, mapId, entryId, renderScale, onResult }: RaidSceneOptions) {
     super('raid');
@@ -223,6 +234,7 @@ export class RaidScene extends Phaser.Scene {
     this.createTextures();
     this.createBackdrop();
     this.createPlatforms();
+    this.createHazards();
     this.createPlayer();
     this.createEnemies();
     this.createLandmarks();
@@ -237,8 +249,8 @@ export class RaidScene extends Phaser.Scene {
     this.physics.world.setBounds(0, 0, this.worldWidth, this.worldHeight);
     this.physics.world.setBoundsCollision(true, true, true, false);
     this.cameras.main.setBounds(0, 0, this.worldWidth, this.worldHeight);
-    this.cameras.main.setViewport(0, 0, VIEW_WIDTH * this.renderScale, VIEW_HEIGHT * this.renderScale);
-    this.cameras.main.setZoom(this.renderScale);
+    this.cameras.main.setViewport(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+    this.cameras.main.setZoom(1);
     this.cameras.main.startFollow(this.player, true, 0.085, 0.1, -120, 20);
     this.cameras.main.setDeadzone(330, 150);
     this.cameras.main.setBackgroundColor('#07151d');
@@ -246,13 +258,16 @@ export class RaidScene extends Phaser.Scene {
 
     // 所有主要地形都是完整实体；角色不能再从下方穿过岩台或机器基座。
     this.physics.add.collider(this.player, this.platforms);
+    this.physics.add.overlap(this.player, this.hazards, (_player, hazard) => {
+      this.damagePlayerFromHazard(hazard as Phaser.Types.Physics.Arcade.GameObjectWithBody);
+    });
     for (const enemy of this.enemies) {
       if (enemy.kind !== 'moth') this.physics.add.collider(enemy.sprite, this.platforms);
       this.physics.add.overlap(this.player, enemy.sprite, () => this.damagePlayer(enemy));
     }
 
     this.cameras.main.fadeIn(480, 4, 15, 19);
-    this.showHint('A / D 移动 · Space 跳跃 · J 攻击 · E 互动 · Tab 背包', 4200);
+    this.showHint('A / D 移动 · Space 跳跃 · W / ↑ + J 上劈 · S / ↓ + J 下劈', 5000);
     this.publishTextState(true);
   }
 
@@ -271,11 +286,13 @@ export class RaidScene extends Phaser.Scene {
       this.toggleOverlay('pause');
     }
     if (!this.overlayMode && Phaser.Input.Keyboard.JustDown(this.keys.usePatch)) this.useRepairPatch();
-    if (Phaser.Input.Keyboard.JustDown(this.keys.map) || Phaser.Input.Keyboard.JustDown(this.keys.mapAlt)) {
+    // Arrow keys remain available for directional attacks. Dedicated M / Tab
+    // shortcuts avoid opening an overlay while the player is trying to strike.
+    if (Phaser.Input.Keyboard.JustDown(this.keys.map)) {
       this.toggleOverlay('map');
       return;
     }
-    if (Phaser.Input.Keyboard.JustDown(this.keys.backpack) || Phaser.Input.Keyboard.JustDown(this.keys.backpackAlt)) {
+    if (Phaser.Input.Keyboard.JustDown(this.keys.backpack)) {
       this.toggleOverlay('backpack');
       return;
     }
@@ -291,6 +308,7 @@ export class RaidScene extends Phaser.Scene {
     }
 
     this.updateMovement(time);
+    this.updateSafePosition(time);
     this.updateAttack(time);
     this.updateEnemies();
     this.updateInteractions(time);
@@ -691,6 +709,28 @@ export class RaidScene extends Phaser.Scene {
     }
   }
 
+  private createHazards(): void {
+    this.hazards = this.physics.add.staticGroup();
+    for (const hazard of this.layout.hazards) this.createSpikeHazard(hazard);
+  }
+
+  private createSpikeHazard(hazard: HazardDefinition): void {
+    const graphics = this.add.graphics().setDepth(10);
+    const left = hazard.x - hazard.width / 2;
+    const spikeWidth = 24;
+    const count = Math.max(2, Math.floor(hazard.width / spikeWidth));
+    graphics.fillStyle(0x9bb8b1, 0.9);
+    graphics.lineStyle(2, 0xd7eee7, 0.46);
+    for (let index = 0; index < count; index += 1) {
+      const x = left + (index * hazard.width) / count;
+      const nextX = left + ((index + 1) * hazard.width) / count;
+      graphics.fillTriangle(x, hazard.y, (x + nextX) / 2, hazard.y - 30, nextX, hazard.y);
+      graphics.strokeTriangle(x, hazard.y, (x + nextX) / 2, hazard.y - 30, nextX, hazard.y);
+    }
+    const collider = this.hazards.create(hazard.x, hazard.y - 11, 'terrain-foyer') as Phaser.Physics.Arcade.Sprite;
+    collider.setDisplaySize(hazard.width - 8, 22).setVisible(false).refreshBody();
+  }
+
   private drawTerrainMass(segment: TerrainSegment): void {
     const palette: Record<TerrainStyle, { body: number; shadow: number; accent: number }> = {
       foyer: { body: 0x142b31, shadow: 0x091b22, accent: 0x748e82 },
@@ -830,6 +870,10 @@ export class RaidScene extends Phaser.Scene {
     this.spawnCrate('crate-archive', 390, 1060, [
       { itemId: 'repair_patch', quantity: 2 },
       { itemId: 'echo_dust', quantity: 3 },
+    ]);
+    this.spawnCrate('crate-platforming-cache', 1150, 550, [
+      { itemId: 'echo_dust', quantity: 7 },
+      { itemId: 'repair_patch', quantity: 2 },
     ]);
     this.spawnCrate('crate-cistern', 3020, 1430, [
       { itemId: 'echo_dust', quantity: 6 },
@@ -1055,6 +1099,7 @@ export class RaidScene extends Phaser.Scene {
       attack: Phaser.Input.Keyboard.KeyCodes.J,
       attackAlt: Phaser.Input.Keyboard.KeyCodes.X,
       attackTest: Phaser.Input.Keyboard.KeyCodes.B,
+      aimDown: Phaser.Input.Keyboard.KeyCodes.S,
       dash: Phaser.Input.Keyboard.KeyCodes.K,
       dashAlt: Phaser.Input.Keyboard.KeyCodes.SHIFT,
       interact: Phaser.Input.Keyboard.KeyCodes.E,
@@ -1083,7 +1128,15 @@ export class RaidScene extends Phaser.Scene {
         this.rotateRaidItemAt(pointer);
         return;
       }
-      if (!this.overlayMode) this.tryAttack(this.time.now);
+      if (!this.overlayMode) {
+        const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+        const dx = worldPoint.x - this.player.x;
+        const dy = worldPoint.y - this.player.y;
+        const direction: AttackDirection = Math.abs(dy) > Math.abs(dx) * 0.72
+          ? (dy < 0 ? 'up' : 'down')
+          : (dx < 0 ? 'left' : 'right');
+        this.tryAttack(this.time.now, this.normalizeAttackDirection(direction, dx < 0 ? 'left' : 'right'));
+      }
     });
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
       if (this.activeInventoryDrag && this.inventoryDragGhost) {
@@ -1171,7 +1224,7 @@ export class RaidScene extends Phaser.Scene {
       padding: { x: 15, y: 7 },
     }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(122).setVisible(false);
 
-    this.add.text(VIEW_WIDTH - 24, VIEW_HEIGHT - 20, 'J 攻击 · Space 跳跃 · E 互动 · M 地图 · Tab 背包 · F 全屏', {
+    this.add.text(VIEW_WIDTH - 24, VIEW_HEIGHT - 20, 'J 攻击 / 方向劈 · Space 跳跃 · E 互动 · M 地图 · Tab 背包 · F 全屏', {
       fontFamily: 'Arial, sans-serif',
       fontSize: '11px',
       color: '#5d7f7e',
@@ -1183,8 +1236,9 @@ export class RaidScene extends Phaser.Scene {
     const grounded = body.blocked.down || body.touching.down;
     if (grounded) this.lastGroundedAt = time;
 
+    const attackPressed = this.keys.attack.isDown || this.keys.attackAlt.isDown || this.keys.attackTest.isDown;
     const jumpPressed = Phaser.Input.Keyboard.JustDown(this.keys.jump)
-      || Phaser.Input.Keyboard.JustDown(this.keys.jumpAlt);
+      || (Phaser.Input.Keyboard.JustDown(this.keys.jumpAlt) && !attackPressed);
     if (jumpPressed) this.jumpQueuedAt = time;
 
     if (this.isDashing) {
@@ -1281,34 +1335,66 @@ export class RaidScene extends Phaser.Scene {
     const attackPressed = Phaser.Input.Keyboard.JustDown(this.keys.attack)
       || Phaser.Input.Keyboard.JustDown(this.keys.attackAlt)
       || Phaser.Input.Keyboard.JustDown(this.keys.attackTest);
-    if (attackPressed) this.tryAttack(time);
+    if (attackPressed) this.tryAttack(time, this.getKeyboardAttackDirection());
   }
 
-  private tryAttack(time: number): void {
+  private isGrounded(): boolean {
+    return this.player.body.blocked.down || this.player.body.touching.down;
+  }
+
+  private normalizeAttackDirection(direction: AttackDirection, horizontalFallback: AttackDirection): AttackDirection {
+    return direction === 'down' && this.isGrounded() ? horizontalFallback : direction;
+  }
+
+  private getKeyboardAttackDirection(): AttackDirection {
+    const aimingUp = this.keys.jumpAlt.isDown || this.keys.mapAlt.isDown;
+    const aimingDown = this.keys.aimDown.isDown || this.keys.backpackAlt.isDown;
+    if (aimingUp && !aimingDown) return 'up';
+    if (aimingDown && !aimingUp) return this.normalizeAttackDirection('down', this.facing < 0 ? 'left' : 'right');
+    return this.facing < 0 ? 'left' : 'right';
+  }
+
+  private tryAttack(time: number, direction: AttackDirection = this.facing < 0 ? 'left' : 'right'): void {
     if (time < this.attackReadyAt || this.isDashing || !this.player.active) return;
     const weapon = this.loadout.weapon ? ITEMS[this.loadout.weapon] : ITEMS.rust_nail;
     const range = weapon.stats?.range ?? 84;
     const damage = weapon.stats?.attack ?? 2;
+    const vertical = direction === 'up' || direction === 'down';
+    const directionX = direction === 'left' ? -1 : direction === 'right' ? 1 : 0;
+    const directionY = direction === 'up' ? -1 : direction === 'down' ? 1 : 0;
+    if (directionX !== 0) this.facing = directionX as -1 | 1;
     this.attackReadyAt = time + (weapon.stats?.attackCooldown ?? 340);
-    const attackWidth = range + 56;
-    const attackX = this.player.x + this.facing * (range / 2);
+
+    const hitboxWidth = vertical ? 88 : range + 56;
+    const hitboxHeight = vertical ? range + 56 : 88;
+    const attackX = this.player.x + directionX * (range / 2);
+    const attackY = this.player.y + directionY * (range / 2);
     const hitbox = new Phaser.Geom.Rectangle(
-      attackX - attackWidth / 2,
-      this.player.y - 44,
-      attackWidth,
-      88,
+      attackX - hitboxWidth / 2,
+      attackY - hitboxHeight / 2,
+      hitboxWidth,
+      hitboxHeight,
     );
 
     this.attackGraphics?.destroy();
-    this.attackGraphics = this.add.rectangle(attackX, this.player.y, range, 56, 0xb8fff0, 0.16)
+    this.attackGraphics = this.add.rectangle(
+      attackX,
+      attackY,
+      vertical ? 56 : range,
+      vertical ? range : 56,
+      0xb8fff0,
+      0.16,
+    )
       .setStrokeStyle(3, 0xc8fff2, 0.75)
       .setDepth(30)
-      .setRotation(this.facing > 0 ? -0.12 : 0.12);
+      .setRotation(vertical ? directionY * 0.08 : (directionX > 0 ? -0.12 : 0.12));
     this.tweens.add({
       targets: this.attackGraphics,
       alpha: 0,
-      scaleY: 1.45,
-      x: attackX + this.facing * 18,
+      scaleX: vertical ? 1.45 : 1,
+      scaleY: vertical ? 1 : 1.45,
+      x: attackX + directionX * 18,
+      y: attackY + directionY * 18,
       duration: 135,
       ease: 'Cubic.Out',
       onComplete: () => {
@@ -1316,11 +1402,14 @@ export class RaidScene extends Phaser.Scene {
         this.attackGraphics = null;
       },
     });
+
+    let attackConnected = false;
     for (const enemy of this.enemies) {
       if (!enemy.sprite.active || !Phaser.Geom.Intersects.RectangleToRectangle(hitbox, enemy.sprite.getBounds())) continue;
+      attackConnected = true;
       enemy.health -= damage;
-      enemy.direction = this.facing;
-      enemy.sprite.setVelocity(this.facing * 310, -180);
+      enemy.direction = directionX === 0 ? this.facing : directionX as -1 | 1;
+      enemy.sprite.setVelocity(directionX * 310, direction === 'down' ? 260 : -180);
       enemy.sprite.setTint(0xe8fff6).setTintMode(Phaser.TintModes.FILL);
       this.time.delayedCall(80, () => enemy.sprite.active && enemy.sprite.clearTint());
       this.spawnImpact(enemy.sprite.x, enemy.sprite.y);
@@ -1330,8 +1419,17 @@ export class RaidScene extends Phaser.Scene {
 
     for (const crate of this.crates) {
       if (crate.broken || !Phaser.Geom.Intersects.RectangleToRectangle(hitbox, crate.sprite.getBounds())) continue;
+      attackConnected = true;
       this.breakCrate(crate);
     }
+    const bounced = direction === 'down' && attackConnected;
+    if (bounced) {
+      this.player.setVelocityY(DOWNSTRIKE_BOUNCE_VELOCITY);
+      this.lastGroundedAt = -1000;
+      this.cameras.main.shake(70, 0.003);
+      this.showHint('下劈命中 · 借力反弹', 650);
+    }
+    this.lastAttack = { direction, connected: attackConnected, bounced };
   }
 
   private updateEnemies(): void {
@@ -1445,11 +1543,22 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private damagePlayer(enemy: EnemyEntity): void {
+    if (!enemy.sprite.active || (enemy.boss && enemy.combatState === 'telegraph')) return;
+    const knockDirection = this.player.x < enemy.sprite.x ? -1 : 1;
+    if (!this.applyPlayerDamage(knockDirection)) return;
+    enemy.sprite.setVelocity(-knockDirection * 170, -120);
+  }
+
+  private damagePlayerFromHazard(hazard: Phaser.Types.Physics.Arcade.GameObjectWithBody): void {
+    const hazardBody = hazard.body as Phaser.Physics.Arcade.StaticBody;
+    const knockDirection = this.player.x < hazardBody.center.x ? -1 : 1;
+    if (!this.applyPlayerDamage(knockDirection)) return;
+    this.showHint('地刺造成伤害；观察尖刺并寻找安全落点。', 1100);
+  }
+
+  private applyPlayerDamage(knockDirection: number): boolean {
     const time = this.time.now;
-    if (time < this.invulnerableUntil
-      || this.isDashing
-      || !enemy.sprite.active
-      || (enemy.boss && enemy.combatState === 'telegraph')) return;
+    if (time < this.invulnerableUntil || this.isDashing || !this.player.active) return false;
     this.invulnerableUntil = time + 1100;
     this.staggerEndsAt = time + 190;
     if (this.armor > 0) this.armor -= 1;
@@ -1458,9 +1567,7 @@ export class RaidScene extends Phaser.Scene {
       this.hasteUntil = time + 1800;
       this.showHint('小猫帽应激：移动速度暂时提升', 900);
     }
-    const knockDirection = this.player.x < enemy.sprite.x ? -1 : 1;
-    this.player.setVelocity(knockDirection * 420, -370);
-    enemy.sprite.setVelocity(-knockDirection * 170, -120);
+    this.player.setVelocity(knockDirection * 420, -470);
     this.player.setTint(0xff8290).setTintMode(Phaser.TintModes.FILL);
     this.cameras.main.shake(140, 0.009);
     this.time.delayedCall(120, () => this.player.active && this.player.clearTint());
@@ -1473,6 +1580,7 @@ export class RaidScene extends Phaser.Scene {
       onComplete: () => this.player.setAlpha(1),
     });
     if (this.health <= 0) this.finishRaid('died');
+    return true;
   }
 
   private defeatEnemy(enemy: EnemyEntity): void {
@@ -1582,17 +1690,30 @@ export class RaidScene extends Phaser.Scene {
     this.cameras.main.flash(120, 130, 230, 201);
   }
 
+  private updateSafePosition(time: number): void {
+    const body = this.player.body;
+    const grounded = body.blocked.down || body.touching.down;
+    if (!grounded || time - this.lastSafeRecordedAt < 350 || time < this.invulnerableUntil - 700) return;
+    this.lastSafeRecordedAt = time;
+    const nearHazard = this.layout.hazards.some((hazard) => Math.abs(this.player.x - hazard.x) < hazard.width / 2 + 70
+      && Math.abs(this.player.y - hazard.y) < 100);
+    if (nearHazard) return;
+    this.lastSafePosition = { x: this.player.x, y: this.player.y - 12 };
+  }
+
   private respawnFromPit(): void {
     this.health -= 1;
     if (this.health <= 0) {
       this.finishRaid('died');
       return;
     }
-    const entry = this.getEntryPosition();
-    this.player.setPosition(entry.x, entry.y);
+    const checkpoint = this.lastSafePosition ?? this.lastSpawnPosition;
+    if (!checkpoint) throw new Error('Player spawn was not initialized before pit recovery');
+    this.player.setPosition(checkpoint.x, checkpoint.y);
     this.player.setVelocity(0, 0);
+    this.invulnerableUntil = this.time.now + 1200;
     this.cameras.main.flash(220, 110, 30, 42);
-    this.showHint('空洞把你吐回了入口。失去 1 点生命。', 1800);
+    this.showHint(this.lastSafePosition ? '空洞把你送回最近的安全落点。失去 1 点生命。' : '空洞把你吐回了投放点。失去 1 点生命。', 1800);
   }
 
   private updateInteractions(time: number): void {
@@ -1602,7 +1723,8 @@ export class RaidScene extends Phaser.Scene {
         : Number.POSITIVE_INFINITY;
       if (distance > 105) {
         this.extractingUntil = 0;
-        if (this.endingTriggered) this.invulnerableUntil = time + 500;
+        if (this.endingTriggered) this.invulnerableUntil = Math.max(this.previousInvulnerableUntil, time + 500);
+        this.previousInvulnerableUntil = 0;
         this.endingTriggered = false;
         this.extractionText.setVisible(false);
         this.showHint('已离开信号范围，连接取消。', 1100);
@@ -1671,11 +1793,14 @@ export class RaidScene extends Phaser.Scene {
           }
         } else if (nearTerminal) {
           const ready = this.discoveredClues.has('relay-west-calibrated') && this.discoveredClues.has('relay-east-calibrated');
-          prompt = ready ? 'E · 锁定饼干岛频道（3.5 秒）' : '归航终端等待东西阵列校准';
-          if (interactPressed && ready) {
+          prompt = this.profile.endingSeen
+            ? '归航频道已锁定 · 可从附近信标撤离'
+            : (ready ? 'E · 锁定饼干岛频道（3.5 秒）' : '归航终端等待东西阵列校准');
+          if (interactPressed && ready && !this.profile.endingSeen && this.extractingUntil === 0) {
             this.endingTriggered = true;
             this.extractionDuration = 3500;
-            this.invulnerableUntil = Number.POSITIVE_INFINITY;
+            this.previousInvulnerableUntil = this.invulnerableUntil;
+            this.invulnerableUntil = time + 3500;
             this.staggerEndsAt = time;
             this.player.setPosition(terminal.x, this.player.y).setVelocity(0, 0);
             this.extractionPoint = { x: terminal.x, y: terminal.y };
@@ -1877,7 +2002,7 @@ export class RaidScene extends Phaser.Scene {
       this.add.text(VIEW_WIDTH / 2, 176, '远 征 暂 停', {
         fontFamily: 'Georgia, serif', fontSize: '38px', color: '#d8eee8', letterSpacing: 7,
       }).setOrigin(0.5),
-      this.add.text(VIEW_WIDTH / 2, 233, 'A / D 移动　Space 跳跃　J 攻击　E 互动', {
+      this.add.text(VIEW_WIDTH / 2, 233, 'A / D 移动　Space 跳跃　J 攻击 / 方向劈　E 互动', {
         fontFamily: 'Arial, sans-serif', fontSize: '13px', color: '#91aaa7',
       }).setOrigin(0.5),
       this.add.text(VIEW_WIDTH / 2, 263, 'Tab 背包　M 地图　R 修补　K / Shift 黑冲', {
@@ -2624,8 +2749,18 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private getEntryPosition(): { x: number; y: number } {
+    if (this.lastSpawnPosition) return this.lastSpawnPosition;
     const entry = this.mapDefinition.entries[this.entryId] ?? Object.values(this.mapDefinition.entries)[0];
-    return { x: entry.x, y: entry.y };
+    const cluster = this.layout.spawnClusters.find((candidate) => candidate.entryId === entry.id);
+    if (!cluster || cluster.positions.length === 0) {
+      this.lastSpawnPosition = { x: entry.x, y: entry.y };
+      return this.lastSpawnPosition;
+    }
+    // Raid id supplies deterministic variety: retries can be reproduced, while
+    // consecutive expeditions rotate through genuinely different safe arrivals.
+    const index = Math.max(0, this.profile.raidsStarted - 1) % cluster.positions.length;
+    this.lastSpawnPosition = { ...cluster.positions[index] };
+    return this.lastSpawnPosition;
   }
 
   private getMapTarget(): { x: number; y: number } {
@@ -2692,10 +2827,12 @@ export class RaidScene extends Phaser.Scene {
       render: {
         logicalWidth: VIEW_WIDTH,
         logicalHeight: VIEW_HEIGHT,
-        backingWidth: VIEW_WIDTH * this.renderScale,
-        backingHeight: VIEW_HEIGHT * this.renderScale,
+        backingWidth: VIEW_WIDTH,
+        backingHeight: VIEW_HEIGHT,
         renderScale: this.renderScale,
       },
+      spawn: this.lastSpawnPosition ? { x: Math.round(this.lastSpawnPosition.x), y: Math.round(this.lastSpawnPosition.y) } : undefined,
+      lastAttack: this.lastAttack ? { ...this.lastAttack } : null,
       player: {
         x: Math.round(this.player.x),
         y: Math.round(this.player.y),
@@ -2730,6 +2867,9 @@ export class RaidScene extends Phaser.Scene {
           top: Math.round(terrainBody.top),
           bottom: Math.round(terrainBody.bottom),
         })),
+      visibleHazards: this.layout.hazards
+        .filter((hazard) => Math.abs(hazard.x - this.player.x) < 850 && Math.abs(hazard.y - this.player.y) < 650)
+        .map((hazard) => ({ ...hazard })),
       visibleEnemies: this.enemies
         .filter((enemy) => enemy.sprite.active && Phaser.Math.Distance.Between(enemy.sprite.x, enemy.sprite.y, this.player.x, this.player.y) < 850)
         .map((enemy) => ({

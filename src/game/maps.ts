@@ -33,8 +33,8 @@ export const MAP_REGISTRY: Record<string, MapDefinition> = {
     worldWidth: 4200,
     worldHeight: 2200,
     entries: {
-      foyer: { id: 'foyer', name: '失落前庭入口', x: 240, y: 1960, zoneId: 'foyer' },
-      lift: { id: 'lift', name: '维护电梯中层站', x: 1450, y: 1280, zoneId: 'rift', unlockedBy: 'shortcutUnlocked' },
+      foyer: { id: 'foyer', name: '失落前庭随机投放', x: 240, y: 1960, zoneId: 'foyer' },
+      lift: { id: 'lift', name: '维护电梯深层站', x: 2780, y: 850, zoneId: 'rift', unlockedBy: 'shortcutUnlocked' },
     },
     // Bounds intentionally leave narrow transition gaps. Region resolution must
     // preserve the previous zone briefly instead of inventing a foyer fallback.
@@ -56,7 +56,7 @@ export const MAP_REGISTRY: Record<string, MapDefinition> = {
     worldHeight: 1800,
     unlockedBy: 'bossDefeated',
     entries: {
-      west: { id: 'west', name: '西侧接驳台', x: 230, y: 1510, zoneId: 'west-array' },
+      west: { id: 'west', name: '西侧随机接驳', x: 230, y: 1510, zoneId: 'west-array' },
     },
     zones: [
       { id: 'west-array', name: '西向阵列', risk: 'III', bounds: { x: 0, y: 1120, width: 1050, height: 680 } },
