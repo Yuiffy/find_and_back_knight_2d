@@ -1,4 +1,4 @@
-import type { GearSlot, ItemDefinition, ItemStack, PlayerProfile } from '../types/game';
+import type { CollectibleKind, GearSlot, ItemDefinition, ItemStack, PlayerProfile, Rarity } from '../types/game';
 
 export const ITEMS: Record<string, ItemDefinition> = {
   rust_nail: {
@@ -266,10 +266,74 @@ export const ITEMS: Record<string, ItemDefinition> = {
     icon: '💠',
     category: 'collectible',
     rarity: 'relic',
+    collectibleKind: 'memory',
     description: '静默机房仍在跳动的信号核心。可以修复直播信标。',
     stackLimit: 1,
     size: { width: 3, height: 3 },
   },
+  sichuan_hotpot: {
+    id: 'sichuan_hotpot', name: '四川火锅底料', icon: '🍲', category: 'collectible', rarity: 'common', collectibleKind: 'food',
+    description: '密封袋上的辣度写着“岁己可以”。离开空洞后依然很香。', stackLimit: 2, sellPrice: 18, size: { width: 2, height: 2 },
+  },
+  beef_jerky: {
+    id: 'beef_jerky', name: '风干牛肉干', icon: '🥩', category: 'collectible', rarity: 'common', collectibleKind: 'food',
+    description: '口袋里压扁了一点，但仍是远征补给桌上的硬通货。', stackLimit: 3, sellPrice: 14, size: { width: 1, height: 2 },
+  },
+  grapefruit_soda: {
+    id: 'grapefruit_soda', name: '西柚里汽水', icon: '🥤', category: 'collectible', rarity: 'uncommon', collectibleKind: 'food',
+    description: '冰凉的柚香还没有散掉。瓶盖内侧刻着一枚小鸟。', stackLimit: 2, sellPrice: 38, size: { width: 1, height: 2 },
+  },
+  rtx_3050: {
+    id: 'rtx_3050', name: '3050 显卡', icon: '🖥️', category: 'collectible', rarity: 'rare', collectibleKind: 'electronics',
+    description: '风扇还能转。也许足够让饼干台恢复一次清晰直播。', stackLimit: 1, sellPrice: 128, size: { width: 3, height: 2 },
+  },
+  cpu_12400f: {
+    id: 'cpu_12400f', name: '12400F 处理器', icon: '🔲', category: 'collectible', rarity: 'rare', collectibleKind: 'electronics',
+    description: '盒角磨损，标签依然清楚。机房收藏家会很喜欢。', stackLimit: 1, sellPrice: 108, size: { width: 2, height: 2 },
+  },
+  glucose_monitor: {
+    id: 'glucose_monitor', name: '动态血糖仪', icon: '📟', category: 'collectible', rarity: 'uncommon', collectibleKind: 'electronics',
+    description: '屏幕冻在一条平稳的曲线，提醒岁己按时吃东西。', stackLimit: 1, sellPrice: 46, size: { width: 2, height: 1 },
+  },
+  broken_iphone14: {
+    id: 'broken_iphone14', name: '摔碎的苹果 14', icon: '📱', category: 'collectible', rarity: 'uncommon', collectibleKind: 'electronics',
+    description: '裂屏下还亮着未发出的“我到了”。', stackLimit: 1, sellPrice: 52, size: { width: 1, height: 2 },
+  },
+  inn_leather_shoes: {
+    id: 'inn_leather_shoes', name: '民宿小皮鞋', icon: '👞', category: 'collectible', rarity: 'relic', collectibleKind: 'homeware',
+    description: '擦得很亮，鞋跟夹着一张写有房号的便签。红色藏品。', stackLimit: 1, sellPrice: 420, size: { width: 2, height: 2 },
+  },
+  shiori_library_parcel: {
+    id: 'shiori_library_parcel', name: '寄给栞栞的类库快递', icon: '📦', category: 'collectible', rarity: 'relic', collectibleKind: 'memory',
+    description: '没有寄件地址，却准确写着“请平安签收”。红色藏品。', stackLimit: 1, sellPrice: 480, size: { width: 3, height: 2 },
+  },
+  airlift_firecloud: {
+    id: 'airlift_firecloud', name: '空运火烧云', icon: '🌅', category: 'collectible', rarity: 'relic', collectibleKind: 'craft',
+    description: '封存在玻璃罐里的傍晚，打开时像直播间开场一样亮。红色藏品。', stackLimit: 1, sellPrice: 520, size: { width: 3, height: 2 },
+  },
+  supreme_glucose_monitor: {
+    id: 'supreme_glucose_monitor', name: '至尊动态血糖仪', icon: '⌚', category: 'collectible', rarity: 'relic', collectibleKind: 'electronics',
+    description: '镶着金边的监测仪，读数旁边跳着一只像素小鸟。红色藏品。', stackLimit: 1, sellPrice: 560, size: { width: 2, height: 2 },
+  },
+  iphone16: {
+    id: 'iphone16', name: '苹果 16', icon: '📲', category: 'collectible', rarity: 'relic', collectibleKind: 'electronics',
+    description: '镜头完好，锁屏壁纸是一张饼干岁合照。红色藏品。', stackLimit: 1, sellPrice: 600, size: { width: 2, height: 2 },
+  },
+};
+
+export const COLLECTIBLE_KIND_NAMES: Record<CollectibleKind, string> = {
+  food: '食物补给',
+  homeware: '家居用品',
+  electronics: '电子物品',
+  craft: '工艺藏品',
+  memory: '回忆档案',
+};
+
+export const RARITY_COLORS: Record<Rarity, string> = {
+  common: '#b7c9c3',
+  uncommon: '#78d9c4',
+  rare: '#a99cff',
+  relic: '#ff6f61',
 };
 
 export const GEAR_SLOTS: GearSlot[] = ['weapon', 'armor', 'head', 'shoes', 'backpack'];

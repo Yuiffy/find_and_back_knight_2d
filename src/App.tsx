@@ -175,6 +175,49 @@ export function App() {
       : { ...profile, backpack: { ...profile.backpack, items: compacted } }, '已合并堆叠，并按体积自动整理。');
   }
 
+  function handleDepositBackpack(): void {
+    if (profile.backpack.items.length === 0) {
+      setNotice('随身背包已经是空的。');
+      return;
+    }
+    const warehouse = insertGridStacks(profile.warehouse, profile.warehouseSize, gridItemsToStacks(profile.backpack.items));
+    if (!warehouse) {
+      setNotice('仓库没有足够的连续空间；先整理或扩建仓库后再一键入库。');
+      return;
+    }
+    const itemCount = profile.backpack.items.reduce((total, item) => total + item.quantity, 0);
+    commit({ ...profile, warehouse, backpack: { ...profile.backpack, items: [] } }, `一键入库完成：${itemCount} 件物品已转入安全仓库。`);
+  }
+
+  function handleUpgradeWorkshop(): void {
+    const costs = [0, 120, 360];
+    if (profile.workshopLevel >= 3) {
+      setNotice('制造台已达到最高等级。');
+      return;
+    }
+    const price = costs[profile.workshopLevel] ?? 360;
+    if (profile.credits < price) {
+      setNotice(`升级制造台需要 ${price} 小鸟币。`);
+      return;
+    }
+    const nextLevel = profile.workshopLevel + 1;
+    commit({ ...profile, credits: profile.credits - price, workshopLevel: nextLevel }, `制造台升级至 Lv.${nextLevel}；新的补给与高级装备报价已解锁。`);
+  }
+
+  function handleExhibitCollectible(itemId: string): void {
+    const candidate = profile.warehouse.find((item) => item.itemId === itemId);
+    const definition = ITEMS[itemId];
+    if (!candidate || definition?.category !== 'collectible') return;
+    const warehouse = removeGridQuantity(profile.warehouse, itemId, 1);
+    if (!warehouse) return;
+    commit({
+      ...profile,
+      warehouse,
+      collectionItems: Array.from(new Set([...profile.collectionItems, itemId])),
+      discoveredItems: Array.from(new Set([...profile.discoveredItems, itemId])),
+    }, `${definition.icon} ${definition.name} 已陈列到收藏室。`);
+  }
+
   function handleQuickTransfer(payload: InventoryDragPayload): void {
     if (payload.source === 'warehouse') handleMoveItem(payload, 'backpack', -1, -1);
     if (payload.source === 'backpack') handleMoveItem(payload, 'warehouse', -1, -1);
@@ -202,7 +245,8 @@ export function App() {
     const price = unitPrice * quantity;
     const unlocked = !['echo_lance', 'blue_hood'].includes(itemId) || profile.mapUnlocked;
     const deepUnlocked = !['storm_feather', 'survey_pack'].includes(itemId) || profile.bossDefeated;
-    if (!item || price <= 0 || quantity <= 0 || !unlocked || !deepUnlocked || profile.credits < price) return;
+    const workshopUnlocked = !['repair_patch', 'echo_tonic'].includes(itemId) || profile.workshopLevel >= 2;
+    if (!item || price <= 0 || quantity <= 0 || !unlocked || !deepUnlocked || !workshopUnlocked || profile.credits < price) return;
     const warehouse = insertGridStack(profile.warehouse, profile.warehouseSize, { itemId, quantity });
     if (!warehouse) {
       setNotice('仓库没有空间收货；先整理或出售一些物品。');
@@ -288,15 +332,30 @@ export function App() {
   }
 
   function handleUpgradeWarehouse(): void {
-    if (profile.warehouseSize.width >= 10) return;
-    const nextSize = { width: 10, height: Math.max(10, profile.warehouseSize.height) };
-    if (!validateGrid(profile.warehouse, nextSize)) {
-      setNotice('扩建不会缩小仓库；请先整理无法放入新宽度的物品。');
+    const upgrades = [
+      { level: 1, width: 10, height: 10, price: 90 },
+      { level: 2, width: 11, height: 11, price: 240 },
+    ];
+    const upgrade = upgrades.find((entry) => entry.level === profile.warehouseLevel);
+    if (!upgrade) {
+      setNotice('安全仓库已达到最高等级。');
       return;
     }
-    const nextWarehouse = removeGridQuantity(profile.warehouse, 'echo_dust', 6);
-    if (!nextWarehouse) return;
-    commit({ ...profile, warehouse: nextWarehouse, warehouseSize: nextSize }, `基地仓库已扩建为 ${nextSize.width}×${nextSize.height}；随身背包保持不变。`);
+    if (profile.credits < upgrade.price) {
+      setNotice(`仓库扩建需要 ${upgrade.price} 小鸟币。`);
+      return;
+    }
+    const nextSize = { width: upgrade.width, height: upgrade.height };
+    if (!validateGrid(profile.warehouse, nextSize)) {
+      setNotice('扩建前请先整理仓库内无法放置的物品。');
+      return;
+    }
+    commit({
+      ...profile,
+      credits: profile.credits - upgrade.price,
+      warehouseLevel: profile.warehouseLevel + 1,
+      warehouseSize: nextSize,
+    }, `安全仓库升级至 Lv.${profile.warehouseLevel + 1}：容量扩展为 ${nextSize.width}×${nextSize.height}。`);
   }
 
   function handleBeginRaid(mapId: string, entryId: string): void {
@@ -475,6 +534,9 @@ export function App() {
       onQuickTransfer={handleQuickTransfer}
       onSplitItem={handleSplitItem}
       onCompactGrid={handleCompactGrid}
+      onDepositBackpack={handleDepositBackpack}
+      onExhibitCollectible={handleExhibitCollectible}
+      onUpgradeWorkshop={handleUpgradeWorkshop}
       onEquipItem={handleEquipItem}
       onBuy={handleBuy}
       onSell={handleSell}

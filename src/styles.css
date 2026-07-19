@@ -154,10 +154,26 @@ body::after {
 .ending-label { z-index: 2; color: var(--gold); font-size: .68rem; letter-spacing: .24em; }
 .ending-screen p strong { color: #d8f4eb; font-weight: 500; }
 
-.raid-shell { width: 100vw; height: 100vh; overflow: hidden; display: grid; place-items: center; background: #030b10; }
+.raid-shell { width: 100vw; height: 100vh; overflow: hidden; display: grid; place-items: center; background: #030b10; touch-action: none; overscroll-behavior: none; user-select: none; -webkit-user-select: none; }
 .game-frame { width: 100%; height: 100%; display: grid; place-items: center; }
 .game-frame canvas { max-width: 100%; max-height: 100%; box-shadow: 0 0 80px rgba(0,0,0,.55); }
 .game-loading { min-height: 100vh; display: grid; place-items: center; color: var(--mint); background: #030b10; letter-spacing: .18em; }
+
+.touch-controls { position: fixed; z-index: 50; inset: 0; pointer-events: none; touch-action: none; -webkit-touch-callout: none; }
+.touch-joystick, .touch-action-cluster, .touch-utility-cluster { position: absolute; pointer-events: auto; }
+.touch-joystick { left: max(18px, env(safe-area-inset-left)); bottom: max(18px, env(safe-area-inset-bottom)); width: clamp(118px, 25vw, 168px); aspect-ratio: 1; display: grid; place-items: center; border: 1px solid rgba(176, 246, 231, .34); border-radius: 50%; background: radial-gradient(circle, rgba(104, 210, 188, .21), rgba(6, 23, 30, .22) 62%, transparent 63%); box-shadow: inset 0 0 28px rgba(137, 241, 208, .13), 0 8px 24px rgba(0, 0, 0, .26); touch-action: none; }
+.touch-joystick::before, .touch-joystick::after { content: ""; position: absolute; background: rgba(182, 244, 231, .15); }
+.touch-joystick::before { width: 1px; height: 74%; }.touch-joystick::after { width: 74%; height: 1px; }
+.touch-joystick-knob { width: 43%; aspect-ratio: 1; border: 1px solid rgba(221, 255, 246, .64); border-radius: 50%; background: rgba(125, 224, 204, .28); box-shadow: 0 4px 12px rgba(0, 0, 0, .32); transition: transform .05s linear; }
+.touch-joystick small { position: absolute; bottom: 12%; color: rgba(225, 251, 244, .76); font-size: clamp(.54rem, 1.6vw, .68rem); letter-spacing: .08em; text-shadow: 0 1px 2px #061016; }
+.touch-action-cluster { right: max(18px, env(safe-area-inset-right)); bottom: max(18px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(2, minmax(62px, 92px)); gap: clamp(8px, 1.5vw, 13px); }
+.touch-utility-cluster { top: max(13px, env(safe-area-inset-top)); right: max(13px, env(safe-area-inset-right)); display: flex; gap: 6px; }
+.touch-button { min-height: clamp(56px, 12vw, 78px); border: 1px solid rgba(184, 244, 231, .4); border-radius: 50%; color: #e4fbf5; background: rgba(11, 54, 61, .56); box-shadow: inset 0 0 20px rgba(137, 241, 208, .1), 0 7px 15px rgba(0, 0, 0, .28); font-size: clamp(.68rem, 2vw, .88rem); font-weight: 700; letter-spacing: .04em; touch-action: none; -webkit-touch-callout: none; }
+.touch-button:active { border-color: #caffef; background: rgba(67, 152, 136, .72); transform: scale(.94); }
+.touch-button-attack { color: #fff0cf; border-color: rgba(244, 199, 121, .62); background: rgba(111, 72, 29, .58); }.touch-button-jump { color: #d5f7ff; border-color: rgba(116, 217, 239, .58); }
+.touch-utility-cluster .touch-button { min-width: 47px; min-height: 38px; padding: 5px 8px; border-radius: 12px; color: #bdd4d0; background: rgba(5, 27, 34, .52); font-size: clamp(.54rem, 1.4vw, .67rem); }
+@media (orientation: portrait) { .touch-action-cluster { right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); grid-template-columns: repeat(2, minmax(56px, 76px)); gap: 8px; } .touch-joystick { left: max(12px, env(safe-area-inset-left)); bottom: max(12px, env(safe-area-inset-bottom)); width: clamp(104px, 31vw, 142px); } .touch-utility-cluster { max-width: 210px; flex-wrap: wrap; justify-content: flex-end; } }
+@media (max-height: 520px) { .touch-joystick { width: clamp(96px, 24vh, 128px); bottom: max(10px, env(safe-area-inset-bottom)); } .touch-action-cluster { grid-template-columns: repeat(4, minmax(52px, 66px)); bottom: max(10px, env(safe-area-inset-bottom)); gap: 7px; } .touch-button { min-height: clamp(50px, 13vh, 62px); } .touch-utility-cluster { top: 8px; } }
 
 @keyframes bird-bob { 0%,100% { transform: translateY(0) rotate(-1deg) scale(1); } 50% { transform: translateY(-12px) rotate(2deg) scale(1.02,.98); } }
 @keyframes cookie-drift { 0%,100% { transform: translateY(0) rotate(-8deg); } 50% { transform: translateY(-14px) rotate(9deg); } }
@@ -292,6 +308,15 @@ body::after {
 .collection-card > div:last-child span { display: grid; place-items: center; aspect-ratio: 1; border: 1px solid var(--line); background: rgba(3, 16, 21, .6); font-size: 1.25rem; }
 .collection-card .is-undiscovered { opacity: .25; filter: grayscale(1); }
 
+.collection-room-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(330px, .65fr); gap: 12px; align-items: start; }
+.collection-room { min-height: 630px; }
+.collection-room-intro { margin: 0; padding: 14px 17px; color: var(--muted); border-bottom: 1px solid var(--line); font-size: .74rem; line-height: 1.65; }
+.collection-shelves { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 18px; background: repeating-linear-gradient(0deg, rgba(244, 199, 121, .035), rgba(244, 199, 121, .035) 2px, transparent 2px, transparent 116px); }
+.collection-display { min-height: 142px; display: grid; grid-template-columns: 72px 1fr; align-items: center; gap: 12px; padding: 14px; border: 1px solid color-mix(in srgb, var(--collectible-color) 48%, transparent); background: linear-gradient(135deg, color-mix(in srgb, var(--collectible-color) 13%, #071a21), rgba(5, 18, 24, .84)); box-shadow: inset 0 -3px 0 rgba(244, 199, 121, .14), 0 8px 22px rgba(0, 0, 0, .18); }
+.collection-display > span { display: grid; place-items: center; min-height: 68px; border: 1px solid color-mix(in srgb, var(--collectible-color) 44%, transparent); background: rgba(2, 12, 17, .62); font-size: 2.25rem; }
+.collection-display div { min-width: 0; }.collection-display small { color: var(--collectible-color); font-size: .59rem; letter-spacing: .08em; }.collection-display strong { display: block; margin: 3px 0; font-family: var(--font-serif); font-size: .98rem; }.collection-display p { margin: 0; color: #8ca4a1; font-size: .65rem; line-height: 1.45; }
+.collection-staging { min-height: 440px; }.display-candidate-list { display: grid; gap: 8px; padding: 12px; }.display-candidate { display: grid; grid-template-columns: 38px 1fr auto; align-items: center; gap: 9px; padding: 9px; border: 1px solid var(--line); background: rgba(4, 17, 23, .56); }.display-candidate > span { font-size: 1.55rem; }.display-candidate div { display: grid; gap: 2px; min-width: 0; }.display-candidate small { color: #789594; font-size: .62rem; }.display-candidate button { border: 1px solid rgba(244, 199, 121, .34); padding: 7px 9px; color: #f5d79a; background: rgba(100, 72, 27, .22); cursor: pointer; font-size: .65rem; }.empty-collection { grid-column: 1 / -1; min-height: 420px; display: grid; place-items: center; padding: 48px; border: 1px dashed rgba(244, 199, 121, .24); color: #839a96; text-align: center; line-height: 1.8; }
+
 .mission-layout { display: grid; grid-template-columns: minmax(320px, .8fr) minmax(520px, 1.2fr); gap: 12px; }
 .mission-card { min-height: 500px; padding: 28px; }
 .mission-card h2 { margin: 10px 0; font-family: Georgia, "Noto Serif SC", serif; font-size: 1.7rem; font-weight: 500; }
@@ -342,7 +367,7 @@ body::after {
   .warehouse-column { grid-column: 1 / -1; }
   .inventory-grid-warehouse { max-width: 560px; }
   .subpage-grid { grid-template-columns: 1fr; }
-  .market-layout, .clue-layout { grid-template-columns: 1fr; }
+  .market-layout, .clue-layout, .collection-room-layout { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 760px) {

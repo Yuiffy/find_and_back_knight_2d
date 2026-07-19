@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type PointerEvent } from 'react';
-import { countItem, GEAR_SLOTS, getArmorMaximum, getClueRecords, getObjectiveSteps, ITEMS, MARKET_ITEM_IDS, SLOT_NAMES } from '../game/items';
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
+import { COLLECTIBLE_KIND_NAMES, countItem, GEAR_SLOTS, getArmorMaximum, getClueRecords, getObjectiveSteps, ITEMS, MARKET_ITEM_IDS, RARITY_COLORS, SLOT_NAMES } from '../game/items';
 import { MAP_REGISTRY, isEntryUnlocked, isMapUnlocked } from '../game/maps';
 import { occupiedGridCells } from '../game/inventory';
 import type { GearSlot, PlayerProfile } from '../types/game';
@@ -10,7 +10,7 @@ import {
   type InventorySource,
 } from './InventoryGrid';
 
-type BaseTab = 'storage' | 'workshop' | 'market' | 'clues';
+type BaseTab = 'storage' | 'workshop' | 'market' | 'collection' | 'clues';
 
 interface BaseScreenProps {
   profile: PlayerProfile;
@@ -22,6 +22,9 @@ interface BaseScreenProps {
   onQuickTransfer: (payload: InventoryDragPayload) => void;
   onSplitItem: (payload: InventoryDragPayload) => void;
   onCompactGrid: (source: 'warehouse' | 'backpack') => void;
+  onDepositBackpack: () => void;
+  onExhibitCollectible: (itemId: string) => void;
+  onUpgradeWorkshop: () => void;
   onEquipItem: (payload: InventoryDragPayload, slot: GearSlot) => void;
   onBuy: (itemId: string, quantity?: number) => void;
   onSell: (uid: string, sellAll?: boolean) => void;
@@ -42,6 +45,9 @@ export function BaseScreen({
   onQuickTransfer,
   onSplitItem,
   onCompactGrid,
+  onDepositBackpack,
+  onExhibitCollectible,
+  onUpgradeWorkshop,
   onEquipItem,
   onBuy,
   onSell,
@@ -208,7 +214,7 @@ export function BaseScreen({
           <p>只把需要的东西装进背包；留在仓库里的物品不会随远征丢失。</p>
         </div>
         <div className="header-actions" aria-label="存档操作">
-          <span className="credits-badge">◈ {profile.credits} 羽币</span>
+          <span className="credits-badge">◈ {profile.credits} 小鸟币</span>
           <span className="save-status">● 自动存档</span>
           <button className="text-button" type="button" onClick={onExport}>导出</button>
           <button className="text-button" type="button" onClick={() => importRef.current?.click()}>导入</button>
@@ -231,6 +237,7 @@ export function BaseScreen({
         <button className={activeTab === 'storage' ? 'is-active' : ''} type="button" onClick={() => setActiveTab('storage')}>装备与仓库</button>
         <button className={activeTab === 'workshop' ? 'is-active' : ''} type="button" onClick={() => setActiveTab('workshop')}>工作台</button>
         <button className={activeTab === 'market' ? 'is-active' : ''} type="button" onClick={() => setActiveTab('market')}>拾荒交易台</button>
+        <button className={activeTab === 'collection' ? 'is-active' : ''} type="button" onClick={() => setActiveTab('collection')}>收藏室</button>
         <button className={activeTab === 'clues' ? 'is-active' : ''} type="button" onClick={() => setActiveTab('clues')}>线索簿</button>
         <span className="base-objective"><small>当前目标</small>{objective}</span>
         <ol className="objective-step-list" aria-label="远征进度">
@@ -299,7 +306,7 @@ export function BaseScreen({
           <section className="bag-column panel">
             <div className="panel-heading compact-panel-heading">
               <div><span className="eyebrow">FIELD BAG</span><h2>随身背包</h2></div>
-              <div className="panel-tools"><span className="capacity">{occupiedGridCells(profile.backpack.items)} / {bagCells} 格</span><button type="button" onClick={() => onCompactGrid('backpack')}>自动整理</button></div>
+              <div className="panel-tools"><span className="capacity">{occupiedGridCells(profile.backpack.items)} / {bagCells} 格</span><button type="button" onClick={() => onCompactGrid('backpack')}>自动整理</button><button type="button" onClick={onDepositBackpack} disabled={profile.backpack.items.length === 0}>一键入库</button></div>
             </div>
             <p className="grid-explainer">拖动时亮框显示完整落点；按 R 可即时旋转，空间冲突会自动寻找空位。右键旋转，双击快速卸回仓库。</p>
             {profile.loadout.backpack && bagCells > 0 ? (
@@ -358,13 +365,13 @@ export function BaseScreen({
           </article>
           <article className="panel service-card">
             <span className="service-icon">🏗️</span>
-            <div><span className="eyebrow">EXPANSION</span><h2>仓库扩建</h2><p>将安全仓库从 9×10 扩建到 10×10，不改变随身背包。</p></div>
-            <button className="secondary-button" type="button" onClick={onUpgradeWarehouse} disabled={profile.warehouseSize.width >= 10 || dust < 6}>{profile.warehouseSize.width >= 10 ? '已完成' : '扩建 · 6 ✨'}</button>
+            <div><span className="eyebrow">SAFE STORAGE</span><h2>仓库扩建 · Lv.{profile.warehouseLevel}</h2><p>扩容安全仓库，给从远征带回来的大件藏品留出展示前的周转空间。</p></div>
+            <button className="secondary-button" type="button" onClick={onUpgradeWarehouse} disabled={profile.warehouseLevel >= 3}>{profile.warehouseLevel >= 3 ? '最高等级' : `扩建 · ◈ ${profile.warehouseLevel === 1 ? 90 : 240}`}</button>
           </article>
           <article className="panel service-card">
-            <span className="service-icon">🩹</span>
-            <div><span className="eyebrow">FIELD SUPPLY</span><h2>远征补给</h2><p>便携修补片现在可在远征中按 R 使用，恢复 1 点蓝甲。补货请前往交易台。</p></div>
-            <button className="secondary-button" type="button" onClick={() => setActiveTab('market')}>查看补给报价</button>
+            <span className="service-icon">🧪</span>
+            <div><span className="eyebrow">CRAFT BENCH</span><h2>制造台 · Lv.{profile.workshopLevel}</h2><p>提升制造台会解锁更可靠的远征补给与高级装备报价。下一次升级使用小鸟币支付。</p></div>
+            <button className="secondary-button" type="button" onClick={onUpgradeWorkshop} disabled={profile.workshopLevel >= 3}>{profile.workshopLevel >= 3 ? '最高等级' : `升级 · ◈ ${profile.workshopLevel === 1 ? 120 : 360}`}</button>
           </article>
         </section>
       )}
@@ -382,11 +389,12 @@ export function BaseScreen({
                 const item = ITEMS[itemId];
                 const mapLocked = ['echo_lance', 'blue_hood'].includes(itemId) && !profile.mapUnlocked;
                 const deepLocked = ['storm_feather', 'survey_pack'].includes(itemId) && !profile.bossDefeated;
-                const locked = mapLocked || deepLocked;
+                const workshopLocked = ['repair_patch', 'echo_tonic'].includes(itemId) && profile.workshopLevel < 2;
+                const locked = mapLocked || deepLocked || workshopLocked;
                 return (
                   <div className={`offer-row rarity-${item.rarity}${locked ? ' is-locked' : ''}`} key={itemId}>
                     <span className="offer-icon">{locked ? '？' : item.icon}</span>
-                    <div><strong>{locked ? '未识别的回收货' : item.name}</strong><small>{locked ? (mapLocked ? '找回导航数据后开放' : '带回机房核心后开放') : item.description}</small></div>
+                    <div><strong>{locked ? '未识别的回收货' : item.name}</strong><small>{locked ? (mapLocked ? '找回导航数据后开放' : (deepLocked ? '带回机房核心后开放' : '制造台升级至 Lv.2 后开放')) : item.description}</small></div>
                     <div className="offer-actions">
                       <button type="button" disabled={locked || profile.credits < (item.buyPrice ?? 0)} onClick={() => onBuy(itemId)}>×1 · ◈ {item.buyPrice}</button>
                       {item.stackLimit > 1 && <button type="button" disabled={locked || profile.credits < (item.buyPrice ?? 0) * 5} onClick={() => onBuy(itemId, 5)}>×5 · ◈ {(item.buyPrice ?? 0) * 5}</button>}
@@ -417,6 +425,38 @@ export function BaseScreen({
               })}
             </div>
           </article>
+        </section>
+      )}
+
+      {activeTab === 'collection' && (
+        <section className="collection-room-layout">
+          <article className="panel collection-room">
+            <div className="panel-heading compact-panel-heading">
+              <div><span className="eyebrow">SUI ARCHIVE</span><h2>岁己收藏室</h2></div>
+              <span className="capacity">{profile.collectionItems.length} 件已陈列</span>
+            </div>
+            <p className="collection-room-intro">藏品必须先安全撤离、再从基地仓库放入展柜。它们不再占用仓库格子，也不会在下次远征中丢失。</p>
+            <div className="collection-shelves">
+              {profile.collectionItems.length === 0 && <div className="empty-collection">展柜还空着。试着在远征容器里寻找带有红色光环的珍贵藏品。</div>}
+              {profile.collectionItems.map((itemId) => {
+                const item = ITEMS[itemId];
+                return <article className={`collection-display rarity-${item.rarity}`} key={itemId} style={{ '--collectible-color': RARITY_COLORS[item.rarity] } as CSSProperties}>
+                  <span>{item.icon}</span><div><small>{item.collectibleKind ? COLLECTIBLE_KIND_NAMES[item.collectibleKind] : '未分类'} · {item.rarity === 'relic' ? '红色珍藏' : '已归档'}</small><strong>{item.name}</strong><p>{item.description}</p></div>
+                </article>;
+              })}
+            </div>
+          </article>
+          <aside className="panel collection-staging">
+            <div className="panel-heading compact-panel-heading"><div><span className="eyebrow">READY TO DISPLAY</span><h2>仓库待陈列</h2></div></div>
+            <p className="collection-room-intro">陈列会消耗仓库中的一件对应藏品；重复物仍可留在仓库出售或继续收集。</p>
+            <div className="display-candidate-list">
+              {profile.warehouse.filter((entry) => ITEMS[entry.itemId].category === 'collectible' && !profile.collectionItems.includes(entry.itemId)).map((entry) => {
+                const item = ITEMS[entry.itemId];
+                return <div className={`display-candidate rarity-${item.rarity}`} key={entry.uid}><span>{item.icon}</span><div><strong>{item.name}</strong><small>{item.collectibleKind ? COLLECTIBLE_KIND_NAMES[item.collectibleKind] : '未分类'} · 持有 ×{entry.quantity}</small></div><button type="button" onClick={() => onExhibitCollectible(entry.itemId)}>陈列</button></div>;
+              })}
+              {profile.warehouse.every((entry) => ITEMS[entry.itemId].category !== 'collectible' || profile.collectionItems.includes(entry.itemId)) && <p className="empty-market">仓库中没有未陈列的藏品。</p>}
+            </div>
+          </aside>
         </section>
       )}
 

@@ -56,6 +56,17 @@ export interface GateDefinition {
   targetEntryId: string;
 }
 
+/** A walk-through border passage: crossing the map edge changes area without an E prompt. */
+export interface BoundaryPassageDefinition {
+  id: string;
+  edge: 'left' | 'right';
+  centerY: number;
+  height: number;
+  name: string;
+  targetMapId: string;
+  targetEntryId: string;
+}
+
 export interface WorldLayoutDefinition {
   terrain: TerrainSegment[];
   hazards: HazardDefinition[];
@@ -66,6 +77,7 @@ export interface WorldLayoutDefinition {
   extractionPoints: Array<{ x: number; y: number; label: string }>;
   relayInteractions?: RelayInteractionDefinition[];
   gates?: GateDefinition[];
+  boundaryPassages?: BoundaryPassageDefinition[];
   terminal?: { x: number; y: number; name: string };
 }
 
@@ -207,6 +219,9 @@ export const WORLD_LAYOUTS: Record<string, WorldLayoutDefinition> = {
     gates: [
       { id: 'graveyard-relay-gate', x: 4040, y: 535, name: '深场折跃门', targetMapId: 'relay_01', targetEntryId: 'west' },
     ],
+    boundaryPassages: [
+      { id: 'hollow-east-passage', edge: 'right', centerY: 280, height: 260, name: '温室东侧风道', targetMapId: 'relay_01', targetEntryId: 'west' },
+    ],
     extractionPoints: [
       { x: 520, y: 1995, label: '前庭撤离点' },
       { x: 3010, y: 1415, label: '沉钟应急浮标' },
@@ -237,6 +252,9 @@ export const WORLD_LAYOUTS: Record<string, WorldLayoutDefinition> = {
     routes: [[{ x: 230, y: 1510 }, { x: 1125, y: 1400 }, { x: 1575, y: 1260 }, { x: 2100, y: 1390 }, { x: 2525, y: 1180 }, { x: 2930, y: 990 }, { x: 3310, y: 800 }], [{ x: 500, y: 1510 }, { x: 760, y: 1100 }, { x: 1370, y: 920 }, { x: 1840, y: 1260 }]],
     gates: [
       { id: 'relay-hollow-gate', x: 620, y: 1515, name: '空洞折跃门', targetMapId: 'hollow_01', targetEntryId: 'relay_return' },
+    ],
+    boundaryPassages: [
+      { id: 'relay-west-passage', edge: 'left', centerY: 1510, height: 700, name: '西侧接驳风道', targetMapId: 'hollow_01', targetEntryId: 'relay_return' },
     ],
     extractionPoints: [
       { x: 350, y: 1515, label: '西侧返航信标' },

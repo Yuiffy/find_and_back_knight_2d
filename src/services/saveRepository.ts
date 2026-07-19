@@ -137,6 +137,9 @@ export function createDefaultProfile(): PlayerProfile {
     successfulExtractions: 0,
     deaths: 0,
     credits: 45,
+    warehouseLevel: 1,
+    workshopLevel: 1,
+    collectionItems: [],
     discoveredItems: ['rust_nail', 'stream_shell', 'red_hood', 'soft_boots', 'field_pack', 'echo_dust', 'repair_patch', 'echo_tonic'],
     discoveredClues: ['arrival'],
     mapUnlocked: false,
@@ -209,6 +212,13 @@ function normalizeProfile(value: unknown): PlayerProfile {
     successfulExtractions: Math.max(0, Number(candidate.successfulExtractions ?? 0)),
     deaths: Math.max(0, Number(candidate.deaths ?? 0)),
     credits: Math.max(0, Math.floor(Number(candidate.credits ?? 45))),
+    warehouseLevel: Math.max(1, Math.min(3, Math.floor(Number(candidate.warehouseLevel ?? (warehouseSize.width >= 10 ? 2 : 1))))),
+    workshopLevel: Math.max(1, Math.min(3, Math.floor(Number(candidate.workshopLevel ?? 1)))),
+    collectionItems: Array.from(new Set(
+      (Array.isArray(candidate.collectionItems) ? candidate.collectionItems : [])
+        .map(canonicalItemId)
+        .filter((itemId): itemId is string => Boolean(itemId && ITEMS[itemId].category === 'collectible')),
+    )),
     discoveredItems: Array.from(new Set(
       (Array.isArray(candidate.discoveredItems) ? candidate.discoveredItems : defaults.discoveredItems)
         .map(canonicalItemId)

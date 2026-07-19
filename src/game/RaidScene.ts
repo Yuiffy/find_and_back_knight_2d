@@ -38,6 +38,8 @@ const UNARMED_ATTACK = {
 
 type AttackDirection = 'left' | 'right' | 'up' | 'down';
 
+export type VirtualControl = 'left' | 'right' | 'jump' | 'aimUp' | 'aimDown' | 'attack' | 'dash' | 'interact' | 'map' | 'backpack' | 'pause' | 'patch' | 'tonic';
+
 interface RaidSceneOptions {
   profile: PlayerProfile;
   mapId: string;
@@ -111,12 +113,27 @@ interface LootEntity {
   halo: Phaser.GameObjects.Arc;
 }
 
+type ContainerKind = 'supply_crate' | 'hotpot' | 'wardrobe' | 'electronics_case' | 'archive_case' | 'relic_cache';
+
 interface RaidCrate {
   id: string;
   sprite: Phaser.GameObjects.Image;
   drops: ItemStack[];
   broken: boolean;
+  kind: ContainerKind;
+  label: string;
+  rarity: 'common' | 'uncommon' | 'rare' | 'relic';
+  searchDuration: number;
+  requiresSearch: boolean;
 }
+
+interface ActiveContainerSearch {
+  crate: RaidCrate;
+  completesAt: number;
+  ring: Phaser.GameObjects.Arc;
+  label: Phaser.GameObjects.Text;
+}
+
 
 interface RaidInventoryDrag {
   source: 'backpack' | 'ground';
@@ -166,6 +183,7 @@ export class RaidScene extends Phaser.Scene {
   private sentryBolts: SentryBolt[] = [];
   private loot: LootEntity[] = [];
   private crates: RaidCrate[] = [];
+  private activeContainerSearch: ActiveContainerSearch | null = null;
   private storyEchoes: StoryEchoEntity[] = [];
   private backpack: GridItem[] = [];
   private loadout: Loadout;
@@ -230,6 +248,8 @@ export class RaidScene extends Phaser.Scene {
   private lastSafeRecordedAt = 0;
   private lastSpawnPosition: { x: number; y: number } | null = null;
   private lastAttack: { direction: AttackDirection; connected: boolean; bounced: boolean } | null = null;
+  private virtualControls = new Set<VirtualControl>();
+  private virtualControlPressed = new Set<VirtualControl>();
 
   constructor({ profile, mapId, entryId, renderScale, runState, onResult, onTransition }: RaidSceneOptions) {
     super('raid');
@@ -282,7 +302,9 @@ export class RaidScene extends Phaser.Scene {
     this.invulnerableUntil = this.time.now + 3000;
 
     this.physics.world.setBounds(0, 0, this.worldWidth, this.worldHeight);
-    this.physics.world.setBoundsCollision(true, true, true, false);
+    // Horizontal world edges are now physical passages. Only the ceiling remains
+    // bounded; falling still resolves through the established pit-recovery flow.
+    this.physics.world.setBoundsCollision(false, false, true, false);
     this.cameras.main.setBounds(0, 0, this.worldWidth, this.worldHeight);
     this.cameras.main.setViewport(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
     this.cameras.main.setZoom(1);
@@ -313,22 +335,22 @@ export class RaidScene extends Phaser.Scene {
       if (this.scale.isFullscreen) this.scale.stopFullscreen();
       else this.scale.startFullscreen();
     }
-    if (Phaser.Input.Keyboard.JustDown(this.keys.pause) || Phaser.Input.Keyboard.JustDown(this.keys.pauseAlt)) {
+    if (Phaser.Input.Keyboard.JustDown(this.keys.pause) || Phaser.Input.Keyboard.JustDown(this.keys.pauseAlt) || this.consumeVirtualPress('pause')) {
       this.toggleOverlay('pause');
       return;
     }
     if (Phaser.Input.Keyboard.JustDown(this.keys.abort) && this.overlayMode !== 'pause') {
       this.toggleOverlay('pause');
     }
-    if (!this.overlayMode && Phaser.Input.Keyboard.JustDown(this.keys.usePatch)) this.useRepairPatch();
-    if (!this.overlayMode && Phaser.Input.Keyboard.JustDown(this.keys.useTonic)) this.useEchoTonic();
+    if (!this.overlayMode && (Phaser.Input.Keyboard.JustDown(this.keys.usePatch) || this.consumeVirtualPress('patch'))) this.useRepairPatch();
+    if (!this.overlayMode && (Phaser.Input.Keyboard.JustDown(this.keys.useTonic) || this.consumeVirtualPress('tonic'))) this.useEchoTonic();
     // Arrow keys remain available for directional attacks. Dedicated M / Tab
     // shortcuts avoid opening an overlay while the player is trying to strike.
-    if (Phaser.Input.Keyboard.JustDown(this.keys.map)) {
+    if (Phaser.Input.Keyboard.JustDown(this.keys.map) || this.consumeVirtualPress('map')) {
       this.toggleOverlay('map');
       return;
     }
-    if (Phaser.Input.Keyboard.JustDown(this.keys.backpack)) {
+    if (Phaser.Input.Keyboard.JustDown(this.keys.backpack) || this.consumeVirtualPress('backpack')) {
       this.toggleOverlay('backpack');
       return;
     }
@@ -343,7 +365,14 @@ export class RaidScene extends Phaser.Scene {
       return;
     }
 
+    if (this.updateContainerSearch(time)) {
+      this.updateHud();
+      this.publishTextState(time - this.lastTextStateAt > 100);
+      return;
+    }
+
     this.updateMovement(time);
+    if (this.tryBoundaryPassage()) return;
     this.updateSafePosition(time);
     this.updateAttack(time);
     this.updateEnemies();
@@ -893,7 +922,7 @@ export class RaidScene extends Phaser.Scene {
     // 本地鸟素材原图面向左；向右移动时必须翻转，否则会变成尾巴朝前。
     this.player.setFlipX(true);
     this.player.setDepth(20);
-    this.player.setCollideWorldBounds(true);
+    this.player.setCollideWorldBounds(false);
     this.player.setMaxVelocity(720, 1100);
     this.player.setDragX(900);
     this.player.body.setSize(180, 185, true);
@@ -929,6 +958,7 @@ export class RaidScene extends Phaser.Scene {
 
   private createLandmarks(): void {
     for (const extraction of this.extractionPoints) this.createExtractionBeacon(extraction.x, extraction.y, extraction.label);
+    for (const passage of this.layout.boundaryPassages ?? []) this.createBoundaryPassage(passage);
     for (const gate of this.layout.gates ?? []) this.createGate(gate);
     if (this.mapId === 'relay_01') {
       this.createRelayLandmarks();
@@ -937,17 +967,25 @@ export class RaidScene extends Phaser.Scene {
       return;
     }
 
-    this.spawnCrate('crate-foyer', 390, 2020, this.getRaidSupplyDrops('foyer'));
+    this.spawnCrate('crate-foyer', 390, 2020, [
+      ...this.getRaidSupplyDrops('foyer'),
+      { itemId: this.profile.raidsStarted % 2 === 0 ? 'sichuan_hotpot' : 'beef_jerky', quantity: 1 },
+    ], { kind: 'hotpot', label: '封存火锅锅', rarity: 'uncommon' });
     this.spawnCrate('crate-rift', 1250, 1715, [
       { itemId: 'echo_lance', quantity: 1 },
       { itemId: 'blue_hood', quantity: 1 },
-    ]);
+      { itemId: 'grapefruit_soda', quantity: 1 },
+    ], { kind: 'wardrobe', label: '裂谷旧衣柜', rarity: 'rare' });
     // 原深层箱子曾嵌进 x=2700 的厚平台；移到平台右侧安全表面。
     this.spawnCrate('crate-deep', 2825, 855, [
       { itemId: 'echo_dust', quantity: 5 },
       { itemId: 'repair_patch', quantity: 1 },
-    ]);
-    this.spawnCrate('crate-archive', 390, 1040, this.getRaidSupplyDrops('archive'));
+      { itemId: this.profile.raidsStarted % 2 === 0 ? 'rtx_3050' : 'cpu_12400f', quantity: 1 },
+    ], { kind: 'electronics_case', label: '机房电子箱', rarity: 'rare' });
+    this.spawnCrate('crate-archive', 390, 1040, [
+      ...this.getRaidSupplyDrops('archive'),
+      { itemId: this.profile.raidsStarted % 2 === 0 ? 'broken_iphone14' : 'beef_jerky', quantity: 1 },
+    ], { kind: 'archive_case', label: '档案密封柜', rarity: 'uncommon' });
     this.spawnCrate('crate-platforming-cache', 1150, 545, [
       { itemId: 'echo_dust', quantity: 7 },
       { itemId: 'echo_tonic', quantity: 2 },
@@ -956,11 +994,13 @@ export class RaidScene extends Phaser.Scene {
       { itemId: 'cat_cap', quantity: 1 },
       { itemId: 'bell_maul', quantity: 1 },
       { itemId: 'repair_patch', quantity: 1 },
-    ]);
+      { itemId: 'glucose_monitor', quantity: 1 },
+    ], { kind: 'electronics_case', label: '防水电子箱', rarity: 'rare' });
     this.spawnCrate('crate-graveyard', 3990, 535, [
       { itemId: 'echo_dust', quantity: 8 },
       { itemId: 'echo_tonic', quantity: 1 },
-    ]);
+      { itemId: this.profile.raidsStarted % 3 === 0 ? 'shiori_library_parcel' : 'iphone16', quantity: 1 },
+    ], { kind: 'relic_cache', label: '墓园远寄封箱', rarity: 'relic' });
     this.spawnCrate('crate-conservatory-entry', 4520, 685, [
       { itemId: 'echo_tonic', quantity: 2 },
       { itemId: 'echo_dust', quantity: 4 },
@@ -973,7 +1013,8 @@ export class RaidScene extends Phaser.Scene {
     this.spawnCrate('crate-conservatory-summit', 6200, 270, [
       { itemId: 'storm_feather', quantity: 1 },
       { itemId: 'echo_dust', quantity: 10 },
-    ]);
+      { itemId: 'airlift_firecloud', quantity: 1 },
+    ], { kind: 'relic_cache', label: '空运封存箱', rarity: 'relic' });
     this.spawnLoot('map-feather', 'map_feather', 1, 1220, 995);
     this.layout.storyEchoes.forEach((echo) => this.createStoryEcho(echo));
 
@@ -1007,9 +1048,9 @@ export class RaidScene extends Phaser.Scene {
 
   private createRelayLandmarks(): void {
     this.spawnCrate('crate-relay-west', 440, 1530, this.profile.raidsStarted % 2 === 0
-      ? [{ itemId: 'echo_dust', quantity: 3 }, { itemId: 'echo_tonic', quantity: 1 }]
-      : [{ itemId: 'echo_dust', quantity: 5 }, { itemId: 'repair_patch', quantity: 1 }]);
-    this.spawnCrate('crate-relay-east', 2450, 1170, [{ itemId: 'biscuit_note', quantity: 1 }, { itemId: 'echo_dust', quantity: 4 }]);
+      ? [{ itemId: 'echo_dust', quantity: 3 }, { itemId: 'echo_tonic', quantity: 1 }, { itemId: 'sichuan_hotpot', quantity: 1 }]
+      : [{ itemId: 'echo_dust', quantity: 5 }, { itemId: 'repair_patch', quantity: 1 }, { itemId: 'grapefruit_soda', quantity: 1 }], { kind: 'hotpot', label: '深场保温锅', rarity: 'uncommon' });
+    this.spawnCrate('crate-relay-east', 2450, 1170, [{ itemId: 'biscuit_note', quantity: 1 }, { itemId: 'echo_dust', quantity: 4 }, { itemId: 'supreme_glucose_monitor', quantity: 1 }], { kind: 'electronics_case', label: '阵列仪表箱', rarity: 'relic' });
     this.spawnCrate('crate-relay-crown', 3100, 990, [{ itemId: 'relay_sabre', quantity: 1 }]);
     for (const relay of this.layout.relayInteractions ?? []) this.createRelayInteraction(relay);
     const terminal = this.layout.terminal;
@@ -1071,6 +1112,20 @@ export class RaidScene extends Phaser.Scene {
     echo.label.setColor('#566e6c');
   }
 
+  private createBoundaryPassage(passage: { edge: 'left' | 'right'; centerY: number; height: number; name: string }): void {
+    const x = passage.edge === 'left' ? 12 : this.worldWidth - 12;
+    const width = 28;
+    const frame = this.add.rectangle(x, passage.centerY, width, passage.height, 0x5f89a4, 0.14)
+      .setStrokeStyle(3, 0xa8dded, 0.7).setDepth(9);
+    const arrow = this.add.text(x, passage.centerY, passage.edge === 'left' ? '⇠' : '⇢', {
+      fontFamily: 'Georgia, serif', fontSize: '35px', color: '#c5f6ef', stroke: '#07151d', strokeThickness: 4,
+    }).setOrigin(0.5).setDepth(10);
+    this.add.text(passage.edge === 'left' ? 38 : this.worldWidth - 38, passage.centerY - passage.height / 2 - 26, `${passage.name}\n直接走出边界`, {
+      fontFamily: 'Arial, sans-serif', fontSize: '11px', color: '#9cc8c7', align: passage.edge === 'left' ? 'left' : 'right',
+    }).setOrigin(passage.edge === 'left' ? 0 : 1, 0.5).setDepth(10);
+    this.tweens.add({ targets: [frame, arrow], alpha: { from: 0.38, to: 0.92 }, duration: 900, yoyo: true, repeat: -1 });
+  }
+
   private createGate(gate: GateDefinition): void {
     const ring = this.add.circle(gate.x, gate.y, 40, 0x8978e8, 0.12).setStrokeStyle(3, 0xc7b7ff, 0.62).setDepth(8);
     this.add.text(gate.x, gate.y, '⌘', { fontFamily: 'Georgia, serif', fontSize: '34px', color: '#e4dcff', stroke: '#07151d', strokeThickness: 4 }).setOrigin(0.5).setDepth(9);
@@ -1101,9 +1156,31 @@ export class RaidScene extends Phaser.Scene {
     this.tweens.add({ targets: glow, scale: 1.16, alpha: 0.35, duration: 1100, yoyo: true, repeat: -1 });
   }
 
-  private spawnCrate(id: string, x: number, y: number, drops: ItemStack[]): void {
+  private spawnCrate(
+    id: string,
+    x: number,
+    y: number,
+    drops: ItemStack[],
+    config: Partial<Pick<RaidCrate, 'kind' | 'label' | 'rarity' | 'searchDuration'>> = {},
+  ): void {
+    // Gates reload a Phaser scene. Preserve per-run searches so returning through
+    // a passage cannot repopulate containers that were already opened.
+    if (this.initialRunState?.openedCrateIds.includes(id)) return;
+    const kind = config.kind ?? 'supply_crate';
+    const rarity = config.rarity ?? 'common';
+    const label = config.label ?? '补给箱';
+    const searchDuration = config.searchDuration ?? (rarity === 'relic' ? 2600 : rarity === 'rare' ? 1800 : rarity === 'uncommon' ? 1100 : 650);
+    // Keep legacy starter crates immediately breakable for the existing opening
+    // tutorial; the new themed containers always use the deliberate search loop.
+    const requiresSearch = config.kind !== undefined;
     const sprite = this.add.image(x, y, 'loot-crate').setDepth(13);
-    this.crates.push({ id, sprite, drops, broken: false });
+    const tint = rarity === 'relic' ? 0xff8b70 : rarity === 'rare' ? 0xa89bff : rarity === 'uncommon' ? 0x82e7cb : 0xffffff;
+    sprite.setTint(tint);
+    const marker = this.add.text(x, y - 46, kind === 'hotpot' ? '🍲' : kind === 'wardrobe' ? '🧥' : kind === 'electronics_case' ? '🔌' : kind === 'relic_cache' ? '✦' : '▣', {
+      fontFamily: 'Arial, sans-serif', fontSize: '19px', color: rarity === 'relic' ? '#ff8b70' : '#9cebd8', stroke: '#07151d', strokeThickness: 4,
+    }).setOrigin(0.5).setDepth(14);
+    sprite.setData('containerMarker', marker);
+    this.crates.push({ id, sprite, drops, broken: false, kind, label, rarity, searchDuration, requiresSearch });
   }
 
   private spawnLoot(id: string, itemId: string, quantity: number, x: number, y: number): void {
@@ -1130,6 +1207,7 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private spawnHusk(id: string, x: number, y: number, patrolLeft: number, patrolRight: number): void {
+    if (this.initialRunState?.defeatedEnemyIds.includes(id)) return;
     const sprite = this.physics.add.sprite(x, y, 'echo-husk');
     sprite.setDepth(12);
     sprite.setBounce(0.05);
@@ -1150,6 +1228,7 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private spawnMoth(id: string, x: number, y: number, patrolLeft: number, patrolRight: number): void {
+    if (this.initialRunState?.defeatedEnemyIds.includes(id)) return;
     const sprite = this.physics.add.sprite(x, y, 'spore-moth');
     sprite.setDepth(17);
     sprite.body.allowGravity = false;
@@ -1170,6 +1249,7 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private spawnSentry(id: string, x: number, y: number): void {
+    if (this.initialRunState?.defeatedEnemyIds.includes(id)) return;
     const sprite = this.physics.add.sprite(x, y, 'signal-warden');
     sprite.setScale(0.64);
     sprite.setTint(0x75c3dd);
@@ -1201,6 +1281,7 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private spawnWarden(): void {
+    if (this.initialRunState?.defeatedEnemyIds.includes('signal-warden')) return;
     const sprite = this.physics.add.sprite(3400, 750, 'signal-warden');
     sprite.setDepth(18);
     sprite.body.setSize(105, 78);
@@ -1228,6 +1309,30 @@ export class RaidScene extends Phaser.Scene {
       combatState: 'patrol',
       attackReadyAt: this.time.now + 1200,
     });
+  }
+
+  setVirtualControl(control: VirtualControl, isDown: boolean): void {
+    if (isDown) {
+      if (!this.virtualControls.has(control)) this.virtualControlPressed.add(control);
+      this.virtualControls.add(control);
+      return;
+    }
+    this.virtualControls.delete(control);
+  }
+
+  clearVirtualControls(): void {
+    this.virtualControls.clear();
+    this.virtualControlPressed.clear();
+  }
+
+  private consumeVirtualPress(control: VirtualControl): boolean {
+    if (!this.virtualControlPressed.has(control)) return false;
+    this.virtualControlPressed.delete(control);
+    return true;
+  }
+
+  private isVirtualDown(control: VirtualControl): boolean {
+    return this.virtualControls.has(control);
   }
 
   private createInput(): void {
@@ -1401,7 +1506,7 @@ export class RaidScene extends Phaser.Scene {
     const grounded = body.blocked.down || body.touching.down;
     if (grounded) this.lastGroundedAt = time;
 
-    const jumpPressed = Phaser.Input.Keyboard.JustDown(this.keys.jump);
+    const jumpPressed = Phaser.Input.Keyboard.JustDown(this.keys.jump) || this.consumeVirtualPress('jump');
     if (jumpPressed) this.jumpQueuedAt = time;
 
     if (this.isDashing) {
@@ -1416,8 +1521,8 @@ export class RaidScene extends Phaser.Scene {
     const catHaste = this.getHeadEffect() === 'panic-haste' && time < this.hasteUntil ? 1.28 : 1;
     const speedMultiplier = (shoes?.stats?.speedMultiplier ?? 1) * (armor?.stats?.speedMultiplier ?? 1) * catHaste;
     const moveSpeed = 350 * speedMultiplier;
-    const leftDown = this.keys.left.isDown || this.keys.leftArrow.isDown;
-    const rightDown = this.keys.right.isDown || this.keys.rightArrow.isDown;
+    const leftDown = this.keys.left.isDown || this.keys.leftArrow.isDown || this.isVirtualDown('left');
+    const rightDown = this.keys.right.isDown || this.keys.rightArrow.isDown || this.isVirtualDown('right');
     const desiredVelocity = leftDown === rightDown ? 0 : (leftDown ? -moveSpeed : moveSpeed);
     const responsiveness = grounded ? 0.52 : 0.3;
     this.player.setVelocityX(Phaser.Math.Linear(body.velocity.x, desiredVelocity, responsiveness));
@@ -1434,11 +1539,12 @@ export class RaidScene extends Phaser.Scene {
       this.lastGroundedAt = -1000;
     }
 
-    const jumpHeld = this.keys.jump.isDown;
+    const jumpHeld = this.keys.jump.isDown || this.isVirtualDown('jump');
     if (!jumpHeld && body.velocity.y < -420) this.player.setVelocityY(-420);
 
     const dashPressed = Phaser.Input.Keyboard.JustDown(this.keys.dash)
-      || Phaser.Input.Keyboard.JustDown(this.keys.dashAlt);
+      || Phaser.Input.Keyboard.JustDown(this.keys.dashAlt)
+      || this.consumeVirtualPress('dash');
     if (dashPressed) {
       if (this.getDashMode() && time >= this.dashReadyAt) this.startDash(time);
       else if (!this.getDashMode()) this.showHint('需要装备能冲刺的鞋子。软羽靴可普通冲刺，影步靴可黑冲。', 1500);
@@ -1493,7 +1599,8 @@ export class RaidScene extends Phaser.Scene {
   private updateAttack(time: number): void {
     const attackPressed = Phaser.Input.Keyboard.JustDown(this.keys.attack)
       || Phaser.Input.Keyboard.JustDown(this.keys.attackAlt)
-      || Phaser.Input.Keyboard.JustDown(this.keys.attackTest);
+      || Phaser.Input.Keyboard.JustDown(this.keys.attackTest)
+      || this.consumeVirtualPress('attack');
     if (attackPressed) this.tryAttack(time, this.getKeyboardAttackDirection());
   }
 
@@ -1506,8 +1613,8 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private getKeyboardAttackDirection(): AttackDirection {
-    const aimingUp = this.keys.aimUp.isDown || this.keys.mapAlt.isDown;
-    const aimingDown = this.keys.aimDown.isDown || this.keys.backpackAlt.isDown;
+    const aimingUp = this.keys.aimUp.isDown || this.keys.mapAlt.isDown || this.isVirtualDown('aimUp');
+    const aimingDown = this.keys.aimDown.isDown || this.keys.backpackAlt.isDown || this.isVirtualDown('aimDown');
     if (aimingUp && !aimingDown) return 'up';
     if (aimingDown && !aimingUp) return this.normalizeAttackDirection('down', this.facing < 0 ? 'left' : 'right');
     return this.facing < 0 ? 'left' : 'right';
@@ -1580,7 +1687,8 @@ export class RaidScene extends Phaser.Scene {
     for (const crate of this.crates) {
       if (crate.broken || !Phaser.Geom.Intersects.RectangleToRectangle(hitbox, crate.sprite.getBounds())) continue;
       attackConnected = true;
-      this.breakCrate(crate);
+      if (crate.requiresSearch) this.showHint(`${crate.label}不能砸开；靠近后按 E 搜索。`, 1100);
+      else this.breakCrate(crate);
     }
     const bounced = direction === 'down' && attackConnected;
     if (bounced) {
@@ -1879,9 +1987,47 @@ export class RaidScene extends Phaser.Scene {
     });
   }
 
+  private beginContainerSearch(crate: RaidCrate): void {
+    if (crate.broken || this.activeContainerSearch) return;
+    const { x, y } = crate.sprite;
+    const color = crate.rarity === 'relic' ? 0xff725f : crate.rarity === 'rare' ? 0xa99cff : crate.rarity === 'uncommon' ? 0x78d9c4 : 0xc1d1cb;
+    const ring = this.add.circle(x, y, 42, color, 0.1).setStrokeStyle(4, color, 0.88).setDepth(35);
+    const label = this.add.text(x, y - 78, `正在搜索 ${crate.label}`, {
+      fontFamily: 'Arial, sans-serif', fontSize: '14px', color: '#effff9', stroke: '#07151d', strokeThickness: 4,
+    }).setOrigin(0.5).setDepth(36);
+    this.activeContainerSearch = { crate, completesAt: this.time.now + crate.searchDuration, ring, label };
+    this.player.setVelocity(0, 0);
+    this.showHint(crate.rarity === 'relic' ? '红色容器发出急促的高频回响。' : `正在翻找 ${crate.label}…`, 900);
+  }
+
+  private updateContainerSearch(time: number): boolean {
+    const active = this.activeContainerSearch;
+    if (!active) return false;
+    const distance = Phaser.Math.Distance.Between(this.player.x, this.player.y, active.crate.sprite.x, active.crate.sprite.y);
+    if (distance > 125) {
+      active.ring.destroy();
+      active.label.destroy();
+      this.activeContainerSearch = null;
+      this.showHint('离开容器，搜索取消。', 900);
+      return false;
+    }
+    const progress = Phaser.Math.Clamp(1 - (active.completesAt - time) / active.crate.searchDuration, 0, 1);
+    active.ring.setScale(0.8 + progress * 0.5).setAlpha(0.55 + Math.sin(time / 55) * 0.25);
+    active.label.setText(`搜索 ${active.crate.label}  ${'▰'.repeat(Math.ceil(progress * 10))}${'▱'.repeat(10 - Math.ceil(progress * 10))}`);
+    if (time >= active.completesAt) {
+      active.ring.destroy();
+      active.label.destroy();
+      this.activeContainerSearch = null;
+      this.breakCrate(active.crate);
+    }
+    return true;
+  }
+
   private breakCrate(crate: RaidCrate): void {
     crate.broken = true;
     const { x, y } = crate.sprite;
+    const marker = crate.sprite.getData('containerMarker') as Phaser.GameObjects.Text | undefined;
+    marker?.destroy();
     this.tweens.add({
       targets: crate.sprite,
       angle: 14,
@@ -2048,11 +2194,39 @@ export class RaidScene extends Phaser.Scene {
       ? `${candidate.prompt} · Tab 背包可处理附近掉落物`
       : candidate?.prompt ?? null;
     const interactPressed = Phaser.Input.Keyboard.JustDown(this.keys.interact)
-      || Phaser.Input.Keyboard.JustDown(this.keys.interactAlt);
+      || Phaser.Input.Keyboard.JustDown(this.keys.interactAlt)
+      || this.consumeVirtualPress('interact');
     if (interactPressed && candidate) candidate.interact();
 
     this.nearbyInteraction = prompt;
     this.promptText.setText(prompt ?? '').setVisible(Boolean(prompt) && this.extractingUntil === 0);
+  }
+
+  private tryBoundaryPassage(): boolean {
+    const passage = (this.layout.boundaryPassages ?? []).find((entry) => {
+      // Trigger before the sprite leaves the physical floor edge, so passages
+      // remain reliable even where a border platform provides the walkable lip.
+      const movingOutward = entry.edge === 'left' ? this.player.body.velocity.x < -20 : this.player.body.velocity.x > 20;
+      const isAtEdge = entry.edge === 'left' ? this.player.x < 300 : this.player.x > this.worldWidth - 300;
+      return movingOutward && isAtEdge && Math.abs(this.player.y - entry.centerY) <= entry.height / 2;
+    });
+    if (!passage || !this.onTransition) return false;
+    const mapAllowed = passage.targetMapId !== 'relay_01' || this.bossDefeated || this.profile.bossDefeated;
+    if (!mapAllowed) {
+      this.player.setPosition(this.worldWidth - 72, this.player.y).setVelocity(0, 0);
+      this.showHint('风道尽头没有回应；先让回声核心重新亮起。', 1600);
+      return true;
+    }
+    this.runEnded = true;
+    this.physics.pause();
+    this.showHint(`穿过${passage.name}，正在接入下一片区域…`, 800);
+    this.cameras.main.fadeOut(240, 120, 220, 218);
+    this.time.delayedCall(260, () => this.onTransition?.({
+      targetMapId: passage.targetMapId,
+      targetEntryId: passage.targetEntryId,
+      runState: this.createRunState(),
+    }));
+    return true;
   }
 
   private resolveNearbyInteraction(time: number): InteractionCandidate | null {
@@ -2154,6 +2328,12 @@ export class RaidScene extends Phaser.Scene {
           this.extractionPoint = extraction;
           this.extractingUntil = time + 2500;
         });
+    }
+
+    for (const crate of this.crates) {
+      if (!crate.sprite.active || crate.broken || !crate.requiresSearch) continue;
+      addCandidate(1, `container-${crate.id}`, crate.sprite.x, crate.sprite.y, 112,
+        `E · 搜索${crate.rarity === 'relic' ? '红色 ' : ''}${crate.label}（${(crate.searchDuration / 1000).toFixed(1)} 秒）`, () => this.beginContainerSearch(crate));
     }
 
     for (const loot of nearbyLoot) {
@@ -2412,8 +2592,12 @@ export class RaidScene extends Phaser.Scene {
     const sx = (x: number) => mapLeft + (x / this.worldWidth) * mapWidth;
     const sy = (y: number) => mapTop + (y / this.worldHeight) * mapHeight;
     const mapGraphic = this.add.graphics();
+    const currentRoomId = this.currentZone?.id ?? null;
+    const target = this.getMapTarget();
+    const targetRoomId = findZoneAt(this.mapDefinition, target.x, target.y)?.id ?? null;
     for (const room of this.layout.roomShapes) {
-      mapGraphic.fillStyle(room.color, mapKnown ? 0.22 : 0.1);
+      const revealed = mapKnown || room.id === currentRoomId || room.id === targetRoomId || this.revealedZoneIds.has(room.id);
+      mapGraphic.fillStyle(room.color, revealed ? 0.28 : 0.055);
       mapGraphic.fillRoundedRect(
         sx(room.x),
         sy(room.y),
@@ -2421,9 +2605,13 @@ export class RaidScene extends Phaser.Scene {
         (room.height / this.worldHeight) * mapHeight,
         8,
       );
+      if (room.id === currentRoomId) {
+        mapGraphic.lineStyle(3, 0xf1c879, 0.95);
+        mapGraphic.strokeRoundedRect(sx(room.x), sy(room.y), (room.width / this.worldWidth) * mapWidth, (room.height / this.worldHeight) * mapHeight, 8);
+      }
     }
     for (const route of this.layout.routes) {
-      mapGraphic.lineStyle(5, mapKnown ? 0x67cbb6 : 0x4e6669, mapKnown ? 0.66 : 0.28);
+      mapGraphic.lineStyle(5, mapKnown ? 0x67cbb6 : 0x4e6669, mapKnown ? 0.66 : 0.22);
       mapGraphic.beginPath();
       route.forEach((point, index) => {
         if (index === 0) mapGraphic.moveTo(sx(point.x), sy(point.y));
@@ -2431,18 +2619,24 @@ export class RaidScene extends Phaser.Scene {
       });
       mapGraphic.strokePath();
     }
+    for (const passage of this.layout.boundaryPassages ?? []) {
+      const x = passage.edge === 'left' ? mapLeft + 4 : mapLeft + mapWidth - 4;
+      const y = sy(passage.centerY);
+      mapGraphic.lineStyle(3, 0xa8dded, 0.85);
+      mapGraphic.lineBetween(x, y - 13, x, y + 13);
+    }
     container.add([shade, panel, title, subtitle, mapGraphic]);
 
-    if (mapKnown) {
-      for (const room of this.layout.roomShapes) {
-        const roomLabel = this.add.text(
-          sx(room.x + room.width / 2),
-          sy(room.y + room.height / 2),
-          room.name,
-          { fontFamily: 'Arial, sans-serif', fontSize: '9px', color: '#6f9692' },
-        ).setOrigin(0.5);
-        container.add(roomLabel);
-      }
+    for (const room of this.layout.roomShapes) {
+      const revealLabel = mapKnown || room.id === currentRoomId || room.id === targetRoomId || this.revealedZoneIds.has(room.id);
+      if (!revealLabel) continue;
+      const roomLabel = this.add.text(
+        sx(room.x + room.width / 2),
+        sy(room.y + room.height / 2),
+        room.name,
+        { fontFamily: 'Arial, sans-serif', fontSize: '9px', color: room.id === currentRoomId ? '#f1c879' : '#6f9692' },
+      ).setOrigin(0.5);
+      container.add(roomLabel);
     }
 
     const nodes = this.mapId === 'relay_01'

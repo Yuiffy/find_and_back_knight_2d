@@ -10,6 +10,7 @@ export type ItemCategory =
 
 export type GearSlot = 'weapon' | 'armor' | 'head' | 'shoes' | 'backpack';
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'relic';
+export type CollectibleKind = 'food' | 'homeware' | 'electronics' | 'craft' | 'memory';
 
 export interface ItemStats {
   attack?: number;
@@ -36,6 +37,8 @@ export interface ItemDefinition {
   buyPrice?: number;
   sellPrice?: number;
   size: { width: number; height: number };
+  /** Only collectibles use this; it drives container loot tables and the display room. */
+  collectibleKind?: CollectibleKind;
   stats?: ItemStats;
 }
 
@@ -111,7 +114,12 @@ export interface PlayerProfile {
   raidsStarted: number;
   successfulExtractions: number;
   deaths: number;
+  /** Small-bird coins are the permanent currency earned from valuables. */
   credits: number;
+  warehouseLevel: number;
+  workshopLevel: number;
+  /** Collectibles that were safely extracted and placed in the home display room. */
+  collectionItems: string[];
   discoveredItems: string[];
   discoveredClues: string[];
   mapUnlocked: boolean;
