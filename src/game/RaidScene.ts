@@ -54,7 +54,7 @@ interface RaidKeys {
   leftArrow: Phaser.Input.Keyboard.Key;
   rightArrow: Phaser.Input.Keyboard.Key;
   jump: Phaser.Input.Keyboard.Key;
-  jumpAlt: Phaser.Input.Keyboard.Key;
+  aimUp: Phaser.Input.Keyboard.Key;
   attack: Phaser.Input.Keyboard.Key;
   attackAlt: Phaser.Input.Keyboard.Key;
   attackTest: Phaser.Input.Keyboard.Key;
@@ -133,6 +133,14 @@ interface StoryEchoEntity extends StoryEchoDefinition {
   label: Phaser.GameObjects.Text;
   heard: boolean;
   pulseTween: Phaser.Tweens.Tween | null;
+}
+
+interface InteractionCandidate {
+  priority: number;
+  distance: number;
+  stableId: string;
+  prompt: string;
+  interact: () => void;
 }
 
 const RAID_EQUIPMENT_SLOTS: GearSlot[] = ['weapon', 'armor', 'head', 'shoes'];
@@ -1230,7 +1238,7 @@ export class RaidScene extends Phaser.Scene {
       leftArrow: Phaser.Input.Keyboard.KeyCodes.LEFT,
       rightArrow: Phaser.Input.Keyboard.KeyCodes.RIGHT,
       jump: Phaser.Input.Keyboard.KeyCodes.SPACE,
-      jumpAlt: Phaser.Input.Keyboard.KeyCodes.W,
+      aimUp: Phaser.Input.Keyboard.KeyCodes.W,
       attack: Phaser.Input.Keyboard.KeyCodes.J,
       attackAlt: Phaser.Input.Keyboard.KeyCodes.X,
       attackTest: Phaser.Input.Keyboard.KeyCodes.B,
@@ -1393,9 +1401,7 @@ export class RaidScene extends Phaser.Scene {
     const grounded = body.blocked.down || body.touching.down;
     if (grounded) this.lastGroundedAt = time;
 
-    const attackPressed = this.keys.attack.isDown || this.keys.attackAlt.isDown || this.keys.attackTest.isDown;
-    const jumpPressed = Phaser.Input.Keyboard.JustDown(this.keys.jump)
-      || (Phaser.Input.Keyboard.JustDown(this.keys.jumpAlt) && !attackPressed);
+    const jumpPressed = Phaser.Input.Keyboard.JustDown(this.keys.jump);
     if (jumpPressed) this.jumpQueuedAt = time;
 
     if (this.isDashing) {
@@ -1428,7 +1434,7 @@ export class RaidScene extends Phaser.Scene {
       this.lastGroundedAt = -1000;
     }
 
-    const jumpHeld = this.keys.jump.isDown || this.keys.jumpAlt.isDown;
+    const jumpHeld = this.keys.jump.isDown;
     if (!jumpHeld && body.velocity.y < -420) this.player.setVelocityY(-420);
 
     const dashPressed = Phaser.Input.Keyboard.JustDown(this.keys.dash)
@@ -1500,7 +1506,7 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private getKeyboardAttackDirection(): AttackDirection {
-    const aimingUp = this.keys.jumpAlt.isDown || this.keys.mapAlt.isDown;
+    const aimingUp = this.keys.aimUp.isDown || this.keys.mapAlt.isDown;
     const aimingDown = this.keys.aimDown.isDown || this.keys.backpackAlt.isDown;
     if (aimingUp && !aimingDown) return 'up';
     if (aimingDown && !aimingUp) return this.normalizeAttackDirection('down', this.facing < 0 ? 'left' : 'right');
@@ -2036,127 +2042,129 @@ export class RaidScene extends Phaser.Scene {
       }
     }
 
+    const candidate = this.resolveNearbyInteraction(time);
+    const nearbyLoot = this.getNearbyLoot(88);
+    const prompt = candidate && candidate.priority < 7 && nearbyLoot.length > 0
+      ? `${candidate.prompt} · Tab 背包可处理附近掉落物`
+      : candidate?.prompt ?? null;
     const interactPressed = Phaser.Input.Keyboard.JustDown(this.keys.interact)
       || Phaser.Input.Keyboard.JustDown(this.keys.interactAlt);
-    let prompt: string | null = null;
+    if (interactPressed && candidate) candidate.interact();
 
-    if (this.lostEchoIcon?.active && Phaser.Math.Distance.Between(
-      this.player.x,
-      this.player.y,
-      this.lostEchoIcon.x,
-      this.lostEchoIcon.y,
-    ) < 95) {
-      prompt = 'E · 找回遗失回声（再次死亡前只有这一次）';
-      if (interactPressed && this.profile.lostEcho) this.recoverLostEcho();
-    } else {
-      const nearbyLoot = this.loot.find((entry) => entry.icon.active && Phaser.Math.Distance.Between(
-        this.player.x,
-        this.player.y,
-        entry.icon.x,
-        entry.icon.y,
-      ) < 88);
+    this.nearbyInteraction = prompt;
+    this.promptText.setText(prompt ?? '').setVisible(Boolean(prompt) && this.extractingUntil === 0);
+  }
 
-      if (nearbyLoot) {
-        const item = ITEMS[nearbyLoot.itemId];
-        prompt = `E · 拾取 ${item.icon} ${item.name}${nearbyLoot.quantity > 1 ? ` ×${nearbyLoot.quantity}` : ''}`;
-        if (interactPressed) this.collectLoot(nearbyLoot);
-      } else if (this.mapId === 'hollow_01' && Phaser.Math.Distance.Between(
-        this.player.x,
-        this.player.y,
-        this.elevatorPoint.x,
-        this.elevatorPoint.y,
-      ) < 105) {
-        prompt = this.shortcutUnlocked ? '维护电梯已启动 · 下轮可从深层入口出发' : 'E · 启动维护电梯捷径';
-        if (interactPressed && !this.shortcutUnlocked) {
+  private resolveNearbyInteraction(time: number): InteractionCandidate | null {
+    const candidates: InteractionCandidate[] = [];
+    const nearbyLoot = this.getNearbyLoot(88);
+    const addCandidate = (
+      priority: number,
+      stableId: string,
+      x: number,
+      y: number,
+      radius: number,
+      prompt: string,
+      interact: () => void,
+    ): void => {
+      const distance = Phaser.Math.Distance.Between(this.player.x, this.player.y, x, y);
+      if (distance < radius) candidates.push({ priority, distance, stableId, prompt, interact });
+    };
+
+    if (this.lostEchoIcon?.active) {
+      addCandidate(0, 'lost-echo', this.lostEchoIcon.x, this.lostEchoIcon.y, 95,
+        'E · 找回遗失回声（再次死亡前只有这一次）', () => {
+          if (this.profile.lostEcho) this.recoverLostEcho();
+        });
+    }
+
+    if (this.mapId === 'hollow_01') {
+      addCandidate(1, 'maintenance-elevator', this.elevatorPoint.x, this.elevatorPoint.y, 105,
+        this.shortcutUnlocked ? '维护电梯已启动 · 下轮可从深层入口出发' : 'E · 启动维护电梯捷径', () => {
+          if (this.shortcutUnlocked) return;
           this.shortcutUnlocked = true;
           this.discoveredClues.add('lift-trace');
           this.discoveredClues.add('warden-trace');
           this.showHint('维护电梯已记录到基地。以后可快速进入深层。', 2200);
-        }
-      } else {
-        const nearbyGate = this.layout.gates?.find((gate) => Phaser.Math.Distance.Between(
-          this.player.x, this.player.y, gate.x, gate.y,
-        ) < 105);
-        if (nearbyGate) {
-          const canCross = nearbyGate.targetMapId !== 'relay_01' || this.bossDefeated || this.profile.bossDefeated;
-          prompt = canCross ? `E · 穿过${nearbyGate.name}` : `${nearbyGate.name}等待回声核心回应`;
-          if (interactPressed && canCross && this.onTransition) {
-            this.runEnded = true;
-            this.physics.pause();
-            this.showHint('折跃门展开，携带中的物资将随你穿过深场。', 900);
-            this.time.delayedCall(260, () => this.onTransition?.({
-              targetMapId: nearbyGate.targetMapId,
-              targetEntryId: nearbyGate.targetEntryId,
-              runState: this.createRunState(),
-            }));
-          }
-        } else {
-        const nearbyRelay = this.layout.relayInteractions?.find((relay) => Phaser.Math.Distance.Between(
-          this.player.x, this.player.y, relay.x, relay.y,
-        ) < 105);
-        const terminal = this.layout.terminal;
-        const nearTerminal = terminal && Phaser.Math.Distance.Between(this.player.x, this.player.y, terminal.x, terminal.y) < 110;
-        if (nearbyRelay) {
-          const calibrated = this.discoveredClues.has(nearbyRelay.id);
-          prompt = calibrated ? `${nearbyRelay.name} · 已校准` : `E · 校准${nearbyRelay.name}`;
-          if (interactPressed && !calibrated) {
-            this.discoveredClues.add(nearbyRelay.id);
-            this.showHint(`${nearbyRelay.name}已锁定。`, 1800);
-          }
-        } else if (nearTerminal) {
-          const ready = this.discoveredClues.has('relay-west-calibrated') && this.discoveredClues.has('relay-east-calibrated');
-          prompt = this.profile.endingSeen
-            ? '归航频道已锁定 · 可从附近信标撤离'
-            : (ready ? 'E · 锁定饼干岛频道（3.5 秒）' : '归航终端等待东西阵列校准');
-          if (interactPressed && ready && !this.profile.endingSeen && this.extractingUntil === 0) {
-            this.endingTriggered = true;
-            this.extractionDuration = 3500;
-            this.previousInvulnerableUntil = this.invulnerableUntil;
-            this.invulnerableUntil = time + 3500;
-            this.staggerEndsAt = time;
-            this.player.setPosition(terminal.x, this.player.y).setVelocity(0, 0);
-            this.extractionPoint = { x: terminal.x, y: terminal.y };
-            this.extractingUntil = time + 3500;
-            this.showHint('双向信号重合。留在终端旁，直到频道锁定。', 1700);
-          }
-        } else {
-        const nearbyEcho = this.storyEchoes.find((echo) => Phaser.Math.Distance.Between(
-          this.player.x,
-          this.player.y,
-          echo.x,
-          echo.y,
-        ) < 92);
-        if (nearbyEcho) {
-          prompt = `E · ${nearbyEcho.heard ? '重听' : '聆听'}「${nearbyEcho.title}」`;
-          if (interactPressed) {
-            this.discoveredClues.add(nearbyEcho.id);
-            if (nearbyEcho.id === 'graveyard-terminal') this.discoveredClues.add('home-trace');
-            this.markStoryEchoHeard(nearbyEcho);
-            this.showHint(nearbyEcho.message, 5200);
-            this.tweens.add({ targets: [nearbyEcho.marker, nearbyEcho.halo], scale: 1.22, duration: 180, yoyo: true });
-          }
-        }
-        const extraction = this.extractionPoints.find((point) => Phaser.Math.Distance.Between(
-          this.player.x,
-          this.player.y,
-          point.x,
-          point.y,
-        ) < 100);
-        if (!nearbyEcho && extraction) {
-          prompt = this.extractingUntil > 0 ? '留在信号圈内…' : 'E · 开始安全撤离（2.5 秒）';
-          if (interactPressed && this.extractingUntil === 0) {
-            this.extractionDuration = 2500;
-            this.extractionPoint = extraction;
-            this.extractingUntil = time + 2500;
-          }
-        }
-      }
-    }
-    }
+        });
     }
 
-    this.nearbyInteraction = prompt;
-    this.promptText.setText(prompt ?? '').setVisible(Boolean(prompt) && this.extractingUntil === 0);
+    for (const gate of this.layout.gates ?? []) {
+      const canCross = gate.targetMapId !== 'relay_01' || this.bossDefeated || this.profile.bossDefeated;
+      addCandidate(1, `gate-${gate.name}`, gate.x, gate.y, 105,
+        canCross ? `E · 穿过${gate.name}` : `${gate.name}等待回声核心回应`, () => {
+          if (!canCross || !this.onTransition) return;
+          this.runEnded = true;
+          this.physics.pause();
+          this.showHint('折跃门展开，携带中的物资将随你穿过深场。', 900);
+          this.time.delayedCall(260, () => this.onTransition?.({
+            targetMapId: gate.targetMapId,
+            targetEntryId: gate.targetEntryId,
+            runState: this.createRunState(),
+          }));
+        });
+    }
+
+    for (const relay of this.layout.relayInteractions ?? []) {
+      const calibrated = this.discoveredClues.has(relay.id);
+      addCandidate(1, `relay-${relay.id}`, relay.x, relay.y, 105,
+        calibrated ? `${relay.name} · 已校准` : `E · 校准${relay.name}`, () => {
+          if (calibrated) return;
+          this.discoveredClues.add(relay.id);
+          this.showHint(`${relay.name}已锁定。`, 1800);
+        });
+    }
+
+    const terminal = this.layout.terminal;
+    if (terminal) {
+      const ready = this.discoveredClues.has('relay-west-calibrated') && this.discoveredClues.has('relay-east-calibrated');
+      const terminalPrompt = this.profile.endingSeen
+        ? '归航频道已锁定 · 可从附近信标撤离'
+        : (ready ? 'E · 锁定饼干岛频道（3.5 秒）' : '归航终端等待东西阵列校准');
+      addCandidate(1, 'home-terminal', terminal.x, terminal.y, 110, terminalPrompt, () => {
+        if (!ready || this.profile.endingSeen || this.extractingUntil > 0) return;
+        this.endingTriggered = true;
+        this.extractionDuration = 3500;
+        this.previousInvulnerableUntil = this.invulnerableUntil;
+        this.invulnerableUntil = time + 3500;
+        this.staggerEndsAt = time;
+        this.player.setPosition(terminal.x, this.player.y).setVelocity(0, 0);
+        this.extractionPoint = { x: terminal.x, y: terminal.y };
+        this.extractingUntil = time + 3500;
+        this.showHint('双向信号重合。留在终端旁，直到频道锁定。', 1700);
+      });
+    }
+
+    for (const echo of this.storyEchoes) {
+      addCandidate(2, `echo-${echo.id}`, echo.x, echo.y, 92,
+        `E · ${echo.heard ? '重听' : '聆听'}「${echo.title}」`, () => {
+          this.discoveredClues.add(echo.id);
+          if (echo.id === 'graveyard-terminal') this.discoveredClues.add('home-trace');
+          this.markStoryEchoHeard(echo);
+          this.showHint(echo.message, 5200);
+          this.tweens.add({ targets: [echo.marker, echo.halo], scale: 1.22, duration: 180, yoyo: true });
+        });
+    }
+
+    for (const extraction of this.extractionPoints) {
+      addCandidate(3, `extraction-${extraction.label}`, extraction.x, extraction.y, 100,
+        'E · 开始安全撤离（2.5 秒）', () => {
+          if (this.extractingUntil > 0) return;
+          this.extractionDuration = 2500;
+          this.extractionPoint = extraction;
+          this.extractingUntil = time + 2500;
+        });
+    }
+
+    for (const loot of nearbyLoot) {
+      const item = ITEMS[loot.itemId];
+      addCandidate(4, `loot-${loot.id}`, loot.icon.x, loot.icon.y, 88,
+        `E · 拾取 ${item.icon} ${item.name}${loot.quantity > 1 ? ` ×${loot.quantity}` : ''}`, () => this.collectLoot(loot));
+    }
+
+    return candidates.sort((left, right) => left.priority - right.priority
+      || left.distance - right.distance
+      || left.stableId.localeCompare(right.stableId))[0] ?? null;
   }
 
   private collectLoot(entry: LootEntity): void {
@@ -2495,16 +2503,15 @@ export class RaidScene extends Phaser.Scene {
     return container;
   }
 
-  private getNearbyLoot(): LootEntity[] {
+  private getNearbyLoot(radius = NEARBY_LOOT_RADIUS): LootEntity[] {
     return this.loot
-      .filter((entry) => entry.icon.active && Phaser.Math.Distance.Between(
-        this.player.x,
-        this.player.y,
-        entry.icon.x,
-        entry.icon.y,
-      ) <= NEARBY_LOOT_RADIUS)
-      .sort((left, right) => Phaser.Math.Distance.Between(this.player.x, this.player.y, left.icon.x, left.icon.y)
-        - Phaser.Math.Distance.Between(this.player.x, this.player.y, right.icon.x, right.icon.y));
+      .map((entry) => ({
+        entry,
+        distance: Phaser.Math.Distance.Between(this.player.x, this.player.y, entry.icon.x, entry.icon.y),
+      }))
+      .filter(({ entry, distance }) => entry.icon.active && distance <= radius)
+      .sort((left, right) => left.distance - right.distance || left.entry.id.localeCompare(right.entry.id))
+      .map(({ entry }) => entry);
   }
 
   private refreshBackpackOverlay(): void {

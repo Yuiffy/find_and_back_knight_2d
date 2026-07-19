@@ -47,11 +47,20 @@ try {
     return current.mode === 'raid' && Boolean(current.player);
   });
 
+  await page.waitForFunction(() => {
+    const current = JSON.parse(window.render_game_to_text?.() ?? '{}');
+    return current.mode === 'raid' && current.player?.grounded;
+  }, undefined, { timeout: 1600 });
+  let current = await state();
+  const groundedY = current.player.y;
   await page.keyboard.down('KeyW');
+  await page.waitForTimeout(180);
+  current = await state();
+  assert(current.player.grounded && Math.abs(current.player.y - groundedY) < 4, `W alone should not jump: ${JSON.stringify(current.player)}.`);
   await page.keyboard.press('KeyJ');
   await page.keyboard.up('KeyW');
   await page.waitForTimeout(180);
-  let current = await state();
+  current = await state();
   assert(current.lastAttack?.direction === 'up', `W+J did not create an upstrike: ${JSON.stringify(current.lastAttack)}.`);
   await page.waitForTimeout(420);
 
@@ -76,7 +85,7 @@ try {
   await page.locator('canvas').screenshot({ path: path.join(outputDir, '01-directional-attacks.png') });
 
   assert(errors.length === 0, `Browser errors: ${errors.join(' | ')}`);
-  console.log(JSON.stringify({ ok: true, upstrike: true, downstrike: true, lastAttack: current.lastAttack, errors }, null, 2));
+  console.log(JSON.stringify({ ok: true, wOnlyDoesNotJump: true, upstrike: true, downstrike: true, lastAttack: current.lastAttack, errors }, null, 2));
 } finally {
   await browser.close();
 }
