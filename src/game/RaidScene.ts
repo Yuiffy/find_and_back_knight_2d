@@ -1,11 +1,11 @@
 import Phaser from 'phaser';
 import {
-  addStacks,
   canPlaceGridItem,
   cloneGridItems,
   getGridItemSize,
   insertGridStack,
   moveOrMergeGridItem,
+  placeGridItemPrecisely,
   occupiedGridCells,
   removeGridQuantity,
   rotateGridItem,
@@ -122,12 +122,16 @@ interface LootEntity {
   halo: Phaser.GameObjects.Arc;
 }
 
-type ContainerKind = 'supply_crate' | 'hotpot' | 'wardrobe' | 'electronics_case' | 'archive_case' | 'relic_cache';
+type ContainerKind = 'supply_crate' | 'hotpot' | 'wardrobe' | 'electronics_case' | 'archive_case' | 'relic_cache' | 'lost_corpse';
+
+interface ContainerDrop extends ItemStack {
+  rotated?: boolean;
+}
 
 interface RaidCrate {
   id: string;
-  sprite: Phaser.GameObjects.Image;
-  drops: ItemStack[];
+  sprite: Phaser.GameObjects.Image | Phaser.GameObjects.Container;
+  drops: ContainerDrop[];
   broken: boolean;
   kind: ContainerKind;
   label: string;
@@ -145,12 +149,23 @@ interface ActiveContainerSearch {
 
 
 interface RaidInventoryDrag {
-  source: 'backpack' | 'ground';
+  source: 'backpack' | 'ground' | 'container';
   uid?: string;
   lootId?: string;
+  containerIndex?: number;
+  itemId?: string;
+  quantity?: number;
   rotated?: boolean;
   grabOffsetX?: number;
   grabOffsetY?: number;
+}
+
+interface InventoryDetail {
+  itemId: string | null;
+  source: 'equipment' | 'backpack' | 'container' | 'ground' | 'empty';
+  slot?: GearSlot;
+  quantity?: number;
+  unknown?: boolean;
 }
 
 interface StoryEchoEntity extends StoryEchoDefinition {
@@ -193,11 +208,12 @@ export class RaidScene extends Phaser.Scene {
   private loot: LootEntity[] = [];
   private crates: RaidCrate[] = [];
   private activeContainerSearch: ActiveContainerSearch | null = null;
+  private lastContainerReveal: { crateId: string; index: number; at: number } | null = null;
   private storyEchoes: StoryEchoEntity[] = [];
   private backpack: GridItem[] = [];
   private loadout: Loadout;
-  private recoveredEchoItems: ItemStack[] = [];
-  private recoveredEcho = false;
+  private remainingLostEchoItems: ItemStack[] | null = null;
+  private lostCorpse: RaidCrate | null = null;
   private mapUnlocked = false;
   private shortcutUnlocked = false;
   private bossDefeated = false;
@@ -233,8 +249,9 @@ export class RaidScene extends Phaser.Scene {
   private zoneCandidateSince: number | null = null;
   private lastZoneRevealAt: number | null = null;
   private revealedZoneIds = new Set<string>();
-  private lostEchoIcon: Phaser.GameObjects.Text | null = null;
+  private lostEchoIcon: Phaser.GameObjects.Container | null = null;
   private lostEchoHalo: Phaser.GameObjects.Arc | null = null;
+  private lostEchoLabel: Phaser.GameObjects.Text | null = null;
   private readonly elevatorPoint = { x: 1450, y: 1330 };
   private extractionPoints: Array<{ x: number; y: number; label: string }> = [];
   private attackGraphics: Phaser.GameObjects.Rectangle | null = null;
@@ -245,11 +262,15 @@ export class RaidScene extends Phaser.Scene {
   private activeInventoryDrag: RaidInventoryDrag | null = null;
   private inventoryDragGhost: Phaser.GameObjects.Text | null = null;
   private inventoryDragPreview: Phaser.GameObjects.Rectangle | null = null;
+  private inventoryDetail: InventoryDetail = { itemId: null, source: 'empty' };
+  private inventoryDetailText: Phaser.GameObjects.Text | null = null;
   private discoveredItems = new Set<string>();
   private discoveredClues = new Set<string>();
   private endingTriggered = false;
   private hasteUntil = 0;
   private nextKillHealAt = 0;
+  /** First 90 seconds: bots avoid the deployment sector instead of rushing spawn. */
+  private readonly outpostOpeningProtectionMs = 90_000;
   private platformBodies: Phaser.Physics.Arcade.StaticBody[] = [];
   private abortHoldStartedAt = 0;
   private pauseAbortText: Phaser.GameObjects.Text | null = null;
@@ -292,8 +313,9 @@ export class RaidScene extends Phaser.Scene {
     this.bossDefeated = runState?.bossDefeated ?? this.profile.bossDefeated;
     this.discoveredItems = new Set(runState?.discoveredItems ?? this.profile.discoveredItems ?? []);
     this.discoveredClues = new Set(runState?.discoveredClues ?? this.profile.discoveredClues ?? []);
-    this.recoveredEchoItems = runState?.recoveredItems.map((item) => ({ ...item })) ?? [];
-    this.recoveredEcho = runState?.recoveredEcho ?? false;
+    this.remainingLostEchoItems = runState
+      ? (runState.remainingLostEchoItems?.map((item) => ({ ...item })) ?? null)
+      : (this.profile.lostEcho ? this.profile.lostEcho.items.map((item) => ({ ...item })) : null);
     this.backpack = cloneGridItems(runState?.backpack ?? this.profile.backpack.items);
     this.createTextures();
     this.createBackdrop();
@@ -364,7 +386,7 @@ export class RaidScene extends Phaser.Scene {
       return;
     }
     if (this.overlayMode) {
-      if (this.overlayMode === 'container') this.updateContainerSearch(time);
+      if (this.activeContainerSearch) this.updateContainerSearch(time);
       if (this.overlayMode === 'backpack'
         && this.activeInventoryDrag
         && Phaser.Input.Keyboard.JustDown(this.keys.usePatch)) {
@@ -1074,7 +1096,9 @@ export class RaidScene extends Phaser.Scene {
     this.spawnCrate('outpost-market-electronics', 3820, 1460, [{ itemId: 'cpu_12400f', quantity: 1 }, { itemId: 'glucose_monitor', quantity: 1 }], { kind: 'electronics_case', label: '集市电子货箱', rarity: 'rare' });
     this.spawnCrate('outpost-tower-relic', 5360, 920, [{ itemId: 'inn_leather_shoes', quantity: 1 }, { itemId: 'airlift_firecloud', quantity: 1 }], { kind: 'relic_cache', label: '中继塔红色保险柜', rarity: 'relic' });
     this.spawnCrate('outpost-yard-relic', 7100, 710, [{ itemId: 'iphone16', quantity: 1 }, { itemId: 'shiori_library_parcel', quantity: 1 }], { kind: 'relic_cache', label: '北场红色货柜', rarity: 'relic' });
-    this.showHint('雾港封锁区：随机出生，优先寻找远离投放点的撤离信标。拟态拾荒者会争夺同一批战利品。', 5200);
+    this.spawnCrate('outpost-service-cache', 4700, 2380, [{ itemId: 'repair_patch', quantity: 2 }, { itemId: 'beef_jerky', quantity: 1 }], { kind: 'supply_crate', label: '地下服务箱', rarity: 'uncommon' });
+    this.spawnCrate('outpost-catwalk-cache', 4200, 760, [{ itemId: 'wind_needle', quantity: 1 }, { itemId: 'grapefruit_soda', quantity: 1 }], { kind: 'electronics_case', label: '高架快捷货箱', rarity: 'rare' });
+    this.showHint('雾港封锁区：开局 90 秒为投放保护期；可走下方服务路绕开战斗，或走高架捷径抢先到撤离点。', 5600);
   }
 
   private createRelayLandmarks(): void {
@@ -1101,16 +1125,31 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private createMatchingLostEcho(): void {
-    if (!this.profile.lostEcho || this.profile.lostEcho.mapId !== this.mapId) return;
+    if (!this.profile.lostEcho || this.profile.lostEcho.mapId !== this.mapId || !this.remainingLostEchoItems?.length) return;
     const x = Phaser.Math.Clamp(this.profile.lostEcho.x, 120, this.worldWidth - 120);
-    const y = Phaser.Math.Clamp(this.profile.lostEcho.y - 40, 120, this.worldHeight - 120);
-    this.lostEchoHalo = this.add.circle(x, y, 38, 0x8c69e8, 0.1)
-      .setStrokeStyle(2, 0xb999ff, 0.52)
+    const y = Phaser.Math.Clamp(this.profile.lostEcho.y - 24, 120, this.worldHeight - 120);
+    this.lostEchoHalo = this.add.circle(x, y, 54, 0x8c69e8, 0.09)
+      .setStrokeStyle(2, 0xc6a8ff, 0.58)
       .setDepth(15);
-    this.lostEchoIcon = this.add.text(x, y, '◉', {
-      fontFamily: 'Georgia, serif', fontSize: '34px', color: '#c6a8ff', stroke: '#211835', strokeThickness: 5,
-    }).setOrigin(0.5).setDepth(16);
-    this.tweens.add({ targets: [this.lostEchoHalo, this.lostEchoIcon], alpha: { from: 0.45, to: 1 }, scale: { from: 0.92, to: 1.08 }, duration: 900, yoyo: true, repeat: -1 });
+    const body = this.add.container(x, y).setDepth(16);
+    const pack = this.add.rectangle(-28, 8, 28, 34, 0x5b416b, 0.98).setStrokeStyle(2, 0xc5a8df, 0.62);
+    const torso = this.add.rectangle(4, 5, 61, 28, 0x3c4057, 1).setStrokeStyle(2, 0xa98ac8, 0.82);
+    const head = this.add.circle(-34, -2, 17, 0x79718c, 1).setStrokeStyle(2, 0xd9c8ea, 0.7);
+    const visor = this.add.rectangle(-39, -5, 15, 5, 0x201f31, 0.95);
+    const arm = this.add.rectangle(25, 25, 43, 10, 0x4b4c63, 1).setAngle(18);
+    const leg = this.add.rectangle(17, -18, 50, 10, 0x45475d, 1).setAngle(-14);
+    const weapon = this.add.rectangle(43, 29, 54, 4, 0xd3b978, 0.86).setAngle(-24);
+    body.add([pack, torso, head, visor, arm, leg, weapon]);
+    this.lostEchoIcon = body;
+    this.lostEchoLabel = this.add.text(x, y - 63, `遗失遗体 · ${this.remainingLostEchoItems.length} 组装备`, {
+      fontFamily: 'Arial, sans-serif', fontSize: '12px', color: '#d9c6ee', stroke: '#10131c', strokeThickness: 4,
+    }).setOrigin(0.5).setDepth(17);
+    this.lostCorpse = {
+      id: 'lost-corpse', sprite: body, drops: this.remainingLostEchoItems, broken: false, kind: 'lost_corpse',
+      label: '遗失遗体', rarity: 'relic', searchDuration: 0, requiresSearch: false,
+      revealed: this.remainingLostEchoItems.map(() => true),
+    };
+    this.tweens.add({ targets: [this.lostEchoHalo, body], alpha: { from: 0.55, to: 1 }, scale: { from: 0.96, to: 1.04 }, duration: 1200, yoyo: true, repeat: -1 });
   }
 
   private createStoryEcho(definition: StoryEchoDefinition): void {
@@ -1211,7 +1250,8 @@ export class RaidScene extends Phaser.Scene {
       fontFamily: 'Arial, sans-serif', fontSize: '19px', color: rarity === 'relic' ? '#ff8b70' : '#9cebd8', stroke: '#07151d', strokeThickness: 4,
     }).setOrigin(0.5).setDepth(14);
     sprite.setData('containerMarker', marker);
-    this.crates.push({ id, sprite, drops, broken: false, kind, label, rarity, searchDuration, requiresSearch, revealed: drops.map(() => false) });
+    const containerDrops = drops.map((drop) => ({ ...drop, rotated: false }));
+    this.crates.push({ id, sprite, drops: containerDrops, broken: false, kind, label, rarity, searchDuration, requiresSearch, revealed: containerDrops.map(() => false) });
   }
 
   private spawnLoot(id: string, itemId: string, quantity: number, x: number, y: number): void {
@@ -1280,11 +1320,12 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private spawnOutpostScavengers(): void {
+    const playerSpawn = this.lastSpawnPosition ?? { x: 420, y: 2260 };
     const routes = [
-      [{ x: 1260, y: 1840 }, { x: 2050, y: 1660 }, { x: 2900, y: 1500 }],
-      [{ x: 3080, y: 1620 }, { x: 3900, y: 1420 }, { x: 4640, y: 1220 }],
-      [{ x: 4940, y: 1220 }, { x: 5740, y: 1040 }, { x: 6480, y: 840 }],
-      [{ x: 7100, y: 720 }, { x: 6280, y: 880 }, { x: 5500, y: 1080 }],
+      [{ x: 1180, y: 1840 }, { x: 1780, y: 1680 }, { x: 2420, y: 1800 }],
+      [{ x: 3180, y: 1660 }, { x: 3820, y: 1420 }, { x: 4520, y: 1560 }],
+      [{ x: 5100, y: 1220 }, { x: 5740, y: 1040 }, { x: 6500, y: 1160 }],
+      [{ x: 7120, y: 720 }, { x: 6580, y: 880 }, { x: 6020, y: 720 }],
     ];
     const lootSets: ItemStack[][] = [
       [{ itemId: 'beef_jerky', quantity: 1 }, { itemId: 'soft_boots', quantity: 1 }],
@@ -1292,7 +1333,10 @@ export class RaidScene extends Phaser.Scene {
       [{ itemId: 'rtx_3050', quantity: 1 }, { itemId: 'repair_patch', quantity: 2 }],
       [{ itemId: 'grapefruit_soda', quantity: 1 }, { itemId: 'cat_cap', quantity: 1 }],
     ];
-    routes.forEach((route, index) => this.spawnScavenger(`scavenger-${index + 1}`, route, lootSets[index]));
+    routes
+      .filter((route) => Phaser.Math.Distance.Between(playerSpawn.x, playerSpawn.y, route[0].x, route[0].y) >= 1000)
+      .slice(0, 3)
+      .forEach((route, index) => this.spawnScavenger(`scavenger-${index + 1}`, route, lootSets[index]));
   }
 
   private spawnScavenger(id: string, waypoints: Array<{ x: number; y: number }>, carriedLoot: ItemStack[]): void {
@@ -1436,6 +1480,11 @@ export class RaidScene extends Phaser.Scene {
       Phaser.Input.Keyboard.KeyCodes.ESC,
     ]);
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (this.overlayMode === 'backpack' && this.activeContainerSearch?.crate.kind === 'lost_corpse'
+        && pointer.x >= 915 && pointer.x <= 1105 && pointer.y >= 531 && pointer.y <= 565) {
+        this.takeAllFromCorpse();
+        return;
+      }
       if (this.overlayMode === 'backpack' && (pointer.rightButtonDown() || pointer.button === 2)) {
         this.rotateRaidItemAt(pointer);
         return;
@@ -1814,8 +1863,17 @@ export class RaidScene extends Phaser.Scene {
     const dx = target.x - enemy.sprite.x;
     const dy = target.y - enemy.sprite.y;
     const playerDistance = Phaser.Math.Distance.Between(this.player.x, this.player.y, enemy.sprite.x, enemy.sprite.y);
+    const openingProtected = this.mapId === 'outpost_01'
+      && this.time.now < this.outpostOpeningProtectionMs
+      && playerDistance < 1150;
     const facing = dx < 0 ? -1 : 1;
     enemy.sprite.setFlipX(facing > 0);
+    if (openingProtected) {
+      const retreat = this.player.x > enemy.sprite.x ? -1 : 1;
+      enemy.sprite.setVelocity(retreat * enemy.speed, 0);
+      enemy.label?.setPosition(enemy.sprite.x, enemy.sprite.y - 58).setText('拟态拾荒者 · 远离投放区');
+      return;
+    }
     enemy.sprite.setVelocity(Phaser.Math.Clamp(dx * 0.8, -enemy.speed, enemy.speed), Phaser.Math.Clamp(dy * 0.8, -enemy.speed * 0.55, enemy.speed * 0.55));
     enemy.label?.setPosition(enemy.sprite.x, enemy.sprite.y - 58).setText(playerDistance < 460 ? '拟态拾荒者 · 警戒' : '拟态拾荒者 · 搜索中');
     if (Math.hypot(dx, dy) < 58) enemy.waypointIndex = ((enemy.waypointIndex ?? 0) + 1) % routes.length;
@@ -2091,10 +2149,24 @@ export class RaidScene extends Phaser.Scene {
     });
   }
 
+  private openLostCorpse(): void {
+    if (!this.lostCorpse || this.lostCorpse.broken || !this.lostCorpse.drops.length) return;
+    this.activeContainerSearch = { crate: this.lostCorpse, itemIndex: 0, completesAt: 0 };
+    this.player.setVelocity(0, 0);
+    this.toggleContainerOverlay();
+  }
+
   private beginContainerSearch(crate: RaidCrate): void {
     if (crate.broken) return;
     if (this.activeContainerSearch && this.activeContainerSearch.crate.id !== crate.id) return;
-    if (!this.activeContainerSearch) this.activeContainerSearch = { crate, itemIndex: 0, completesAt: 0 };
+    if (!this.activeContainerSearch) {
+      const firstItem = crate.drops[0];
+      this.activeContainerSearch = {
+        crate,
+        itemIndex: 0,
+        completesAt: firstItem ? this.time.now + this.getItemSearchDuration(firstItem.itemId) : 0,
+      };
+    }
     this.player.setVelocity(0, 0);
     this.toggleContainerOverlay();
   }
@@ -2109,11 +2181,12 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private toggleContainerOverlay(): void {
-    if (this.overlayMode) this.closeOverlay();
     if (!this.activeContainerSearch) return;
-    this.overlayMode = 'container';
-    this.physics.pause();
-    this.overlay = this.createContainerSearchOverlay();
+    if (this.overlayMode === 'backpack') {
+      this.refreshBackpackOverlay();
+      return;
+    }
+    this.toggleOverlay('backpack');
   }
 
   private createContainerSearchOverlay(): Phaser.GameObjects.Container {
@@ -2125,59 +2198,118 @@ export class RaidScene extends Phaser.Scene {
     const panel = this.add.rectangle(VIEW_WIDTH / 2, VIEW_HEIGHT / 2, 950, 530, 0x0a2028, 0.99)
       .setStrokeStyle(2, crate.rarity === 'relic' ? 0xff7868 : crate.rarity === 'rare' ? 0xaa9cff : 0x78d9c4, 0.62);
     const label = this.add.text(165, 135, `搜索中 · ${crate.label}`, { fontFamily: 'Georgia, serif', fontSize: '30px', color: '#e7f7f1' });
-    const subtitle = this.add.text(165, 174, '物品轮廓已显现。逐件鉴定，品质越高需要越久，也越值得期待。', { fontFamily: 'Arial, sans-serif', fontSize: '13px', color: '#849f9d' });
+    const subtitle = this.add.text(165, 174, '物品以真实尺寸占据容器格；系统会自动逐件鉴定，品质越高越值得等待。', { fontFamily: 'Arial, sans-serif', fontSize: '13px', color: '#849f9d' });
     container.add([shade, panel, label, subtitle]);
+    const grid = { x: 195, y: 220, width: 7, height: 5, cell: 58 };
+    const placements: Array<{ x: number; y: number }> = [];
+    const occupied = new Set<string>();
+    const firstFit = (width: number, height: number): { x: number; y: number } => {
+      for (let y = 0; y <= grid.height - height; y += 1) for (let x = 0; x <= grid.width - width; x += 1) {
+        let valid = true;
+        for (let yy = y; yy < y + height; yy += 1) for (let xx = x; xx < x + width; xx += 1) if (occupied.has(`${xx}:${yy}`)) valid = false;
+        if (valid) {
+          for (let yy = y; yy < y + height; yy += 1) for (let xx = x; xx < x + width; xx += 1) occupied.add(`${xx}:${yy}`);
+          return { x, y };
+        }
+      }
+      return { x: 0, y: 0 };
+    };
+    crate.drops.forEach((drop) => placements.push(firstFit(ITEMS[drop.itemId].size.width, ITEMS[drop.itemId].size.height)));
+    for (let row = 0; row < grid.height; row += 1) for (let column = 0; column < grid.width; column += 1) {
+      container.add(this.add.rectangle(grid.x + column * grid.cell + grid.cell / 2, grid.y + row * grid.cell + grid.cell / 2, grid.cell - 4, grid.cell - 4, 0x102a31, 0.56).setStrokeStyle(1, 0x6bcbb6, 0.17));
+    }
     crate.drops.forEach((drop, index) => {
       const item = ITEMS[drop.itemId];
       const known = crate.revealed[index];
       const searching = index === active.itemIndex && active.completesAt > 0;
-      const x = 210 + (index % 3) * 210;
-      const y = 275 + Math.floor(index / 3) * 150;
+      const placement = placements[index];
+      const footprint = item.size;
+      const width = footprint.width * grid.cell - 7;
+      const height = footprint.height * grid.cell - 7;
+      const x = grid.x + placement.x * grid.cell + width / 2 + 3;
+      const y = grid.y + placement.y * grid.cell + height / 2 + 3;
       const rarityColor = item.rarity === 'relic' ? 0xff7868 : item.rarity === 'rare' ? 0xaa9cff : item.rarity === 'uncommon' ? 0x78d9c4 : 0xb8c8c3;
-      const duration = this.getItemSearchDuration(drop.itemId);
-      const card = this.add.rectangle(x, y, 178, 120, known ? 0x143d3b : 0x111f28, 0.97)
-        .setStrokeStyle(known ? 3 : 2, known ? rarityColor : 0x4c6266, known ? 0.95 : 0.36);
-      const silhouette = this.add.text(x, y - 20, known ? item.icon : '▧', { fontFamily: 'Arial, sans-serif', fontSize: known ? '34px' : '38px', color: known ? '#ffffff' : '#60777b' }).setOrigin(0.5);
-      const text = this.add.text(x, y + 24, known ? `${item.name}${drop.quantity > 1 ? ` ×${drop.quantity}` : ''}` : '未鉴定物品', { fontFamily: 'Arial, sans-serif', fontSize: '12px', color: known ? '#e7f7f1' : '#789290' }).setOrigin(0.5);
+      const card = this.add.rectangle(x, y, width, height, known ? 0x143d3b : 0x111f28, 0.97)
+        .setStrokeStyle(known ? 3 : 2, known ? rarityColor : 0x4c6266, known ? 0.95 : 0.5);
+      const silhouette = this.add.text(x, y - (searching ? 10 : 0), known ? item.icon : '▧', {
+        fontFamily: 'Arial, sans-serif', fontSize: known ? `${Math.min(34, height * 0.42)}px` : `${Math.min(38, height * 0.48)}px`, color: known ? '#ffffff' : '#60777b',
+      }).setOrigin(0.5);
+      const text = this.add.text(x - width / 2 + 4, y + Math.min(21, height * 0.24), known ? `${item.name}${drop.quantity > 1 ? ` ×${drop.quantity}` : ''}` : (searching ? '鉴定中' : '未鉴定'), {
+        fontFamily: 'Arial, sans-serif', fontSize: '11px', color: known ? '#e7f7f1' : (searching ? '#f1c879' : '#789290'),
+      }).setOrigin(0, 0.5).setFixedSize(width - 8, 14);
       container.add([card, silhouette, text]);
       if (known) {
-        const takeButton = this.add.rectangle(x, y + 45, 138, 26, 0x235c52, 0.95).setStrokeStyle(1, rarityColor, 0.8).setInteractive({ cursor: 'pointer' });
-        takeButton.on('pointerdown', () => this.takeContainerItem(crate, index));
-        container.add([takeButton, this.add.text(x, y + 45, `拿取 · ${RARITY_NAMES[item.rarity]} · ${item.size.width}×${item.size.height}`, { fontFamily: 'Arial, sans-serif', fontSize: '10px', color: Phaser.Display.Color.IntegerToColor(rarityColor).rgba }).setOrigin(0.5)]);
+        card.setInteractive({ cursor: 'pointer' });
+        card.on('pointerdown', () => this.takeContainerItem(crate, index));
         return;
       }
-      if (index > active.itemIndex) {
-        container.add(this.add.text(x, y + 45, '等待前一件完成', { fontFamily: 'Arial, sans-serif', fontSize: '10px', color: '#607775' }).setOrigin(0.5));
-        return;
-      }
-      if (index < active.itemIndex) {
-        const button = this.add.rectangle(x, y + 44, 138, 28, 0x1d5b56, 0.92).setStrokeStyle(1, 0x8ce8d3, 0.58).setInteractive({ cursor: 'pointer' });
-        button.on('pointerdown', () => {
-          if (!this.activeContainerSearch || this.activeContainerSearch.completesAt > 0) return;
-          this.activeContainerSearch.itemIndex = index;
-          this.activeContainerSearch.completesAt = this.time.now + duration;
-          this.refreshContainerOverlay();
-        });
-        container.add([button, this.add.text(x, y + 44, `开始鉴定 · ${(duration / 1000).toFixed(1)} 秒`, { fontFamily: 'Arial, sans-serif', fontSize: '10px', color: '#d6f6ed' }).setOrigin(0.5)]);
-        return;
-      }
-      if (searching) {
-        const progress = Phaser.Math.Clamp(1 - (active.completesAt - this.time.now) / duration, 0, 1);
-        const blocks = Math.ceil(progress * 8);
-        container.add(this.add.text(x, y + 45, `鉴定中 ${'◌'.repeat(blocks)}${'·'.repeat(8 - blocks)}`, { fontFamily: 'Arial, sans-serif', fontSize: '10px', color: '#f1c879' }).setOrigin(0.5));
-      } else {
-        const button = this.add.rectangle(x, y + 44, 138, 28, 0x1d5b56, 0.92).setStrokeStyle(1, 0x8ce8d3, 0.58).setInteractive({ cursor: 'pointer' });
-        button.on('pointerdown', () => {
-          if (!this.activeContainerSearch || this.activeContainerSearch.itemIndex !== index || this.activeContainerSearch.completesAt > 0) return;
-          this.activeContainerSearch.completesAt = this.time.now + duration;
-          this.refreshContainerOverlay();
-        });
-        container.add([button, this.add.text(x, y + 44, `开始鉴定 · ${(duration / 1000).toFixed(1)} 秒`, { fontFamily: 'Arial, sans-serif', fontSize: '10px', color: '#d6f6ed' }).setOrigin(0.5)]);
-      }
+      if (!searching) return;
+      const spinner = this.add.arc(x, y + Math.min(10, height * 0.2), Math.max(7, Math.min(13, height * 0.16)), -70, 230, false, 0xf1c879, 0.95)
+        .setStrokeStyle(2, 0xf1c879, 0.95);
+      this.tweens.add({ targets: spinner, angle: 360, duration: 720, repeat: -1, ease: 'Linear' });
+      container.add(spinner);
     });
     const close = this.add.text(1000, 585, 'Tab 关闭 · 已鉴定物品会留在容器内', { fontFamily: 'Arial, sans-serif', fontSize: '11px', color: '#718e8c' }).setOrigin(1, 0.5);
     container.add(close);
     return container;
+  }
+
+  private removeContainerDrop(crate: RaidCrate, index: number): ItemStack | null {
+    const drop = crate.drops[index];
+    if (!drop || !crate.revealed[index]) return null;
+    crate.drops.splice(index, 1);
+    crate.revealed.splice(index, 1);
+    this.discoveredItems.add(drop.itemId);
+    if (crate.kind === 'lost_corpse') {
+      this.remainingLostEchoItems = crate.drops.map((item) => ({ ...item }));
+      this.lostEchoLabel?.setText(`遗失遗体 · ${crate.drops.length} 组装备`);
+    }
+    const active = this.activeContainerSearch;
+    if (active?.crate === crate) {
+      if (index < active.itemIndex) active.itemIndex -= 1;
+      active.itemIndex = Math.max(0, Math.min(active.itemIndex, crate.drops.length));
+    }
+    if (crate.drops.length === 0) this.clearContainer(crate);
+    return drop;
+  }
+
+  private clearContainer(crate: RaidCrate): void {
+    crate.broken = true;
+    crate.sprite.getData('containerMarker')?.destroy();
+    crate.sprite.destroy();
+    if (crate.kind === 'lost_corpse') {
+      this.remainingLostEchoItems = null;
+      this.lostCorpse = null;
+      this.lostEchoIcon = null;
+      this.lostEchoHalo?.destroy();
+      this.lostEchoHalo = null;
+      this.lostEchoLabel?.destroy();
+      this.lostEchoLabel = null;
+      this.showHint('遗失遗体已清空。带着物品安全撤离。', 1600);
+    }
+    if (this.activeContainerSearch?.crate === crate) this.activeContainerSearch = null;
+  }
+
+  private takeAllFromCorpse(): void {
+    const corpse = this.lostCorpse;
+    if (!corpse || corpse.broken) return;
+    let moved = 0;
+    for (let index = 0; index < corpse.drops.length;) {
+      const drop = corpse.drops[index];
+      const inserted = insertGridStack(this.backpack, this.profile.backpack, drop);
+      if (!inserted) {
+        index += 1;
+        continue;
+      }
+      this.backpack = inserted;
+      this.removeContainerDrop(corpse, index);
+      moved += 1;
+      if (corpse.broken) break;
+    }
+    this.overlayNotice = moved
+      ? `已放入背包 ${moved} 组；${corpse.drops.length} 组仍留在遗体。`
+      : '背包没有足够的连续空格，遗体物品未移动。';
+    this.refreshBackpackOverlay();
   }
 
   private takeContainerItem(crate: RaidCrate, index: number): void {
@@ -2191,16 +2323,9 @@ export class RaidScene extends Phaser.Scene {
       return;
     }
     this.backpack = inserted;
-    this.discoveredItems.add(drop.itemId);
-    crate.drops.splice(index, 1);
-    crate.revealed.splice(index, 1);
-    if (this.activeContainerSearch) this.activeContainerSearch.itemIndex = Math.min(this.activeContainerSearch.itemIndex, crate.drops.length - 1);
+    this.removeContainerDrop(crate, index);
     this.overlayNotice = `已放入背包：${ITEMS[drop.itemId].name}`;
-    if (crate.drops.length === 0) {
-      crate.broken = true;
-      crate.sprite.getData('containerMarker')?.destroy();
-      crate.sprite.destroy();
-      this.activeContainerSearch = null;
+    if (crate.broken) {
       this.closeOverlay();
       this.showHint('容器已清空。', 900);
       return;
@@ -2209,6 +2334,10 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private refreshContainerOverlay(): void {
+    if (this.overlayMode === 'backpack') {
+      this.refreshBackpackOverlay();
+      return;
+    }
     if (this.overlayMode !== 'container') return;
     this.overlay?.destroy(true);
     this.overlay = this.createContainerSearchOverlay();
@@ -2217,18 +2346,16 @@ export class RaidScene extends Phaser.Scene {
   private updateContainerSearch(time: number): boolean {
     const active = this.activeContainerSearch;
     if (!active || active.completesAt <= 0) return false;
-    if (time < active.completesAt) {
-      this.refreshContainerOverlay();
-      return true;
-    }
+    if (time < active.completesAt) return true;
     const item = active.crate.drops[active.itemIndex];
     const rarity = ITEMS[item.itemId].rarity;
     active.crate.revealed[active.itemIndex] = true;
+    this.lastContainerReveal = { crateId: active.crate.id, index: active.itemIndex, at: time };
     this.showHint(`${this.getRarityTone(rarity)} 发现 ${RARITY_NAMES[rarity]}物品！`, 1600);
-    this.cameras.main.flash(110, rarity === 'relic' ? 255 : 150, rarity === 'relic' ? 110 : 220, rarity === 'rare' ? 255 : 170);
     active.itemIndex += 1;
-    active.completesAt = 0;
-    this.refreshContainerOverlay();
+    const next = active.crate.drops[active.itemIndex];
+    active.completesAt = next ? time + this.getItemSearchDuration(next.itemId) : 0;
+    if (!this.activeInventoryDrag) this.refreshContainerOverlay();
     return true;
   }
 
@@ -2347,8 +2474,7 @@ export class RaidScene extends Phaser.Scene {
       loadout: { ...this.loadout },
       armorCondition: this.armor,
       health: this.health,
-      recoveredItems: this.recoveredEchoItems.map((item) => ({ ...item })),
-      recoveredEcho: this.recoveredEcho,
+      remainingLostEchoItems: this.remainingLostEchoItems?.map((item) => ({ ...item })) ?? null,
       mapUnlocked: this.mapUnlocked,
       shortcutUnlocked: this.shortcutUnlocked,
       bossDefeated: this.bossDefeated,
@@ -2441,11 +2567,10 @@ export class RaidScene extends Phaser.Scene {
       if (distance < radius) candidates.push({ priority, distance, stableId, prompt, interact });
     };
 
-    if (this.lostEchoIcon?.active) {
-      addCandidate(0, 'lost-echo', this.lostEchoIcon.x, this.lostEchoIcon.y, 95,
-        'E · 找回遗失回声（再次死亡前只有这一次）', () => {
-          if (this.profile.lostEcho) this.recoverLostEcho();
-        });
+    if (this.lostEchoIcon?.active && this.lostCorpse && !this.lostCorpse.broken) {
+      const remaining = this.lostCorpse.drops.length;
+      addCandidate(0, 'lost-corpse', this.lostEchoIcon.x, this.lostEchoIcon.y, 105,
+        `E · 打开遗失遗体（${remaining} 组装备）`, () => this.openLostCorpse());
     }
 
     if (this.mapId === 'hollow_01') {
@@ -2565,17 +2690,6 @@ export class RaidScene extends Phaser.Scene {
     this.showHint(`已拾取：${ITEMS[entry.itemId].name}${entry.quantity > 1 ? ` ×${entry.quantity}` : ''}`, 900);
   }
 
-  private recoverLostEcho(): void {
-    if (!this.profile.lostEcho || this.recoveredEcho) return;
-    this.recoveredEchoItems = addStacks(this.recoveredEchoItems, this.profile.lostEcho.items);
-    this.recoveredEcho = true;
-    this.lostEchoIcon?.destroy();
-    this.lostEchoHalo?.destroy();
-    this.lostEchoIcon = null;
-    this.lostEchoHalo = null;
-    this.showHint(`已找回 ${this.recoveredEchoItems.reduce((sum, stack) => sum + stack.quantity, 0)} 件遗失物。安全撤离才能带回基地。`, 2400);
-  }
-
   private finishRaid(outcome: 'extracted' | 'died'): void {
     if (this.runEnded) return;
     this.runEnded = true;
@@ -2591,12 +2705,11 @@ export class RaidScene extends Phaser.Scene {
       entryId: this.entryId,
       backpack: cloneGridItems(this.backpack),
       loadout: { ...this.loadout },
-      recoveredItems: this.recoveredEchoItems.map((stack) => ({ ...stack })),
+      remainingLostEchoItems: this.remainingLostEchoItems?.map((stack) => ({ ...stack })) ?? null,
       armorCondition: this.armor,
       mapUnlocked: this.mapUnlocked,
       shortcutUnlocked: this.shortcutUnlocked,
       bossDefeated: this.bossDefeated,
-      recoveredEcho: this.recoveredEcho,
       discoveredItems: Array.from(this.discoveredItems),
       discoveredClues: Array.from(this.discoveredClues),
       endingTriggered: outcome === 'extracted' && this.endingTriggered,
@@ -2635,8 +2748,8 @@ export class RaidScene extends Phaser.Scene {
     const candidates = this.crates
       .filter((crate) => !crate.broken && crate.sprite.active)
       .map((crate) => ({ label: '宝箱', x: crate.sprite.x, y: crate.sprite.y }))
-      .concat(this.profile.lostEcho && this.lostEchoIcon?.active
-        ? [{ label: '遗失回声', x: this.lostEchoIcon.x, y: this.lostEchoIcon.y }]
+      .concat(this.lostCorpse && this.lostEchoIcon?.active
+        ? [{ label: '遗失遗体', x: this.lostEchoIcon.x, y: this.lostEchoIcon.y }]
         : []);
     if (candidates.length === 0) return null;
     const nearest = candidates.reduce((best, candidate) => Phaser.Math.Distance.Between(this.player.x, this.player.y, candidate.x, candidate.y)
@@ -2649,10 +2762,10 @@ export class RaidScene extends Phaser.Scene {
   private updateScoutVisuals(): void {
     const scouting = this.getHeadEffect() === 'scout';
     for (const crate of this.crates) {
-      if (!crate.sprite.active || crate.broken) continue;
+      if (!crate.sprite.active || crate.broken || !(crate.sprite instanceof Phaser.GameObjects.Image)) continue;
       crate.sprite.setTint(scouting ? 0x9ce9ff : 0xffffff);
     }
-    if (this.lostEchoHalo?.active) this.lostEchoHalo.setAlpha(scouting ? 0.24 : 0.1).setScale(scouting ? 1.22 : 1);
+    if (this.lostEchoHalo?.active) this.lostEchoHalo.setAlpha(scouting ? 0.28 : 0.09).setScale(scouting ? 1.22 : 1);
   }
 
   private updateHud(): void {
@@ -2685,7 +2798,7 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private toggleOverlay(mode: 'map' | 'backpack' | 'pause'): void {
-    if (this.overlayMode === 'container') this.activeContainerSearch = null;
+    if (mode !== 'backpack') this.activeContainerSearch = null;
     if (this.overlayMode === mode) {
       this.closeOverlay();
       return;
@@ -2699,7 +2812,8 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private closeOverlay(): void {
-    if (this.overlayMode !== 'container') this.activeContainerSearch = null;
+    // A searched container remains openable beside the field bag; closing Tab
+    // must not erase revealed items or restart their discovery sequence.
     this.activeInventoryDrag = null;
     this.inventoryDragGhost?.destroy();
     this.inventoryDragGhost = null;
@@ -2958,16 +3072,49 @@ export class RaidScene extends Phaser.Scene {
     this.refreshBackpackOverlay();
   }
 
+  private resolveRaidDrag(drag: RaidInventoryDrag): GridItem | null {
+    if (drag.source === 'backpack' && drag.uid) {
+      const stack = this.backpack.find((entry) => entry.uid === drag.uid);
+      return stack ? { ...stack, rotated: drag.rotated ?? stack.rotated } : null;
+    }
+    if (drag.source === 'container' && drag.containerIndex !== undefined && this.activeContainerSearch) {
+      const crate = this.activeContainerSearch.crate;
+      const drop = crate.drops[drag.containerIndex];
+      if (!drop || !crate.revealed[drag.containerIndex]) return null;
+      return {
+        uid: `container-${crate.id}-${drag.containerIndex}`,
+        itemId: drop.itemId,
+        quantity: drop.quantity,
+        x: 0,
+        y: 0,
+        rotated: drag.rotated ?? drop.rotated ?? false,
+      };
+    }
+    if (drag.source === 'ground' && drag.lootId) {
+      const loot = this.loot.find((entry) => entry.id === drag.lootId && entry.icon.active);
+      if (!loot) return null;
+      return {
+        uid: `ground-${loot.id}`,
+        itemId: loot.itemId,
+        quantity: loot.quantity,
+        x: 0,
+        y: 0,
+        rotated: drag.rotated ?? false,
+      };
+    }
+    return null;
+  }
+
   private rotateActiveRaidDrag(): void {
     const drag = this.activeInventoryDrag;
-    if (drag?.source !== 'backpack' || !drag.uid) return;
-    const stack = this.backpack.find((entry) => entry.uid === drag.uid);
+    if (!drag) return;
+    const stack = this.resolveRaidDrag(drag);
     const item = stack ? ITEMS[stack.itemId] : null;
     if (!stack || !item || item.size.width === item.size.height) return;
 
     const grabOffsetX = drag.grabOffsetX ?? 0;
     const grabOffsetY = drag.grabOffsetY ?? 0;
-    const rotated = !drag.rotated;
+    const rotated = !stack.rotated;
     this.activeInventoryDrag = rotated
       ? {
         ...drag,
@@ -2992,10 +3139,10 @@ export class RaidScene extends Phaser.Scene {
     this.inventoryDragPreview?.destroy();
     this.inventoryDragPreview = null;
     const drag = this.activeInventoryDrag;
-    if (drag?.source !== 'backpack' || !drag.uid) return;
-    const stack = this.backpack.find((entry) => entry.uid === drag.uid);
+    if (!drag) return;
+    const stack = this.resolveRaidDrag(drag);
     if (!stack) return;
-    const footprint = getGridItemSize({ itemId: stack.itemId, rotated: drag.rotated ?? stack.rotated });
+    const footprint = getGridItemSize(stack);
     const cellSize = Math.min(62, 340 / Math.max(1, this.profile.backpack.height), 340 / Math.max(1, this.profile.backpack.width));
     this.inventoryDragPreview = this.add.rectangle(0, 0, footprint.width * cellSize - 7, footprint.height * cellSize - 7, 0x75d7c2, 0.24)
       .setStrokeStyle(3, 0x9ef0dc, 0.96)
@@ -3007,7 +3154,7 @@ export class RaidScene extends Phaser.Scene {
   private updateRaidInventoryDragPreview(pointer: Phaser.Input.Pointer): void {
     const drag = this.activeInventoryDrag;
     const preview = this.inventoryDragPreview;
-    if (!preview || drag?.source !== 'backpack' || !drag.uid) return;
+    if (!preview || !drag) return;
     const cellSize = Math.min(62, 340 / Math.max(1, this.profile.backpack.height), 340 / Math.max(1, this.profile.backpack.width));
     const gridWidth = this.profile.backpack.width * cellSize;
     const gridHeight = this.profile.backpack.height * cellSize;
@@ -3017,13 +3164,12 @@ export class RaidScene extends Phaser.Scene {
       preview.setVisible(false);
       return;
     }
-    const stack = this.backpack.find((entry) => entry.uid === drag.uid);
-    if (!stack) return;
-    const candidate = { ...stack, rotated: drag.rotated ?? stack.rotated };
+    const candidate = this.resolveRaidDrag(drag);
+    if (!candidate) return;
     const footprint = getGridItemSize(candidate);
     const x = Math.floor((pointer.x - gridLeft) / cellSize) - (drag.grabOffsetX ?? 0);
     const y = Math.floor((pointer.y - gridTop) / cellSize) - (drag.grabOffsetY ?? 0);
-    const valid = canPlaceGridItem(this.backpack, this.profile.backpack, candidate, x, y, drag.uid);
+    const valid = canPlaceGridItem(this.backpack, this.profile.backpack, candidate, x, y, drag.source === 'backpack' ? drag.uid : '');
     preview
       .setPosition(gridLeft + (x + footprint.width / 2) * cellSize, gridTop + (y + footprint.height / 2) * cellSize)
       .setFillStyle(valid ? 0x75d7c2 : 0xdf7d83, 0.24)
@@ -3044,20 +3190,23 @@ export class RaidScene extends Phaser.Scene {
   ): Phaser.GameObjects.Container {
     const item = ITEMS[itemId];
     const carried = drag.uid ? this.backpack.find((entry) => entry.uid === drag.uid) : null;
-    const footprint = carried ? getGridItemSize(carried) : item.size;
+    const footprint = getGridItemSize({ itemId, rotated: carried?.rotated ?? drag.rotated ?? false });
     const fill = item.rarity === 'relic' ? 0x6f5730 : item.rarity === 'rare' ? 0x3f4777 : item.rarity === 'uncommon' ? 0x225b57 : 0x173d3b;
     const border = item.rarity === 'relic' ? 0xf1ca7a : item.rarity === 'rare' ? 0xb8afff : 0x78d9c4;
     const panel = this.add.rectangle(0, 0, width, height, fill, 0.98).setStrokeStyle(2, border, 0.64);
-    const icon = this.add.text(compact ? -width / 2 + 25 : 0, compact ? 0 : -Math.min(14, height * 0.16), item.icon, {
+    const showName = compact || (width >= 78 && height >= 78);
+    const icon = this.add.text(compact ? -width / 2 + 25 : 0, compact ? 0 : (showName ? -Math.min(14, height * 0.16) : 0), item.icon, {
       fontFamily: 'Arial, sans-serif',
       fontSize: `${compact ? 24 : Math.min(30, Math.max(18, height * 0.34))}px`,
     }).setOrigin(0.5);
-    const name = this.add.text(compact ? -width / 2 + 50 : 0, compact ? -9 : Math.min(22, height * 0.23), item.name, {
+    const name = this.add.text(compact ? -width / 2 + 50 : -width / 2 + 4, compact ? -9 : Math.min(22, height * 0.23), showName ? item.name : '', {
       fontFamily: 'Arial, sans-serif',
       fontSize: compact ? '13px' : '10px',
       color: '#e5f5f0',
       fontStyle: 'bold',
-    }).setOrigin(compact ? 0 : 0.5, 0.5);
+    })
+      .setOrigin(compact ? 0 : 0, 0.5)
+      .setFixedSize(compact ? width - 58 : width - 8, compact ? 16 : 13);
     const detail = compact
       ? `${RARITY_NAMES[item.rarity]} · ${footprint.width}×${footprint.height}${quantity > 1 ? ` · ×${quantity}` : ''}`
       : (quantity > 1 ? `×${quantity}` : `${footprint.width}×${footprint.height}${carried?.rotated ? ' ↻' : ''}`);
@@ -3065,15 +3214,20 @@ export class RaidScene extends Phaser.Scene {
       fontFamily: 'Arial, sans-serif',
       fontSize: compact ? '10px' : '9px',
       color: '#f1c879',
-    }).setOrigin(compact ? 0 : 1, compact ? 0.5 : 0);
+    })
+      .setOrigin(compact ? 0 : 1, compact ? 0.5 : 0)
+      .setFixedSize(compact ? width - 58 : Math.min(width - 8, 38), compact ? 14 : 12);
     const card = this.add.container(x, y, [panel, icon, name, detailText]);
     const hitArea = this.add.zone(x, y, width, height).setScrollFactor(0).setInteractive({ cursor: 'grab' });
     hitArea.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (pointer.rightButtonDown() || pointer.button === 2) return;
       this.activeInventoryDrag = {
         ...drag,
-        grabOffsetX: carried ? Math.min(footprint.width - 1, Math.max(0, Math.floor(((pointer.x - (x - width / 2)) / width) * footprint.width))) : 0,
-        grabOffsetY: carried ? Math.min(footprint.height - 1, Math.max(0, Math.floor(((pointer.y - (y - height / 2)) / height) * footprint.height))) : 0,
+        itemId,
+        quantity,
+        rotated: carried?.rotated ?? drag.rotated ?? false,
+        grabOffsetX: Math.min(footprint.width - 1, Math.max(0, Math.floor(((pointer.x - (x - width / 2)) / width) * footprint.width))),
+        grabOffsetY: Math.min(footprint.height - 1, Math.max(0, Math.floor(((pointer.y - (y - height / 2)) / height) * footprint.height))),
       };
       this.inventoryDragGhost?.destroy();
       this.inventoryDragGhost = this.add.text(pointer.x + 18, pointer.y + 18, `${item.icon} ${item.name}`, {
@@ -3088,6 +3242,10 @@ export class RaidScene extends Phaser.Scene {
       this.createRaidInventoryDragPreview();
       this.updateRaidInventoryDragPreview(pointer);
       card.setScale(1.025).setAlpha(0.92);
+    });
+    hitArea.on('pointerover', () => {
+      this.inventoryDetail = { itemId, source: drag.source, quantity };
+      this.refreshInventoryDetail();
     });
     container.add([card, hitArea]);
     if (carried && item.size.width !== item.size.height) {
@@ -3148,14 +3306,16 @@ export class RaidScene extends Phaser.Scene {
       shade,
       panel,
       this.add.text(90, 70, '远征整备', { fontFamily: 'Georgia, serif', fontSize: '30px', color: '#d8eee8' }),
-      this.add.text(90, 109, '拖动物品可换装、整理或丢弃；拖到右侧地面 / 容器区域即可丢弃，按 R 可旋转。', {
+      this.add.text(90, 109, '拖动物品可换装、整理或丢到脚边；拖到另一物品可交换，拖动中按 R 可旋转。', {
         fontFamily: 'Arial, sans-serif', fontSize: '13px', color: '#789795',
       }),
       this.add.text(90, 148, '当前装备', { fontFamily: 'Arial, sans-serif', fontSize: '15px', color: '#9ee6d5', fontStyle: 'bold' }),
       this.add.text(455, 148, `随身背包  ${this.profile.backpack.width}×${this.profile.backpack.height} · ${used}/${total} 格`, {
         fontFamily: 'Arial, sans-serif', fontSize: '15px', color: '#9ee6d5', fontStyle: 'bold',
       }),
-      this.add.text(855, 148, `附近物品  ${NEARBY_LOOT_RADIUS} 范围`, {
+      this.add.text(855, 148, this.activeContainerSearch
+        ? `${this.activeContainerSearch.crate.kind === 'lost_corpse' ? '遗失遗体 · 全部物品已可取' : `打开容器 · ${this.activeContainerSearch.crate.label}`}`
+        : `附近物品  ${NEARBY_LOOT_RADIUS} 范围`, {
         fontFamily: 'Arial, sans-serif', fontSize: '15px', color: '#9ee6d5', fontStyle: 'bold',
       }),
     ]);
@@ -3178,6 +3338,10 @@ export class RaidScene extends Phaser.Scene {
           fontSize: '10px', color: '#86aaa7',
         }),
       ]);
+      slotPanel.on('pointerover', () => {
+        this.inventoryDetail = { itemId, source: item ? 'equipment' : 'empty', slot };
+        this.refreshInventoryDetail();
+      });
     });
 
     const backpackItem = this.loadout.backpack ? ITEMS[this.loadout.backpack] : null;
@@ -3236,44 +3400,153 @@ export class RaidScene extends Phaser.Scene {
     container.add([
       dropZone,
       this.add.text(625, 560, '↓  丢到脚边', { fontSize: '15px', color: '#f1b0af', fontStyle: 'bold' }).setOrigin(0.5),
-      this.add.text(625, 580, '也可直接拖到右侧地面 / 容器区域丢弃', { fontSize: '9px', color: '#a77578' }).setOrigin(0.5),
+      this.add.text(625, 580, '只有放入此区域才会丢到脚边', { fontSize: '9px', color: '#a77578' }).setOrigin(0.5),
     ]);
 
-    const nearby = this.getNearbyLoot().slice(0, 6);
-    if (nearby.length === 0) {
-      container.add([
-        this.add.text(1010, 280, '脚边没有可拾取物品', { fontSize: '14px', color: '#688481' }).setOrigin(0.5),
-        this.add.text(1010, 308, '靠近战利品后再打开背包', { fontSize: '10px', color: '#4f6967' }).setOrigin(0.5),
-      ]);
-    } else {
-      nearby.forEach((entry, index) => {
-        this.createInventoryDragCard(
-          container,
-          1010,
-          205 + index * 64,
-          300,
-          52,
-          entry.itemId,
-          entry.quantity,
-          { source: 'ground', lootId: entry.id },
-          true,
-        );
-      });
+    const searchedContainer = this.activeContainerSearch?.crate;
+    if (searchedContainer && !searchedContainer.broken) this.createContainerInventoryPanel(container, searchedContainer, true);
+    this.createNearbyLootPanel(container, Boolean(searchedContainer && !searchedContainer.broken));
+
+    const detailPanel = this.add.rectangle(220, 616, 260, 54, 0x07171e, 0.88).setStrokeStyle(1, 0x6bcbb6, 0.26);
+    this.inventoryDetailText = this.add.text(100, 594, '', {
+      fontFamily: 'Arial, sans-serif', fontSize: '9px', color: '#b8d5cf', wordWrap: { width: 240 }, lineSpacing: 2,
+    }).setFixedSize(240, 48);
+    container.add([detailPanel, this.inventoryDetailText]);
+    this.refreshInventoryDetail();
+
+    const notice = this.overlayNotice || '拖到装备槽可立即换上；拖到背包格可精确放置、合并或交换。';
+    container.add([
+      this.add.text(625, 660, notice, {
+        fontFamily: 'Arial, sans-serif', fontSize: '11px', color: this.overlayNotice ? '#f1c879' : '#63817f',
+      }).setOrigin(0.5),
+      this.add.text(VIEW_WIDTH - 92, 660, 'Tab 关闭', { fontSize: '11px', color: '#63817f', letterSpacing: 2 }).setOrigin(1, 0.5),
+    ]);
+    return container;
+  }
+
+  private createNearbyLootPanel(container: Phaser.GameObjects.Container, compact: boolean): void {
+    const nearby = this.getNearbyLoot();
+    const y = compact ? 476 : 205;
+    const visible = nearby.slice(0, compact ? 2 : 6);
+    container.add(this.add.text(1010, compact ? 438 : 148, compact ? '脚边散落物' : `附近物品  ${NEARBY_LOOT_RADIUS} 范围`, {
+      fontFamily: 'Arial, sans-serif', fontSize: '13px', color: '#9ee6d5', fontStyle: 'bold',
+    }).setOrigin(0.5));
+    if (visible.length === 0) {
+      container.add(this.add.text(1010, y, '脚边没有可拾取物品', { fontSize: '12px', color: '#688481' }).setOrigin(0.5));
+      return;
     }
-    if (this.getNearbyLoot().length > 6) {
-      container.add(this.add.text(1010, 602, `另有 ${this.getNearbyLoot().length - 6} 组物品，拾取后会继续显示`, {
+    visible.forEach((entry, index) => this.createInventoryDragCard(
+      container,
+      1010,
+      y + index * (compact ? 48 : 64),
+      300,
+      compact ? 40 : 52,
+      entry.itemId,
+      entry.quantity,
+      { source: 'ground', lootId: entry.id },
+      true,
+    ));
+    if (nearby.length > visible.length) {
+      container.add(this.add.text(1010, compact ? 580 : 602, `另有 ${nearby.length - visible.length} 组物品，拾取后会继续显示`, {
         fontSize: '10px', color: '#789795',
       }).setOrigin(0.5));
     }
+  }
 
-    const notice = this.overlayNotice || '拖到装备槽可立即换上；拖到背包格可拿取或调整位置。';
-    container.add([
-      this.add.text(625, 630, notice, {
-        fontFamily: 'Arial, sans-serif', fontSize: '11px', color: this.overlayNotice ? '#f1c879' : '#63817f',
-      }).setOrigin(0.5),
-      this.add.text(VIEW_WIDTH - 92, 630, 'Tab 关闭', { fontSize: '11px', color: '#63817f', letterSpacing: 2 }).setOrigin(1, 0.5),
-    ]);
-    return container;
+  private createContainerInventoryPanel(container: Phaser.GameObjects.Container, crate: RaidCrate, compact = false): void {
+    const grid = compact ? { x: 850, y: 174, width: 5, height: 4, cell: 44 } : { x: 850, y: 174, width: 5, height: 5, cell: 56 };
+    const active = this.activeContainerSearch;
+    const placements: Array<{ x: number; y: number }> = [];
+    const occupied = new Set<string>();
+    const firstFit = (width: number, height: number): { x: number; y: number } => {
+      for (let y = 0; y <= grid.height - height; y += 1) for (let x = 0; x <= grid.width - width; x += 1) {
+        let valid = true;
+        for (let yy = y; yy < y + height; yy += 1) for (let xx = x; xx < x + width; xx += 1) if (occupied.has(`${xx}:${yy}`)) valid = false;
+        if (valid) {
+          for (let yy = y; yy < y + height; yy += 1) for (let xx = x; xx < x + width; xx += 1) occupied.add(`${xx}:${yy}`);
+          return { x, y };
+        }
+      }
+      return { x: 0, y: 0 };
+    };
+    crate.drops.forEach((drop) => {
+      const footprint = getGridItemSize({ itemId: drop.itemId, rotated: drop.rotated ?? false });
+      placements.push(firstFit(footprint.width, footprint.height));
+    });
+    const isCorpse = crate.kind === 'lost_corpse';
+    container.add(this.add.text(1010, compact ? 156 : 148, isCorpse ? '遗失遗体 · 所有物品已可取' : `容器 · ${crate.label}`, {
+      fontFamily: 'Arial, sans-serif', fontSize: compact ? '12px' : '15px', color: isCorpse ? '#d7b9ff' : '#f1c879', fontStyle: 'bold',
+    }).setOrigin(0.5));
+    if (isCorpse) {
+      const takeAll = this.add.rectangle(1010, compact ? 410 : 548, 190, 34, 0x4a3560, 0.96)
+        .setStrokeStyle(1, 0xd7b9ff, 0.7)
+        .setInteractive({ cursor: 'pointer' });
+      takeAll.on('pointerdown', () => this.takeAllFromCorpse());
+      container.add([
+        takeAll,
+        this.add.text(1010, compact ? 410 : 548, '全部放入背包', { fontFamily: 'Arial, sans-serif', fontSize: '12px', color: '#f1e8ff', fontStyle: 'bold' }).setOrigin(0.5),
+      ]);
+    }
+    for (let row = 0; row < grid.height; row += 1) for (let column = 0; column < grid.width; column += 1) {
+      container.add(this.add.rectangle(grid.x + column * grid.cell + grid.cell / 2, grid.y + row * grid.cell + grid.cell / 2, grid.cell - 3, grid.cell - 3, 0x102a31, 0.48).setStrokeStyle(1, 0x6bcbb6, 0.16));
+    }
+    crate.drops.forEach((drop, index) => {
+      const item = ITEMS[drop.itemId];
+      const footprint = getGridItemSize({ itemId: drop.itemId, rotated: drop.rotated ?? false });
+      const placement = placements[index];
+      const width = footprint.width * grid.cell - 7;
+      const height = footprint.height * grid.cell - 7;
+      const x = grid.x + placement.x * grid.cell + width / 2 + 3;
+      const y = grid.y + placement.y * grid.cell + height / 2 + 3;
+      const known = crate.revealed[index];
+      const searching = !known && index === active?.itemIndex && (active.completesAt ?? 0) > this.time.now;
+      if (known) {
+        this.createInventoryDragCard(container, x, y, width, height, drop.itemId, drop.quantity, {
+          source: 'container', containerIndex: index, rotated: drop.rotated ?? false,
+        });
+        return;
+      }
+      const card = this.add.rectangle(x, y, width, height, 0x111f28, 0.98).setStrokeStyle(2, 0x4b6266, 0.46);
+      const silhouette = this.add.text(x, y - (searching ? 10 : 0), '▧', {
+        fontFamily: 'Arial, sans-serif', fontSize: `${Math.min(32, height * 0.5)}px`, color: '#607775',
+      }).setOrigin(0.5);
+      const status = this.add.text(x, y + Math.min(17, height * 0.24), searching ? '鉴定中' : '未鉴定', {
+        fontFamily: 'Arial, sans-serif', fontSize: '10px', color: searching ? '#f1c879' : '#789290',
+      }).setOrigin(0.5).setFixedSize(Math.max(0, width - 8), 13);
+      card.setInteractive({ cursor: 'help' });
+      card.on('pointerover', () => {
+        this.inventoryDetail = { itemId: null, source: 'container', unknown: true };
+        this.refreshInventoryDetail();
+      });
+      container.add([card, silhouette, status]);
+      if (!searching) return;
+      const spinner = this.add.arc(x, y + Math.min(10, height * 0.2), Math.max(7, Math.min(13, height * 0.16)), -70, 230, false, 0xf1c879, 0.95)
+        .setStrokeStyle(2, 0xf1c879, 0.95);
+      this.tweens.add({ targets: spinner, angle: 360, duration: 720, repeat: -1, ease: 'Linear' });
+      container.add(spinner);
+    });
+    container.add(this.add.text(1010, compact ? 400 : 500, isCorpse
+      ? '直接拖入背包或装备槽；未拿走的物品仍留在遗体中'
+      : (active?.completesAt && active.completesAt > this.time.now ? '自动逐件鉴定中 · 已鉴定物品可拖入背包或装备槽' : '已鉴定物品可拖入背包或装备槽'), {
+      fontSize: compact ? '9px' : '10px', color: isCorpse ? '#cbb1eb' : '#839f9c', align: 'center', wordWrap: { width: 280 },
+    }).setOrigin(0.5));
+  }
+
+  private refreshInventoryDetail(): void {
+    const detail = this.inventoryDetail;
+    const item = detail.itemId ? ITEMS[detail.itemId] : null;
+    if (!this.inventoryDetailText) return;
+    if (detail.unknown) {
+      this.inventoryDetailText.setText('▧ 未鉴定物品\n搜索完成后显示物品说明。');
+      return;
+    }
+    if (!item) {
+      this.inventoryDetailText.setText(detail.slot ? `＋ ${SLOT_NAMES[detail.slot]}槽\n拖入对应类别的物品即可换装。` : '将鼠标移到装备或物品上查看说明。');
+      return;
+    }
+    const size = getGridItemSize({ itemId: item.id, rotated: false });
+    const summary = detail.source === 'equipment' ? `\n${this.getEquipmentSummary(item.id)}` : '';
+    this.inventoryDetailText.setText(`${item.icon} ${item.name} · ${RARITY_NAMES[item.rarity]} · ${size.width}×${size.height}${detail.quantity && detail.quantity > 1 ? ` · ×${detail.quantity}` : ''}\n${item.description}${summary}`);
   }
 
   private getEquipmentSummary(itemId: string): string {
@@ -3290,8 +3563,7 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private handleRaidInventoryPointerDrop(drag: RaidInventoryDrag, pointer: Phaser.Input.Pointer): boolean {
-    const dropToGround = (pointer.x >= 475 && pointer.x <= 775 && pointer.y >= 539 && pointer.y <= 601)
-      || (pointer.x >= 850 && pointer.x <= 1160 && pointer.y >= 150 && pointer.y <= 610);
+    const dropToGround = pointer.x >= 475 && pointer.x <= 775 && pointer.y >= 539 && pointer.y <= 601;
     if (dropToGround) {
       if (drag.source !== 'backpack' || !drag.uid) {
         this.overlayNotice = '地面物品已经在脚边了。';
@@ -3324,47 +3596,55 @@ export class RaidScene extends Phaser.Scene {
     const gridHeight = this.profile.backpack.height * cellSize;
     const gridLeft = 625 - gridWidth / 2;
     const gridTop = 171;
-    if (pointer.x < gridLeft || pointer.x > gridLeft + gridWidth || pointer.y < gridTop || pointer.y > gridTop + gridHeight) {
-      return false;
-    }
+    if (pointer.x < gridLeft || pointer.x > gridLeft + gridWidth || pointer.y < gridTop || pointer.y > gridTop + gridHeight) return false;
 
-    if (drag.source === 'backpack' && drag.uid) {
-      const x = Math.floor((pointer.x - gridLeft) / cellSize) - (drag.grabOffsetX ?? 0);
-      const y = Math.floor((pointer.y - gridTop) / cellSize) - (drag.grabOffsetY ?? 0);
-      const result = moveOrMergeGridItem(this.backpack, this.profile.backpack, drag.uid, x, y, drag.rotated);
-      if (result) {
-        this.backpack = result.items;
-        this.overlayNotice = result.merged ? '同类物品已合并。' : (result.autoPlaced ? '落点冲突，已自动放到空位。' : '背包布局已调整。');
-      } else {
-        this.overlayNotice = '这里放不下：需要完整连续空格。';
-      }
+    const candidate = this.resolveRaidDrag(drag);
+    if (!candidate) return false;
+    const x = Math.floor((pointer.x - gridLeft) / cellSize) - (drag.grabOffsetX ?? 0);
+    const y = Math.floor((pointer.y - gridTop) / cellSize) - (drag.grabOffsetY ?? 0);
+    const source = drag.source === 'backpack' && drag.uid ? this.backpack.find((entry) => entry.uid === drag.uid) : null;
+    const result = placeGridItemPrecisely(
+      this.backpack,
+      this.profile.backpack,
+      candidate,
+      x,
+      y,
+      source?.uid,
+      source ? { x: source.x, y: source.y } : undefined,
+    );
+    if (!result) {
+      this.overlayNotice = '这里无法精确放置或交换：需要完整连续空格。';
       this.refreshBackpackOverlay();
       return true;
     }
 
-    if (drag.source === 'ground' && drag.lootId) {
+    if (drag.source === 'container' && drag.containerIndex !== undefined && this.activeContainerSearch) {
+      const crate = this.activeContainerSearch.crate;
+      if (result.displaced) crate.drops[drag.containerIndex] = { itemId: result.displaced.itemId, quantity: result.displaced.quantity, rotated: result.displaced.rotated };
+      else this.removeContainerDrop(crate, drag.containerIndex);
+    } else if (drag.source === 'ground' && drag.lootId) {
       const loot = this.loot.find((entry) => entry.id === drag.lootId && entry.icon.active);
       if (!loot) return false;
-      const inserted = insertGridStack(this.backpack, this.profile.backpack, { itemId: loot.itemId, quantity: loot.quantity });
-      if (!inserted) {
-        const item = ITEMS[loot.itemId];
-        this.overlayNotice = `${item.name} 需要 ${item.size.width}×${item.size.height} 连续空格。`;
+      if (result.displaced) {
+        const replacement = ITEMS[result.displaced.itemId];
+        loot.itemId = result.displaced.itemId;
+        loot.quantity = result.displaced.quantity;
+        loot.icon.setText(replacement.icon);
       } else {
-        this.backpack = inserted;
         this.discoveredItems.add(loot.itemId);
-        if (loot.itemId === 'map_feather') this.mapUnlocked = true;
         if (loot.itemId === 'map_feather') {
+          this.mapUnlocked = true;
           this.discoveredClues.add('map-trace');
           this.discoveredClues.add('lift-trace');
         }
         loot.icon.destroy();
         loot.halo.destroy();
-        this.overlayNotice = `已装入背包：${ITEMS[loot.itemId].name}`;
       }
-      this.refreshBackpackOverlay();
-      return true;
     }
-    return false;
+    this.backpack = result.items;
+    this.overlayNotice = result.kind === 'merged' ? '同类物品已完整合并。' : result.kind === 'swapped' ? '物品已直接交换。' : '物品已精确放入背包。';
+    this.refreshBackpackOverlay();
+    return true;
   }
 
   private equipRaidItem(drag: RaidInventoryDrag, slot: GearSlot): void {
@@ -3380,6 +3660,11 @@ export class RaidScene extends Phaser.Scene {
     } else if (drag.source === 'ground' && drag.lootId) {
       sourceLoot = this.loot.find((entry) => entry.id === drag.lootId && entry.icon.active) ?? null;
       itemId = sourceLoot?.itemId ?? null;
+    } else if (drag.source === 'container' && drag.containerIndex !== undefined && this.activeContainerSearch) {
+      const crate = this.activeContainerSearch.crate;
+      const drop = crate.drops[drag.containerIndex];
+      if (!drop || !crate.revealed[drag.containerIndex]) return;
+      itemId = drop.itemId;
     }
     if (!itemId) return;
     const item = ITEMS[itemId];
@@ -3407,6 +3692,9 @@ export class RaidScene extends Phaser.Scene {
 
     this.backpack = nextBackpack;
     this.loadout = { ...this.loadout, [slot]: itemId };
+    if (drag.source === 'container' && drag.containerIndex !== undefined && this.activeContainerSearch) {
+      this.removeContainerDrop(this.activeContainerSearch.crate, drag.containerIndex);
+    }
     if (sourceLoot) {
       sourceLoot.icon.destroy();
       sourceLoot.halo.destroy();
@@ -3469,8 +3757,8 @@ export class RaidScene extends Phaser.Scene {
       ]);
     }
 
-    if (this.recoveredEchoItems.length > 0) {
-      container.add(this.add.text(225, 545, `◉ 遗失回声包：${this.recoveredEchoItems.reduce((sum, stack) => sum + stack.quantity, 0)} 件（撤离后送往基地仓库）`, {
+    if (this.remainingLostEchoItems?.length) {
+      container.add(this.add.text(225, 545, `遗失遗体：${this.remainingLostEchoItems.reduce((sum, stack) => sum + stack.quantity, 0)} 件仍在原地，可返回继续取用`, {
         fontSize: '12px',
         color: '#c4a5f4',
       }));
@@ -3689,12 +3977,25 @@ export class RaidScene extends Phaser.Scene {
         .filter((echo) => Phaser.Math.Distance.Between(echo.x, echo.y, this.player.x, this.player.y) < 850)
         .map((echo) => ({ id: echo.id, x: echo.x, y: echo.y, heard: echo.heard, pulsing: Boolean(echo.pulseTween?.isPlaying()) })),
       nearbyInteraction: this.nearbyInteraction,
+      containerSearch: this.activeContainerSearch ? {
+        crateId: this.activeContainerSearch.crate.id,
+        label: this.activeContainerSearch.crate.label,
+        activeIndex: this.activeContainerSearch.itemIndex,
+        searching: this.activeContainerSearch.completesAt > this.time.now,
+        revealed: this.activeContainerSearch.crate.revealed.map((revealed, index) => ({
+          itemId: revealed ? this.activeContainerSearch?.crate.drops[index]?.itemId ?? null : null,
+          rotated: revealed ? Boolean(this.activeContainerSearch?.crate.drops[index]?.rotated) : false,
+          revealed,
+          active: index === this.activeContainerSearch?.itemIndex && this.activeContainerSearch.completesAt > this.time.now,
+        })),
+      } : null,
       flags: {
         dashReady: this.time.now >= this.dashReadyAt,
         dashEquipped: Boolean(this.loadout.shoes && ITEMS[this.loadout.shoes]?.stats?.dashEnabled),
         mapUnlocked: this.mapUnlocked,
         shortcutUnlocked: this.shortcutUnlocked,
-        recoveredEcho: this.recoveredEcho,
+        lostCorpseOpen: this.activeContainerSearch?.crate.kind === 'lost_corpse',
+        lostCorpseRemaining: Boolean(this.remainingLostEchoItems?.length),
         extracting: this.extractingUntil > 0,
         inventoryOpen: this.overlayMode === 'backpack',
         paused: this.overlayMode === 'pause',

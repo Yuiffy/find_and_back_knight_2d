@@ -13,14 +13,14 @@ page.on('console', (message) => {
 });
 page.on('pageerror', (error) => errors.push(error.message));
 
-function profileWithLostEcho(uniqueOldItem = 'echo_lance') {
+function profileWithLostEcho() {
   return {
     version: 1,
     updatedAt: new Date().toISOString(),
     stashCapacity: 12,
     backpackCapacity: 6,
     stash: [{ itemId: 'echo_dust', quantity: 2 }],
-    loadout: { weapon: 'rust_nail', armor: null, head: null, shoes: 'soft_boots' },
+    loadout: { weapon: 'rust_nail', armor: null, head: null, shoes: 'soft_boots', backpack: 'field_pack' },
     armorCondition: 0,
     raidsStarted: 1,
     successfulExtractions: 1,
@@ -35,10 +35,16 @@ function profileWithLostEcho(uniqueOldItem = 'echo_lance') {
       x: 430,
       y: 1990,
       items: [
-        { itemId: uniqueOldItem, quantity: 1 },
+        { itemId: 'echo_lance', quantity: 1 },
         { itemId: 'stream_shell', quantity: 1 },
         { itemId: 'cat_cap', quantity: 1 },
         { itemId: 'echo_dust', quantity: 3 },
+        { itemId: 'echo_core', quantity: 1 },
+        { itemId: 'shiori_library_parcel', quantity: 1 },
+        { itemId: 'airlift_firecloud', quantity: 1 },
+        { itemId: 'inn_leather_shoes', quantity: 1 },
+        { itemId: 'sichuan_hotpot', quantity: 1 },
+        { itemId: 'rtx_3050', quantity: 1 },
       ],
       createdAtRaid: 2,
     },
@@ -85,39 +91,42 @@ try {
   await page.locator('canvas').click({ position: { x: 640, y: 360 } });
   await page.waitForTimeout(650);
   await moveNear(430);
-  await page.locator('canvas').screenshot({ path: path.join(outputDir, '01-echo-found.png') });
-  await page.keyboard.press('Enter');
-  await page.waitForFunction(() => JSON.parse(window.render_game_to_text?.() ?? '{}').flags?.recoveredEcho === true, undefined, { timeout: 800 });
   let current = await state();
-  assert(current.flags.recoveredEcho, `Lost Echo was not marked recovered: ${JSON.stringify({ player: current.player, nearbyInteraction: current.nearbyInteraction })}.`);
+  assert(current.nearbyInteraction?.includes('打开遗失遗体'), `Lost corpse was not interactable: ${JSON.stringify({ player: current.player, nearbyInteraction: current.nearbyInteraction })}.`);
+  await page.locator('canvas').screenshot({ path: path.join(outputDir, '01-lost-corpse-found.png') });
 
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => JSON.parse(window.render_game_to_text?.() ?? '{}').flags?.lostCorpseOpen === true, undefined, { timeout: 800 });
+  current = await state();
+  assert(current.flags.lostCorpseOpen, 'Lost corpse did not open as an immediate container.');
+  assert(current.flags.lostCorpseRemaining, 'Opened corpse unexpectedly had no remaining items.');
+  await page.locator('canvas').screenshot({ path: path.join(outputDir, '02-corpse-open-immediate.png') });
+
+  await page.mouse.click(1010, 548);
+  await page.waitForTimeout(260);
+  current = await state();
+  assert(current.backpack.some((item) => item.itemId === 'echo_lance'), `One-click corpse transfer did not place equipment in backpack: ${JSON.stringify(current)}.`);
+  assert(current.flags.lostCorpseRemaining, 'One-click transfer should leave items that do not fit in the field pack.');
+  await page.locator('canvas').screenshot({ path: path.join(outputDir, '03-corpse-partially-looted.png') });
+
+  await page.keyboard.press('Tab');
+  await page.waitForTimeout(120);
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => JSON.parse(window.render_game_to_text?.() ?? '{}').flags?.lostCorpseOpen === true, undefined, { timeout: 800 });
+  current = await state();
+  assert(current.flags.lostCorpseRemaining, 'Closing and reopening erased the partial corpse contents.');
+
+  await page.keyboard.press('Tab');
   await moveNear(520);
   await page.keyboard.press('Enter');
   await page.waitForTimeout(3400);
-  let saved = await page.evaluate(() => JSON.parse(localStorage.getItem('sui-echoes-below.save.v1')));
-  assert(saved.lostEcho === null, 'Recovered Lost Echo remained in the profile.');
-  assert(saved.warehouse.some((stack) => stack.itemId === 'echo_lance'), 'Recovered weapon did not enter warehouse.');
-  assert(saved.warehouse.some((stack) => stack.itemId === 'stream_shell'), 'Recovered armor did not enter warehouse.');
-  await page.screenshot({ path: path.join(outputDir, '02-recovered-at-base.png'), fullPage: true });
-
-  await seed(profileWithLostEcho('echo_lance'));
-  await page.locator('.deploy-button').click();
-  await page.getByRole('button', { name: /失落前庭/ }).click();
-  await page.waitForFunction(() => window.render_game_to_text?.().includes('"mode":"raid"'));
-  await page.locator('canvas').click({ position: { x: 640, y: 360 } });
-  await page.waitForTimeout(1000);
-  await page.keyboard.down('KeyQ');
-  await page.waitForTimeout(1350);
-  await page.keyboard.up('KeyQ');
-  await page.waitForFunction(() => window.render_game_to_text?.().includes('"mode":"base"'), null, { timeout: 7000 });
-  saved = await page.evaluate(() => JSON.parse(localStorage.getItem('sui-echoes-below.save.v1')));
-  assert(saved.lostEcho, 'Second death did not create a replacement Lost Echo.');
-  assert(!saved.lostEcho.items.some((stack) => stack.itemId === 'echo_lance'), 'Old Lost Echo survived a second death.');
-  assert(saved.lostEcho.items.filter((stack) => stack.itemId === 'rust_nail').reduce((total, stack) => total + stack.quantity, 0) === 1, 'Death did not preserve exactly the one Rust Nail that was equipped before the run.');
-  await page.screenshot({ path: path.join(outputDir, '03-old-echo-overwritten.png'), fullPage: true });
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('sui-echoes-below.save.v1')));
+  assert(saved.lostEcho?.items?.length > 0, 'Partial corpse should persist after extraction.');
+  assert(saved.backpack.items.some((item) => item.itemId === 'echo_lance'), 'Looted corpse weapon did not persist in the raid backpack after extraction.');
+  await page.screenshot({ path: path.join(outputDir, '04-partial-corpse-at-base.png'), fullPage: true });
 
   assert(errors.length === 0, `Browser errors: ${errors.join(' | ')}`);
-  console.log(JSON.stringify({ ok: true, recovered: true, overwritten: true, errors }, null, 2));
+  console.log(JSON.stringify({ ok: true, corpseOpened: true, partialCorpsePersisted: true, errors }, null, 2));
 } finally {
   await browser.close();
 }

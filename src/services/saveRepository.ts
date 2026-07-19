@@ -43,6 +43,18 @@ export const EMPTY_DEATH_LOADOUT: Loadout = {
   backpack: null,
 };
 
+function normalizeLoadout(raw: Partial<Loadout> | null | undefined): Loadout | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const loadout: Loadout = {
+    weapon: canonicalGearItem(raw.weapon, 'weapon'),
+    armor: canonicalGearItem(raw.armor, 'armor'),
+    head: canonicalGearItem(raw.head, 'head'),
+    shoes: canonicalGearItem(raw.shoes, 'shoes'),
+    backpack: canonicalGearItem(raw.backpack, 'backpack'),
+  };
+  return Object.values(loadout).some(Boolean) ? loadout : null;
+}
+
 function canonicalizeStacks(raw: readonly ItemStack[]): ItemStack[] {
   return raw.flatMap((stack) => {
     const itemId = canonicalItemId(stack.itemId);
@@ -57,6 +69,7 @@ interface LegacyProfile {
   backpackCapacity?: number;
   stash?: ItemStack[];
   loadout?: Partial<Loadout>;
+  lastDeployedLoadout?: Partial<Loadout> | null;
   armorCondition?: number;
   raidsStarted?: number;
   successfulExtractions?: number;
@@ -131,6 +144,7 @@ export function createDefaultProfile(): PlayerProfile {
       { itemId: 'echo_tonic', quantity: 1 },
     ], warehouseSize),
     loadout,
+    lastDeployedLoadout: null,
     backpack: { ...getPackSize(loadout), items: [] },
     armorCondition: 2,
     raidsStarted: 0,
@@ -206,6 +220,7 @@ function normalizeProfile(value: unknown): PlayerProfile {
     warehouseSize,
     warehouse,
     loadout,
+    lastDeployedLoadout: normalizeLoadout(candidate.lastDeployedLoadout),
     backpack: { ...packSize, items: backpackItems },
     armorCondition: Math.max(0, Number(candidate.armorCondition ?? defaults.armorCondition)),
     raidsStarted: Math.max(0, Number(candidate.raidsStarted ?? 0)),
@@ -233,7 +248,7 @@ function normalizeProfile(value: unknown): PlayerProfile {
     bossDefeated: Boolean(candidate.bossDefeated),
     endingUnlocked: Boolean(candidate.endingUnlocked),
     endingSeen: Boolean(candidate.endingSeen),
-    lostEcho: rawLostEcho && hasValidLostEchoPosition ? {
+    lostEcho: rawLostEcho && hasValidLostEchoPosition && canonicalizeStacks(cloneStacks(rawLostEcho.items ?? [])).length > 0 ? {
       mapId: lostEchoMap!.id,
       x: Math.round(rawLostEcho.x),
       y: Math.round(rawLostEcho.y),

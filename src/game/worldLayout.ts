@@ -196,8 +196,11 @@ const OUTPOST_TERRAIN: TerrainSegment[] = [
   { x: 2320, y: 2020, width: 720, style: 'relay', massDepth: 240 },
   { x: 3120, y: 1820, width: 720, style: 'machine', massDepth: 240 },
   { x: 3980, y: 1640, width: 850, style: 'machine', massDepth: 250 },
+  // Arrival bridges overlap their neighbors so rotating spawns never fall through a collider seam.
+  { x: 4478, y: 1640, width: 150, style: 'machine', massDepth: 120 },
   { x: 4900, y: 1430, width: 700, style: 'machine', massDepth: 250 },
   { x: 5680, y: 1240, width: 720, style: 'graveyard', massDepth: 260 },
+  { x: 6075, y: 1240, width: 100, style: 'graveyard', massDepth: 120 },
   { x: 6500, y: 1040, width: 780, style: 'graveyard', massDepth: 260 },
   { x: 7350, y: 850, width: 700, style: 'relay', massDepth: 270, edge: 'right' },
   { x: 1080, y: 1900, width: 440, style: 'relay', massDepth: 180 },
@@ -207,6 +210,26 @@ const OUTPOST_TERRAIN: TerrainSegment[] = [
   { x: 4460, y: 1100, width: 500, style: 'machine', massDepth: 180 },
   { x: 5340, y: 900, width: 480, style: 'graveyard', massDepth: 180 },
   { x: 6220, y: 700, width: 500, style: 'graveyard', massDepth: 180 },
+  // Lower service road: a safer, longer route beneath the main combat corridor.
+  { x: 1400, y: 2460, width: 700, style: 'relay', massDepth: 150 },
+  { x: 2450, y: 2460, width: 760, style: 'relay', massDepth: 150 },
+  { x: 3550, y: 2460, width: 800, style: 'relay', massDepth: 150 },
+  { x: 4650, y: 2460, width: 800, style: 'machine', massDepth: 150 },
+  { x: 5750, y: 2460, width: 820, style: 'machine', massDepth: 150 },
+  { x: 6880, y: 2460, width: 900, style: 'graveyard', massDepth: 150 },
+  // Upper catwalk: quick but exposed bypass over the central market.
+  { x: 2700, y: 1120, width: 520, style: 'relay', massDepth: 150 },
+  { x: 3450, y: 960, width: 520, style: 'machine', massDepth: 150 },
+  { x: 4200, y: 820, width: 540, style: 'machine', massDepth: 150 },
+  { x: 4950, y: 700, width: 520, style: 'graveyard', massDepth: 150 },
+  { x: 5700, y: 600, width: 520, style: 'graveyard', massDepth: 150 },
+  // Vertical connectors make it possible to swap routes after an encounter.
+  { x: 1950, y: 2280, width: 240, style: 'relay', massDepth: 260 },
+  // Climbable market recovery stairs: every rise is below the standard jump height.
+  { x: 4200, y: 2240, width: 250, style: 'machine', massDepth: 280 },
+  { x: 3980, y: 1920, width: 200, style: 'machine', massDepth: 180 },
+  { x: 3750, y: 1640, width: 250, style: 'machine', massDepth: 180 },
+  { x: 6450, y: 2100, width: 260, style: 'graveyard', massDepth: 420 },
 ];
 
 const OUTPOST_ROOMS: MapRoomShape[] = [
@@ -232,10 +255,17 @@ export const WORLD_LAYOUTS: Record<string, WorldLayoutDefinition> = {
     spawnClusters: [{ entryId: 'infiltration', positions: OUTPOST_SPAWNS }],
     storyEchoes: [],
     roomShapes: OUTPOST_ROOMS,
-    routes: [[...OUTPOST_SPAWNS], [{ x: 420, y: 2260 }, { x: 1900, y: 1700 }, { x: 3580, y: 1300 }, { x: 5340, y: 900 }, { x: 7200, y: 700 }]],
+    routes: [
+      [{ x: 420, y: 2361 }, { x: 1480, y: 2181 }, { x: 2320, y: 2001 }, { x: 3120, y: 1801 }, { x: 3980, y: 1621 }, { x: 4478, y: 1621 }, { x: 4900, y: 1411 }, { x: 5680, y: 1221 }, { x: 6075, y: 1221 }, { x: 6500, y: 1021 }, { x: 7350, y: 831 }],
+      [{ x: 420, y: 2361 }, { x: 1400, y: 2441 }, { x: 2450, y: 2441 }, { x: 3550, y: 2441 }, { x: 4650, y: 2441 }, { x: 5750, y: 2441 }, { x: 6880, y: 2441 }, { x: 7420, y: 790 }],
+      [{ x: 2320, y: 2001 }, { x: 2700, y: 1101 }, { x: 3450, y: 941 }, { x: 4200, y: 801 }, { x: 4950, y: 681 }, { x: 5700, y: 581 }, { x: 6500, y: 1021 }],
+      [{ x: 1900, y: 2181 }, { x: 1950, y: 2261 }, { x: 2450, y: 2441 }],
+      [{ x: 4650, y: 2441 }, { x: 4200, y: 2221 }, { x: 3980, y: 1901 }, { x: 3750, y: 1621 }, { x: 3750, y: 1565 }],
+      [{ x: 6500, y: 1021 }, { x: 6450, y: 2081 }, { x: 6880, y: 2441 }],
+    ],
     extractionPoints: [
       { x: 350, y: 2300, label: '南码头撤离艇' },
-      { x: 3750, y: 1740, label: '集市地下通道' },
+      { x: 3750, y: 1565, label: '集市地下通道' },
       { x: 7420, y: 790, label: '北场吊机索降' },
     ],
   },

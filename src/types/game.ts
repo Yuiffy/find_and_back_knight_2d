@@ -86,8 +86,8 @@ export interface RaidRunState {
   loadout: Loadout;
   armorCondition: number;
   health: number;
-  recoveredItems: ItemStack[];
-  recoveredEcho: boolean;
+  /** Remaining item stacks in the one active lost-corpse container, if this run opened it. */
+  remainingLostEchoItems: ItemStack[] | null;
   mapUnlocked: boolean;
   shortcutUnlocked: boolean;
   bossDefeated: boolean;
@@ -110,6 +110,8 @@ export interface PlayerProfile {
   warehouse: GridItem[];
   backpack: BackpackInventory;
   loadout: Loadout;
+  /** Equipment worn when the most recently started expedition began. */
+  lastDeployedLoadout: Loadout | null;
   armorCondition: number;
   raidsStarted: number;
   successfulExtractions: number;
@@ -206,6 +208,13 @@ export interface TextGameState {
     scavengersAlive: number;
   };
   nearbyInteraction?: string | null;
+  containerSearch?: {
+    crateId: string;
+    label: string;
+    activeIndex: number;
+    searching: boolean;
+    revealed: Array<{ itemId: string | null; revealed: boolean; active: boolean }>;
+  } | null;
   flags?: Record<string, boolean>;
 }
 
@@ -215,13 +224,13 @@ export interface RaidResult {
   entryId: string;
   backpack: GridItem[];
   loadout: Loadout;
-  recoveredItems: ItemStack[];
+  /** Remaining item stacks in the original corpse after this raid's looting. */
+  remainingLostEchoItems: ItemStack[] | null;
   deathPosition?: { x: number; y: number };
   armorCondition: number;
   mapUnlocked: boolean;
   shortcutUnlocked: boolean;
   bossDefeated: boolean;
-  recoveredEcho: boolean;
   discoveredItems?: string[];
   discoveredClues?: string[];
   endingTriggered?: boolean;

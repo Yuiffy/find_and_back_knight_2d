@@ -185,6 +185,65 @@ export function moveOrMergeGridItem(
   return result;
 }
 
+export interface PreciseGridPlacementResult {
+  items: GridItem[];
+  kind: 'placed' | 'merged' | 'swapped';
+  /** Present when an external source replaces a backpack item. */
+  displaced?: GridItem;
+}
+
+/**
+ * Performs an intentional grid drop without the automatic first-fit fallback used
+ * by quick pickup. A single covered item may be swapped or fully merged.
+ */
+export function placeGridItemPrecisely(
+  items: readonly GridItem[],
+  grid: GridSize,
+  candidate: GridItem,
+  x: number,
+  y: number,
+  sourceUid?: string,
+  sourcePosition?: { x: number; y: number },
+): PreciseGridPlacementResult | null {
+  const definition = ITEMS[candidate.itemId];
+  if (!definition || candidate.quantity <= 0) return null;
+
+  const withoutSource = sourceUid
+    ? items.filter((entry) => entry.uid !== sourceUid).map((entry) => ({ ...entry }))
+    : cloneGridItems(items);
+  const positioned = { ...candidate, x, y };
+  const covered = withoutSource.filter((entry) => overlaps(positioned, entry));
+
+  if (covered.length === 0) {
+    if (!canPlaceGridItem(withoutSource, grid, positioned, x, y, '')) return null;
+    return { items: [...withoutSource, positioned], kind: 'placed' };
+  }
+  if (covered.length !== 1) return null;
+
+  const target = covered[0];
+  if (target.itemId === positioned.itemId) {
+    if (target.quantity + positioned.quantity > definition.stackLimit) return null;
+    return {
+      items: withoutSource.map((entry) => entry.uid === target.uid
+        ? { ...entry, quantity: entry.quantity + positioned.quantity }
+        : entry),
+      kind: 'merged',
+    };
+  }
+
+  const withoutTarget = withoutSource.filter((entry) => entry.uid !== target.uid);
+  if (!canPlaceGridItem(withoutTarget, grid, positioned, x, y, '')) return null;
+  const next = [...withoutTarget, positioned];
+
+  if (!sourcePosition) {
+    return { items: next, kind: 'swapped', displaced: { ...target } };
+  }
+
+  const returned = { ...target, x: sourcePosition.x, y: sourcePosition.y };
+  if (!canPlaceGridItem(next, grid, returned, returned.x, returned.y, '')) return null;
+  return { items: [...next, returned], kind: 'swapped' };
+}
+
 export function splitGridItem(
   items: readonly GridItem[],
   grid: GridSize,

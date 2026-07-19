@@ -84,9 +84,10 @@ try {
   assert(current.objective.includes('西向阵列'), `Failed relay calibration incorrectly persisted: ${current.objective}.`);
   await moveX(760);
   current = await state();
-  if (current.nearbyInteraction?.includes('找回遗失回声')) {
+  if (current.nearbyInteraction?.includes('打开遗失遗体')) {
     await page.keyboard.press('Enter');
     await page.waitForTimeout(120);
+    await page.keyboard.press('Tab');
   }
   for (let attempt = 0; attempt < 5 && !current.nearbyInteraction?.includes('校准西向'); attempt += 1) {
     await hold('ArrowRight', 180);

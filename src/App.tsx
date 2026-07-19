@@ -16,7 +16,15 @@ import {
   splitGridItem,
   validateGrid,
 } from './game/inventory';
-import { getArmorMaximum, getCurrentObjective, getDeathPersistentClues, ITEMS } from './game/items';
+import {
+  getArmorMaximum,
+  getCurrentObjective,
+  getDeathPersistentClues,
+  ITEMS,
+  loadoutToPurchaseStacks,
+  quoteMarketOrder,
+  STARTER_STANDARD_LOADOUT,
+} from './game/items';
 import { EMPTY_DEATH_LOADOUT, saveRepository } from './services/saveRepository';
 import { publishDomainEvent } from './services/gameNetworkBoundary';
 import type { GearSlot, GridItem, GridSize, PlayerProfile, RaidResult, RaidRunState, RaidTransition, TextGameState } from './types/game';
@@ -218,6 +226,21 @@ export function App() {
     }, `${definition.icon} ${definition.name} 已陈列到收藏室。`);
   }
 
+  function handleWithdrawCollectible(itemId: string): void {
+    const definition = ITEMS[itemId];
+    if (!profile.collectionItems.includes(itemId) || definition?.category !== 'collectible') return;
+    const warehouse = insertGridStack(profile.warehouse, profile.warehouseSize, { itemId, quantity: 1 });
+    if (!warehouse) {
+      setNotice('仓库没有足够的连续空间收回该藏品；先整理或扩建仓库。');
+      return;
+    }
+    commit({
+      ...profile,
+      warehouse,
+      collectionItems: profile.collectionItems.filter((entry) => entry !== itemId),
+    }, `${definition.icon} ${definition.name} 已取回到仓库。`);
+  }
+
   function handleQuickTransfer(payload: InventoryDragPayload): void {
     if (payload.source === 'warehouse') handleMoveItem(payload, 'backpack', -1, -1);
     if (payload.source === 'backpack') handleMoveItem(payload, 'warehouse', -1, -1);
@@ -239,25 +262,44 @@ export function App() {
     `${ITEMS[source.itemId].name} 已拆为 ${source.quantity - Math.floor(source.quantity / 2)} 与 ${Math.floor(source.quantity / 2)} 两组。`);
   }
 
-  function handleBuy(itemId: string, quantity = 1): void {
-    const item = ITEMS[itemId];
-    const unitPrice = item?.buyPrice ?? 0;
-    const price = unitPrice * quantity;
-    const unlocked = !['echo_lance', 'blue_hood'].includes(itemId) || profile.mapUnlocked;
-    const deepUnlocked = !['storm_feather', 'survey_pack'].includes(itemId) || profile.bossDefeated;
-    const workshopUnlocked = !['repair_patch', 'echo_tonic'].includes(itemId) || profile.workshopLevel >= 2;
-    if (!item || price <= 0 || quantity <= 0 || !unlocked || !deepUnlocked || !workshopUnlocked || profile.credits < price) return;
-    const warehouse = insertGridStack(profile.warehouse, profile.warehouseSize, { itemId, quantity });
-    if (!warehouse) {
-      setNotice('仓库没有空间收货；先整理或出售一些物品。');
+  function handleMarketPurchase(stacks: readonly { itemId: string; quantity: number }[], label: string): void {
+    const quote = quoteMarketOrder(stacks, profile);
+    if (quote.reason) {
+      setNotice(quote.reason);
       return;
     }
+    if (profile.credits < quote.totalPrice) {
+      setNotice(`购买${label}需要 ${quote.totalPrice} 小鸟币。`);
+      return;
+    }
+    const warehouse = insertGridStacks(profile.warehouse, profile.warehouseSize, quote.stacks);
+    if (!warehouse) {
+      setNotice('仓库没有足够的连续空间收下整单物品；先整理或出售一些物品。');
+      return;
+    }
+    const purchased = quote.stacks.map(({ itemId, quantity }) => `${ITEMS[itemId].icon} ${ITEMS[itemId].name}${quantity > 1 ? ` ×${quantity}` : ''}`).join('、');
     commit({
       ...profile,
       warehouse,
-      credits: profile.credits - price,
-      discoveredItems: Array.from(new Set([...profile.discoveredItems, itemId])),
-    }, `购入 ${item.icon} ${item.name}${quantity > 1 ? ` ×${quantity}` : ''}，已自动合并并放入仓库。`);
+      credits: profile.credits - quote.totalPrice,
+      discoveredItems: Array.from(new Set([...profile.discoveredItems, ...quote.stacks.map((stack) => stack.itemId)])),
+    }, `购入${label}：${purchased}，已自动合并并放入仓库。`);
+  }
+
+  function handleBuy(itemId: string, quantity = 1): void {
+    handleMarketPurchase([{ itemId, quantity }], ITEMS[itemId]?.name ?? '物品');
+  }
+
+  function handleQuickBuy(offerId: 'last-loadout' | 'starter-standard'): void {
+    if (offerId === 'starter-standard') {
+      handleMarketPurchase(STARTER_STANDARD_LOADOUT, '新手制式套装');
+      return;
+    }
+    if (!profile.lastDeployedLoadout) {
+      setNotice('尚未开始过远征，暂无可复购整备。');
+      return;
+    }
+    handleMarketPurchase(loadoutToPurchaseStacks(profile.lastDeployedLoadout), '上次整备');
   }
 
   function handleSell(uid: string, sellAll = false): void {
@@ -363,6 +405,7 @@ export function App() {
     const next = saveRepository.save({
       ...profile,
       raidsStarted: raidId,
+      lastDeployedLoadout: { ...profile.loadout },
       activeRaid: {
         raidId,
         mapId,
@@ -403,12 +446,15 @@ export function App() {
     });
     if (result.outcome === 'extracted') {
       const nextMapUnlocked = profile.mapUnlocked || result.mapUnlocked;
-      const extractedCore = [...result.backpack, ...result.recoveredItems].some((stack) => stack.itemId === 'echo_core');
+      const extractedCore = result.backpack.some((stack) => stack.itemId === 'echo_core');
       const nextBossDefeated = profile.bossDefeated || (result.bossDefeated && extractedCore);
-      const recoveredWarehouse = insertGridStacks(profile.warehouse, profile.warehouseSize, result.recoveredItems);
+      const nextLostEcho = profile.lostEcho
+        ? (result.remainingLostEchoItems?.length
+          ? { ...profile.lostEcho, items: result.remainingLostEchoItems.map((item) => ({ ...item })) }
+          : null)
+        : null;
       const next = saveRepository.save({
         ...profile,
-        warehouse: recoveredWarehouse ?? profile.warehouse,
         backpack: { ...profile.backpack, items: cloneGridItems(result.backpack) },
         loadout: { ...result.loadout },
         armorCondition: result.armorCondition,
@@ -428,7 +474,7 @@ export function App() {
           ...(result.discoveredClues ?? []),
           ...(nextBossDefeated ? ['home-trace'] : []),
         ])),
-        lostEcho: result.recoveredEcho && recoveredWarehouse ? null : profile.lostEcho,
+        lostEcho: nextLostEcho,
         activeRaid: null,
       });
       setProfile(next);
@@ -445,7 +491,7 @@ export function App() {
     const carriedGear = Object.values(result.loadout)
       .filter((itemId): itemId is string => Boolean(itemId))
       .map((itemId) => ({ itemId, quantity: 1 }));
-    const lostItems = addStacks(addStacks(gridItemsToStacks(result.backpack), result.recoveredItems), carriedGear);
+    const lostItems = addStacks(gridItemsToStacks(result.backpack), carriedGear);
     const deathPosition = result.deathPosition ?? { x: 240, y: 1940 };
     const next = saveRepository.save({
       ...profile,
@@ -470,7 +516,7 @@ export function App() {
     });
     setProfile(next);
     setRaidRunState(null);
-    setNotice('远征失败。装备与背包物品留在死亡地点的遗失回声中；从安全仓库重新配装，或下一轮前去回收。');
+    setNotice('远征失败。装备与背包物品留在死亡地点的遗失遗体中；从安全仓库重新配装，或下一轮前去取回。');
     setMode('base');
   }, [profile]);
 
@@ -536,9 +582,11 @@ export function App() {
       onCompactGrid={handleCompactGrid}
       onDepositBackpack={handleDepositBackpack}
       onExhibitCollectible={handleExhibitCollectible}
+      onWithdrawCollectible={handleWithdrawCollectible}
       onUpgradeWorkshop={handleUpgradeWorkshop}
       onEquipItem={handleEquipItem}
       onBuy={handleBuy}
+      onQuickBuy={handleQuickBuy}
       onSell={handleSell}
       onRepair={handleRepair}
       onUpgradeWarehouse={handleUpgradeWarehouse}

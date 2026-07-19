@@ -1,4 +1,4 @@
-import type { CollectibleKind, GearSlot, ItemDefinition, ItemStack, PlayerProfile, Rarity } from '../types/game';
+import type { CollectibleKind, GearSlot, ItemDefinition, ItemStack, Loadout, PlayerProfile, Rarity } from '../types/game';
 
 export const ITEMS: Record<string, ItemDefinition> = {
   rust_nail: {
@@ -365,6 +365,56 @@ export const MARKET_ITEM_IDS = [
   'storm_feather',
   'survey_pack',
 ] as const;
+
+export const STARTER_STANDARD_LOADOUT: ItemStack[] = [
+  { itemId: 'rust_nail', quantity: 1 },
+  { itemId: 'field_pack', quantity: 1 },
+];
+
+export type MarketProfile = Pick<PlayerProfile, 'mapUnlocked' | 'bossDefeated' | 'workshopLevel'>;
+
+export interface MarketOrderQuote {
+  stacks: ItemStack[];
+  totalPrice: number;
+  reason: string | null;
+}
+
+const MARKET_ITEM_ID_SET = new Set<string>(MARKET_ITEM_IDS);
+
+export function loadoutToPurchaseStacks(loadout: Loadout): ItemStack[] {
+  const quantities = new Map<string, number>();
+  for (const slot of GEAR_SLOTS) {
+    const itemId = loadout[slot];
+    if (itemId) quantities.set(itemId, (quantities.get(itemId) ?? 0) + 1);
+  }
+  return Array.from(quantities, ([itemId, quantity]) => ({ itemId, quantity }));
+}
+
+export function getMarketLockReason(itemId: string, profile: MarketProfile): string | null {
+  const item = ITEMS[itemId];
+  if (!item || !MARKET_ITEM_ID_SET.has(itemId) || !item.buyPrice || item.buyPrice <= 0) return '该物品当前不在交易台报价中。';
+  if (['echo_lance', 'blue_hood'].includes(itemId) && !profile.mapUnlocked) return '找回导航数据后开放';
+  if (['storm_feather', 'survey_pack'].includes(itemId) && !profile.bossDefeated) return '带回机房核心后开放';
+  if (['repair_patch', 'echo_tonic'].includes(itemId) && profile.workshopLevel < 2) return '制造台升级至 Lv.2 后开放';
+  return null;
+}
+
+export function quoteMarketOrder(rawStacks: readonly ItemStack[], profile: MarketProfile): MarketOrderQuote {
+  const quantities = new Map<string, number>();
+  for (const stack of rawStacks) {
+    if (!Number.isInteger(stack.quantity) || stack.quantity <= 0) return { stacks: [], totalPrice: 0, reason: '购买数量无效。' };
+    const reason = getMarketLockReason(stack.itemId, profile);
+    if (reason) return { stacks: [], totalPrice: 0, reason };
+    quantities.set(stack.itemId, (quantities.get(stack.itemId) ?? 0) + stack.quantity);
+  }
+  const stacks = Array.from(quantities, ([itemId, quantity]) => ({ itemId, quantity }));
+  if (stacks.length === 0) return { stacks, totalPrice: 0, reason: '没有可购买的整备物品。' };
+  return {
+    stacks,
+    totalPrice: stacks.reduce((total, stack) => total + ITEMS[stack.itemId].buyPrice! * stack.quantity, 0),
+    reason: null,
+  };
+}
 
 // These discoveries can guide the current expedition, but only become permanent
 // after a safe extraction. Keeping the rule here makes both settlement paths

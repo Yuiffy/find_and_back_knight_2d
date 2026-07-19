@@ -85,7 +85,7 @@ try {
   assert(manifest && manifest.x === 350 && manifest.y === 1995, `Foyer manifest is not at its reachable open-floor position: ${JSON.stringify(manifest)}.`);
   const overlappingEnemy = current.visibleEnemies?.find((enemy) => Math.hypot(enemy.x - manifest.x, enemy.y - manifest.y) < 140);
   assert(!overlappingEnemy, `Enemy ${overlappingEnemy?.id} still overlaps foyer manifest.`);
-  assert(!current.flags?.recoveredEcho && !current.nearbyInteraction?.includes('遗失回声'), 'Relay lost echo appeared on the hollow map.');
+  assert(!current.flags?.recoveredEcho && !current.nearbyInteraction?.includes('遗失遗体'), 'Relay lost echo appeared on the hollow map.');
 
   await moveX(350);
   current = await state();
@@ -127,7 +127,7 @@ try {
   assert(current.visibleStoryEchoes.some((echo) => echo.id === 'relay-arrival-log'), 'Relay story echoes were not created.');
   await moveX(450);
   current = await state();
-  assert(current.nearbyInteraction?.includes('遗失回声'), `Matching relay lost echo did not appear on relay_01: ${JSON.stringify(current)}.`);
+  assert(current.nearbyInteraction?.includes('遗失遗体'), `Matching relay lost echo did not appear on relay_01: ${JSON.stringify(current)}.`);
   await moveX(760);
   current = await state();
   assert(current.nearbyInteraction?.includes('校准西向'), `West relay calibration was not reachable: ${current.nearbyInteraction}.`);

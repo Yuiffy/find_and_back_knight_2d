@@ -1,5 +1,20 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
-import { COLLECTIBLE_KIND_NAMES, countItem, GEAR_SLOTS, getArmorMaximum, getClueRecords, getObjectiveSteps, ITEMS, MARKET_ITEM_IDS, RARITY_COLORS, SLOT_NAMES } from '../game/items';
+import {
+  COLLECTIBLE_KIND_NAMES,
+  countItem,
+  GEAR_SLOTS,
+  getArmorMaximum,
+  getClueRecords,
+  getMarketLockReason,
+  getObjectiveSteps,
+  ITEMS,
+  loadoutToPurchaseStacks,
+  MARKET_ITEM_IDS,
+  quoteMarketOrder,
+  RARITY_COLORS,
+  SLOT_NAMES,
+  STARTER_STANDARD_LOADOUT,
+} from '../game/items';
 import { MAP_REGISTRY, isEntryUnlocked, isMapUnlocked } from '../game/maps';
 import { occupiedGridCells } from '../game/inventory';
 import type { GearSlot, PlayerProfile } from '../types/game';
@@ -24,9 +39,11 @@ interface BaseScreenProps {
   onCompactGrid: (source: 'warehouse' | 'backpack') => void;
   onDepositBackpack: () => void;
   onExhibitCollectible: (itemId: string) => void;
+  onWithdrawCollectible: (itemId: string) => void;
   onUpgradeWorkshop: () => void;
   onEquipItem: (payload: InventoryDragPayload, slot: GearSlot) => void;
   onBuy: (itemId: string, quantity?: number) => void;
+  onQuickBuy: (offerId: 'last-loadout' | 'starter-standard') => void;
   onSell: (uid: string, sellAll?: boolean) => void;
   onRepair: () => void;
   onUpgradeWarehouse: () => void;
@@ -47,9 +64,11 @@ export function BaseScreen({
   onCompactGrid,
   onDepositBackpack,
   onExhibitCollectible,
+  onWithdrawCollectible,
   onUpgradeWorkshop,
   onEquipItem,
   onBuy,
+  onQuickBuy,
   onSell,
   onRepair,
   onUpgradeWarehouse,
@@ -78,6 +97,9 @@ export function BaseScreen({
   const selectedStack = selected?.uid && (selected.source === 'warehouse' || selected.source === 'backpack')
     ? (selected.source === 'warehouse' ? profile.warehouse : profile.backpack.items).find((item) => item.uid === selected.uid)
     : null;
+  const starterQuote = quoteMarketOrder(STARTER_STANDARD_LOADOUT, profile);
+  const lastLoadoutStacks = profile.lastDeployedLoadout ? loadoutToPurchaseStacks(profile.lastDeployedLoadout) : [];
+  const lastLoadoutQuote = quoteMarketOrder(lastLoadoutStacks, profile);
 
   useEffect(() => {
     if (!entryOpen) return undefined;
@@ -384,17 +406,43 @@ export function BaseScreen({
               <strong className="market-balance">◈ {profile.credits}</strong>
             </div>
             <p className="market-intro">购买物会自动合并并放入基地仓库。深入空洞后，交易台会解锁新的回收货。</p>
+            <section className="quick-resupply" aria-labelledby="quick-resupply-title">
+              <div className="quick-resupply-heading">
+                <div><span className="eyebrow">QUICK RESUPPLY</span><h3 id="quick-resupply-title">快速整备</h3></div>
+                <small>物品送入仓库，需在装备页手动换装。</small>
+              </div>
+              <div className="quick-resupply-list">
+                <article className="quick-resupply-offer">
+                  <div>
+                    <strong>复购上次整备</strong>
+                    <small>{profile.lastDeployedLoadout ? (lastLoadoutQuote.reason ?? '按最近一次出发时穿戴的装备重新报价。') : '尚未开始过远征，暂无可复购整备。'}</small>
+                    {lastLoadoutStacks.length > 0 && <span className="kit-items">{lastLoadoutStacks.map(({ itemId, quantity }) => `${ITEMS[itemId].icon} ${ITEMS[itemId].name}${quantity > 1 ? ` ×${quantity}` : ''}`).join(' · ')}</span>}
+                  </div>
+                  <button type="button" disabled={!profile.lastDeployedLoadout || Boolean(lastLoadoutQuote.reason) || profile.credits < lastLoadoutQuote.totalPrice} onClick={() => onQuickBuy('last-loadout')}>
+                    {lastLoadoutQuote.totalPrice > 0 ? `一键复购 · ◈ ${lastLoadoutQuote.totalPrice}` : '暂无整备'}
+                  </button>
+                </article>
+                <article className="quick-resupply-offer">
+                  <div>
+                    <strong>新手制式套装</strong>
+                    <small>{starterQuote.reason ?? '旧羽钉与折羽背包，适合重新开始整备。'}</small>
+                    <span className="kit-items">{STARTER_STANDARD_LOADOUT.map(({ itemId }) => `${ITEMS[itemId].icon} ${ITEMS[itemId].name}`).join(' · ')}</span>
+                  </div>
+                  <button type="button" disabled={Boolean(starterQuote.reason) || profile.credits < starterQuote.totalPrice} onClick={() => onQuickBuy('starter-standard')}>
+                    一键购买 · ◈ {starterQuote.totalPrice}
+                  </button>
+                </article>
+              </div>
+            </section>
             <div className="offer-list">
               {MARKET_ITEM_IDS.map((itemId) => {
                 const item = ITEMS[itemId];
-                const mapLocked = ['echo_lance', 'blue_hood'].includes(itemId) && !profile.mapUnlocked;
-                const deepLocked = ['storm_feather', 'survey_pack'].includes(itemId) && !profile.bossDefeated;
-                const workshopLocked = ['repair_patch', 'echo_tonic'].includes(itemId) && profile.workshopLevel < 2;
-                const locked = mapLocked || deepLocked || workshopLocked;
+                const lockReason = getMarketLockReason(itemId, profile);
+                const locked = Boolean(lockReason);
                 return (
                   <div className={`offer-row rarity-${item.rarity}${locked ? ' is-locked' : ''}`} key={itemId}>
                     <span className="offer-icon">{locked ? '？' : item.icon}</span>
-                    <div><strong>{locked ? '未识别的回收货' : item.name}</strong><small>{locked ? (mapLocked ? '找回导航数据后开放' : (deepLocked ? '带回机房核心后开放' : '制造台升级至 Lv.2 后开放')) : item.description}</small></div>
+                    <div><strong>{locked ? '未识别的回收货' : item.name}</strong><small>{locked ? lockReason : item.description}</small></div>
                     <div className="offer-actions">
                       <button type="button" disabled={locked || profile.credits < (item.buyPrice ?? 0)} onClick={() => onBuy(itemId)}>×1 · ◈ {item.buyPrice}</button>
                       {item.stackLimit > 1 && <button type="button" disabled={locked || profile.credits < (item.buyPrice ?? 0) * 5} onClick={() => onBuy(itemId, 5)}>×5 · ◈ {(item.buyPrice ?? 0) * 5}</button>}
@@ -435,13 +483,13 @@ export function BaseScreen({
               <div><span className="eyebrow">SUI ARCHIVE</span><h2>岁己收藏室</h2></div>
               <span className="capacity">{profile.collectionItems.length} 件已陈列</span>
             </div>
-            <p className="collection-room-intro">藏品必须先安全撤离、再从基地仓库放入展柜。它们不再占用仓库格子，也不会在下次远征中丢失。</p>
+            <p className="collection-room-intro">藏品必须先安全撤离、再从基地仓库放入展柜。它们不再占用仓库格子，也不会在下次远征中丢失；需要时可取回，但会重新占用仓库空间。</p>
             <div className="collection-shelves">
               {profile.collectionItems.length === 0 && <div className="empty-collection">展柜还空着。试着在远征容器里寻找带有红色光环的珍贵藏品。</div>}
               {profile.collectionItems.map((itemId) => {
                 const item = ITEMS[itemId];
                 return <article className={`collection-display rarity-${item.rarity}`} key={itemId} style={{ '--collectible-color': RARITY_COLORS[item.rarity] } as CSSProperties}>
-                  <span>{item.icon}</span><div><small>{item.collectibleKind ? COLLECTIBLE_KIND_NAMES[item.collectibleKind] : '未分类'} · {item.rarity === 'relic' ? '红色珍藏' : '已归档'}</small><strong>{item.name}</strong><p>{item.description}</p></div>
+                  <span>{item.icon}</span><div><small>{item.collectibleKind ? COLLECTIBLE_KIND_NAMES[item.collectibleKind] : '未分类'} · {item.rarity === 'relic' ? '红色珍藏' : '已归档'}</small><strong>{item.name}</strong><p>{item.description}</p><button type="button" onClick={() => onWithdrawCollectible(itemId)}>取回到仓库</button></div>
                 </article>;
               })}
             </div>
