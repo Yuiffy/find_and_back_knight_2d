@@ -194,7 +194,8 @@ export interface PreciseGridPlacementResult {
 
 /**
  * Performs an intentional grid drop without the automatic first-fit fallback used
- * by quick pickup. A single covered item may be swapped or fully merged.
+ * by quick pickup. A covered item may be swapped, or several smaller covered
+ * items may collectively trade places with the moved item's old footprint.
  */
 export function placeGridItemPrecisely(
   items: readonly GridItem[],
@@ -208,8 +209,9 @@ export function placeGridItemPrecisely(
   const definition = ITEMS[candidate.itemId];
   if (!definition || candidate.quantity <= 0) return null;
 
-  const withoutSource = sourceUid
-    ? items.filter((entry) => entry.uid !== sourceUid).map((entry) => ({ ...entry }))
+  const source = sourceUid ? items.find((entry) => entry.uid === sourceUid) : undefined;
+  const withoutSource = source
+    ? items.filter((entry) => entry.uid !== source.uid).map((entry) => ({ ...entry }))
     : cloneGridItems(items);
   const positioned = { ...candidate, x, y };
   const covered = withoutSource.filter((entry) => overlaps(positioned, entry));
@@ -218,10 +220,8 @@ export function placeGridItemPrecisely(
     if (!canPlaceGridItem(withoutSource, grid, positioned, x, y, '')) return null;
     return { items: [...withoutSource, positioned], kind: 'placed' };
   }
-  if (covered.length !== 1) return null;
-
-  const target = covered[0];
-  if (target.itemId === positioned.itemId) {
+  if (covered.length === 1 && covered[0].itemId === positioned.itemId) {
+    const target = covered[0];
     if (target.quantity + positioned.quantity > definition.stackLimit) return null;
     return {
       items: withoutSource.map((entry) => entry.uid === target.uid
@@ -231,17 +231,38 @@ export function placeGridItemPrecisely(
     };
   }
 
-  const withoutTarget = withoutSource.filter((entry) => entry.uid !== target.uid);
-  if (!canPlaceGridItem(withoutTarget, grid, positioned, x, y, '')) return null;
-  const next = [...withoutTarget, positioned];
+  const withoutCovered = withoutSource.filter((entry) => !covered.some((target) => target.uid === entry.uid));
+  if (!canPlaceGridItem(withoutCovered, grid, positioned, x, y, '')) return null;
+  const next = [...withoutCovered, positioned];
 
-  if (!sourcePosition) {
-    return { items: next, kind: 'swapped', displaced: { ...target } };
+  if (!source || !sourcePosition) {
+    if (covered.length !== 1) return null;
+    return { items: next, kind: 'swapped', displaced: { ...covered[0] } };
   }
 
-  const returned = { ...target, x: sourcePosition.x, y: sourcePosition.y };
-  if (!canPlaceGridItem(next, grid, returned, returned.x, returned.y, '')) return null;
-  return { items: [...next, returned], kind: 'swapped' };
+  const sourceSize = getGridItemSize(source);
+  const returned: GridItem[] = [];
+  const returnCandidates = [...covered].sort((left, right) => {
+    const leftSize = getGridItemSize(left);
+    const rightSize = getGridItemSize(right);
+    return rightSize.width * rightSize.height - leftSize.width * leftSize.height;
+  });
+  for (const target of returnCandidates) {
+    const targetSize = getGridItemSize(target);
+    let placement: { x: number; y: number } | null = null;
+    for (let returnY = sourcePosition.y; returnY <= sourcePosition.y + sourceSize.height - targetSize.height && !placement; returnY += 1) {
+      for (let returnX = sourcePosition.x; returnX <= sourcePosition.x + sourceSize.width - targetSize.width; returnX += 1) {
+        const returnedItem = { ...target, x: returnX, y: returnY };
+        if (canPlaceGridItem([...next, ...returned], grid, returnedItem, returnX, returnY, '')) {
+          placement = { x: returnX, y: returnY };
+          break;
+        }
+      }
+    }
+    if (!placement) return null;
+    returned.push({ ...target, ...placement });
+  }
+  return { items: [...next, ...returned], kind: 'swapped' };
 }
 
 export function splitGridItem(

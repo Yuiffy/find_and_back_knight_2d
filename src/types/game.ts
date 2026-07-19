@@ -9,7 +9,8 @@ export type ItemCategory =
   | 'consumable';
 
 export type GearSlot = 'weapon' | 'armor' | 'head' | 'shoes' | 'backpack';
-export type Rarity = 'common' | 'uncommon' | 'rare' | 'relic';
+// 白、绿、蓝、紫、金、红六级品阶；红色只留给极少数顶级藏品。
+export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'relic';
 export type CollectibleKind = 'food' | 'homeware' | 'electronics' | 'craft' | 'memory';
 
 export interface ItemStats {
@@ -81,6 +82,11 @@ export interface ActiveRaid {
   entryId?: string;
 }
 
+export interface RaidContainerState {
+  drops: Array<ItemStack & { rotated?: boolean }>;
+  revealed: boolean[];
+}
+
 export interface RaidRunState {
   backpack: GridItem[];
   loadout: Loadout;
@@ -94,6 +100,7 @@ export interface RaidRunState {
   discoveredItems: string[];
   discoveredClues: string[];
   openedCrateIds: string[];
+  containerStates?: Record<string, RaidContainerState>;
   defeatedEnemyIds: string[];
 }
 
@@ -213,7 +220,7 @@ export interface TextGameState {
     label: string;
     activeIndex: number;
     searching: boolean;
-    revealed: Array<{ itemId: string | null; revealed: boolean; active: boolean }>;
+    revealed: Array<{ itemId: string | null; quantity?: number; rotated?: boolean; revealed: boolean; active: boolean }>;
   } | null;
   flags?: Record<string, boolean>;
 }

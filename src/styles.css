@@ -102,7 +102,7 @@ body::after {
 .slot-copy small { color: var(--muted); font-size: .64rem; letter-spacing: .12em; }
 .slot-copy strong { font-family: Georgia, "Noto Serif SC", serif; font-size: 1rem; }
 .slot-copy em { overflow: hidden; color: #718f8e; font-size: .69rem; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
-.rarity-uncommon { box-shadow: inset 2px 0 0 #64c7a7; }.rarity-rare { box-shadow: inset 2px 0 0 #7e8cff; }.rarity-relic { box-shadow: inset 2px 0 0 #f0ba5a; }
+.rarity-uncommon { box-shadow: inset 2px 0 0 #70d7a1; }.rarity-rare { box-shadow: inset 2px 0 0 #78aaff; }.rarity-epic { box-shadow: inset 2px 0 0 #bb86f5; }.rarity-legendary { box-shadow: inset 2px 0 0 #f0ba5a; }.rarity-relic { box-shadow: inset 2px 0 0 #ff6f61; }
 .maintenance-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 14px 14px; color: var(--muted); font-size: .75rem; }
 .secondary-button { border: 1px solid rgba(137,241,208,.25); padding: 9px 13px; color: #c8f5e8; background: rgba(42, 111, 96, .18); cursor: pointer; }
 .secondary-button:hover:not(:disabled) { background: rgba(57, 142, 121, .3); }
@@ -254,8 +254,11 @@ body::after {
 .selection-toolbar button, .panel-tools button { border: 1px solid rgba(137, 241, 208, .22); padding: 6px 9px; color: #bceadd; background: rgba(22, 69, 65, .35); cursor: pointer; font-size: .65rem; }
 .selection-toolbar button:hover, .panel-tools button:hover { border-color: rgba(137, 241, 208, .55); }
 .panel-tools { display: grid; justify-items: end; gap: 6px; }
-.grid-item.rarity-rare { background: linear-gradient(145deg, rgba(57, 66, 121, .98), rgba(24, 39, 69, .98)); }
-.grid-item.rarity-relic { border-color: rgba(244, 199, 121, .62); background: linear-gradient(145deg, rgba(104, 76, 37, .98), rgba(50, 39, 27, .98)); }
+.grid-item.rarity-uncommon { border-color: rgba(112, 215, 161, .62); background: linear-gradient(145deg, rgba(35, 95, 74, .98), rgba(18, 51, 42, .98)); }
+.grid-item.rarity-rare { border-color: rgba(120, 170, 255, .66); background: linear-gradient(145deg, rgba(57, 66, 121, .98), rgba(24, 39, 69, .98)); }
+.grid-item.rarity-epic { border-color: rgba(187, 134, 245, .7); background: linear-gradient(145deg, rgba(86, 57, 119, .98), rgba(45, 29, 69, .98)); }
+.grid-item.rarity-legendary { border-color: rgba(244, 199, 121, .72); background: linear-gradient(145deg, rgba(104, 76, 37, .98), rgba(50, 39, 27, .98)); }
+.grid-item.rarity-relic { border-color: rgba(255, 111, 97, .75); background: linear-gradient(145deg, rgba(119, 49, 48, .98), rgba(65, 27, 32, .98)); }
 .bag-warning { margin: 0 12px 12px; padding: 9px 10px; color: #d99aa2; border: 1px solid rgba(255, 114, 129, .16); background: rgba(95, 34, 45, .14); font-size: .65rem; line-height: 1.45; }
 .no-backpack { display: grid; min-height: 240px; margin: 14px; place-items: center; border: 1px dashed var(--line); color: var(--muted); font-size: .75rem; }
 

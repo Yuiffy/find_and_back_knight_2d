@@ -58,6 +58,18 @@ try {
   assert(current.backpack.some((entry) => entry.itemId === 'echo_dust'), `Container item was not dragged into backpack: ${JSON.stringify(current.backpack)}`);
   assert(current.containerSearch.revealed.length < 3, `Container source did not shrink after transfer: ${JSON.stringify(current.containerSearch)}`);
 
+  // Dragging the recovered backpack item into the open container deposits it for sorting.
+  const backpackFrom = point(530, 200);
+  const containerTo = point(1050, 250);
+  await page.mouse.move(backpackFrom.x, backpackFrom.y);
+  await page.mouse.down();
+  await page.mouse.move(containerTo.x, containerTo.y, { steps: 16 });
+  await page.mouse.up();
+  await page.waitForTimeout(240);
+  current = await state(page);
+  assert(!current.backpack.some((entry) => entry.itemId === 'echo_dust'), `Backpack item remained after container deposit: ${JSON.stringify(current.backpack)}`);
+  assert(current.containerSearch.revealed.some((entry) => entry.itemId === 'echo_dust' && entry.revealed), `Deposited item did not appear in the container: ${JSON.stringify(current.containerSearch)}`);
+
   // The opened-container view keeps nearby ground loot in the lower right panel.
   assert(Array.isArray(current.nearbyLoot), `Nearby loot state disappeared while container stayed open: ${JSON.stringify(current)}`);
   await page.keyboard.down('KeyA');

@@ -287,6 +287,22 @@ export const ITEMS: Record<string, ItemDefinition> = {
     id: 'rtx_3050', name: '3050 显卡', icon: '🖥️', category: 'collectible', rarity: 'rare', collectibleKind: 'electronics',
     description: '风扇还能转。也许足够让饼干台恢复一次清晰直播。', stackLimit: 1, sellPrice: 128, size: { width: 1, height: 2 },
   },
+  crumpled_postcard: {
+    id: 'crumpled_postcard', name: '皱巴巴的明信片', icon: '💌', category: 'collectible', rarity: 'common', collectibleKind: 'memory',
+    description: '背面只有一句“下次再一起看海”。廉价，却有人一直没舍得扔。', stackLimit: 3, sellPrice: 9, size: { width: 1, height: 1 },
+  },
+  old_metro_card: {
+    id: 'old_metro_card', name: '旧地铁卡', icon: '🎫', category: 'collectible', rarity: 'common', collectibleKind: 'memory',
+    description: '边角磨得发白，余额只够再坐一站。', stackLimit: 5, sellPrice: 12, size: { width: 1, height: 1 },
+  },
+  sealed_film_roll: {
+    id: 'sealed_film_roll', name: '未冲洗胶卷', icon: '🎞️', category: 'collectible', rarity: 'uncommon', collectibleKind: 'craft',
+    description: '胶卷盒还有余温，里面也许是一次无人赴约的旅行。', stackLimit: 2, sellPrice: 34, size: { width: 1, height: 1 },
+  },
+  tarnished_camera: {
+    id: 'tarnished_camera', name: '褪色拍立得', icon: '📷', category: 'collectible', rarity: 'rare', collectibleKind: 'electronics',
+    description: '闪光灯仍能亮起，只是照片上的人影越来越模糊。', stackLimit: 1, sellPrice: 136, size: { width: 2, height: 1 },
+  },
   cpu_12400f: {
     id: 'cpu_12400f', name: '12400F 处理器', icon: '🔲', category: 'collectible', rarity: 'rare', collectibleKind: 'electronics',
     description: '盒角磨损，标签依然清楚。机房收藏家会很喜欢。', stackLimit: 1, sellPrice: 108, size: { width: 1, height: 1 },
@@ -300,24 +316,24 @@ export const ITEMS: Record<string, ItemDefinition> = {
     description: '裂屏下还亮着未发出的“我到了”。', stackLimit: 1, sellPrice: 52, size: { width: 1, height: 1 },
   },
   inn_leather_shoes: {
-    id: 'inn_leather_shoes', name: '民宿小皮鞋', icon: '👞', category: 'collectible', rarity: 'relic', collectibleKind: 'homeware',
-    description: '擦得很亮，鞋跟夹着一张写有房号的便签。红色藏品。', stackLimit: 1, sellPrice: 420, size: { width: 2, height: 2 },
+    id: 'inn_leather_shoes', name: '民宿小皮鞋', icon: '👞', category: 'collectible', rarity: 'epic', collectibleKind: 'homeware',
+    description: '擦得很亮，鞋跟夹着一张写有房号的便签。紫色藏品。', stackLimit: 1, sellPrice: 420, size: { width: 2, height: 2 },
   },
   shiori_library_parcel: {
     id: 'shiori_library_parcel', name: '寄给栞栞的类库快递', icon: '📦', category: 'collectible', rarity: 'relic', collectibleKind: 'memory',
-    description: '没有寄件地址，却准确写着“请平安签收”。红色藏品。', stackLimit: 1, sellPrice: 480, size: { width: 3, height: 2 },
+    description: '没有寄件地址，却准确写着“请平安签收”。红色藏品。', stackLimit: 1, sellPrice: 480, size: { width: 2, height: 2 },
   },
   airlift_firecloud: {
     id: 'airlift_firecloud', name: '空运火烧云', icon: '🌅', category: 'collectible', rarity: 'relic', collectibleKind: 'craft',
     description: '封存在玻璃罐里的傍晚，打开时像直播间开场一样亮。红色藏品。', stackLimit: 1, sellPrice: 520, size: { width: 3, height: 2 },
   },
   supreme_glucose_monitor: {
-    id: 'supreme_glucose_monitor', name: '至尊动态血糖仪', icon: '⌚', category: 'collectible', rarity: 'relic', collectibleKind: 'electronics',
-    description: '镶着金边的监测仪，读数旁边跳着一只像素小鸟。红色藏品。', stackLimit: 1, sellPrice: 560, size: { width: 1, height: 1 },
+    id: 'supreme_glucose_monitor', name: '至尊动态血糖仪', icon: '⌚', category: 'collectible', rarity: 'legendary', collectibleKind: 'electronics',
+    description: '镶着金边的监测仪，读数旁边跳着一只像素小鸟。金色藏品。', stackLimit: 1, sellPrice: 560, size: { width: 1, height: 1 },
   },
-  iphone16: {
-    id: 'iphone16', name: '苹果 16', icon: '📲', category: 'collectible', rarity: 'relic', collectibleKind: 'electronics',
-    description: '镜头完好，锁屏壁纸是一张饼干岁合照。红色藏品。', stackLimit: 1, sellPrice: 600, size: { width: 1, height: 1 },
+  gilded_iphone16: {
+    id: 'gilded_iphone16', name: '鎏金苹果 16', icon: '📲', category: 'collectible', rarity: 'legendary', collectibleKind: 'electronics',
+    description: '镜头完好，金属边框映着一张饼干岁合照。金色藏品。', stackLimit: 1, sellPrice: 600, size: { width: 2, height: 2 },
   },
 };
 
@@ -330,9 +346,11 @@ export const COLLECTIBLE_KIND_NAMES: Record<CollectibleKind, string> = {
 };
 
 export const RARITY_COLORS: Record<Rarity, string> = {
-  common: '#b7c9c3',
-  uncommon: '#78d9c4',
-  rare: '#a99cff',
+  common: '#d7dedc',
+  uncommon: '#70d7a1',
+  rare: '#78aaff',
+  epic: '#bb86f5',
+  legendary: '#f0ba5a',
   relic: '#ff6f61',
 };
 
@@ -346,12 +364,14 @@ export const SLOT_NAMES: Record<GearSlot, string> = {
   backpack: '背包',
 };
 
-export const RARITY_NAMES = {
-  common: '常见',
-  uncommon: '改良',
-  rare: '稀有',
-  relic: '遗物',
-} as const;
+export const RARITY_NAMES: Record<Rarity, string> = {
+  common: '白色',
+  uncommon: '绿色',
+  rare: '蓝色',
+  epic: '紫色',
+  legendary: '金色',
+  relic: '红色',
+};
 
 export const MARKET_ITEM_IDS = [
   'echo_dust',

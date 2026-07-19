@@ -12,6 +12,7 @@ import {
   MARKET_ITEM_IDS,
   quoteMarketOrder,
   RARITY_COLORS,
+  RARITY_NAMES,
   SLOT_NAMES,
   STARTER_STANDARD_LOADOUT,
 } from '../game/items';
@@ -489,7 +490,7 @@ export function BaseScreen({
               {profile.collectionItems.map((itemId) => {
                 const item = ITEMS[itemId];
                 return <article className={`collection-display rarity-${item.rarity}`} key={itemId} style={{ '--collectible-color': RARITY_COLORS[item.rarity] } as CSSProperties}>
-                  <span>{item.icon}</span><div><small>{item.collectibleKind ? COLLECTIBLE_KIND_NAMES[item.collectibleKind] : '未分类'} · {item.rarity === 'relic' ? '红色珍藏' : '已归档'}</small><strong>{item.name}</strong><p>{item.description}</p><button type="button" onClick={() => onWithdrawCollectible(itemId)}>取回到仓库</button></div>
+                  <span>{item.icon}</span><div><small>{item.collectibleKind ? COLLECTIBLE_KIND_NAMES[item.collectibleKind] : '未分类'} · {RARITY_NAMES[item.rarity]}藏品</small><strong>{item.name}</strong><p>{item.description}</p><button type="button" onClick={() => onWithdrawCollectible(itemId)}>取回到仓库</button></div>
                 </article>;
               })}
             </div>
