@@ -101,6 +101,11 @@ try {
   assert(current.objective.includes('东向阵列'), `Retry calibration did not advance the objective: ${current.objective}.`);
   await moveX(350);
   current = await state();
+  if (current.nearbyInteraction?.includes('聆听')) {
+    await page.keyboard.press('Enter');
+    await hold('ArrowLeft', 150);
+    current = await state();
+  }
   assert(current.nearbyInteraction?.includes('安全撤离'), `West extraction was not reachable: ${current.nearbyInteraction}.`);
   await page.keyboard.press('Enter');
   await page.waitForTimeout(4800);

@@ -463,7 +463,7 @@ export function BaseScreen({
             ? <strong className="echo-warning">◉ 遗失回声等待找回；再次死亡会覆盖</strong>
             : <span>{profile.endingUnlocked && !profile.endingSeen ? '回声核心正与天线墓园共鸣——结局需要在远征现场触发。' : '物品：拖拽精确放置 · 右键旋转 · 双击快速转移。'}</span>}
         </div>
-        <button ref={deployButtonRef} className="deploy-button" type="button" onClick={() => setEntryOpen(true)} disabled={!profile.loadout.weapon || !profile.loadout.backpack}>
+        <button ref={deployButtonRef} className="deploy-button" type="button" onClick={() => setEntryOpen(true)}>
           选择入口并开始远征
         </button>
       </footer>

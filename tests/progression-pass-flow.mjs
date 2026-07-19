@@ -71,9 +71,12 @@ try {
   assert(current.backpack.some((item) => item.itemId === 'echo_tonic'), 'Tonic was consumed at full health.');
 
   await page.keyboard.press('KeyK');
-  await page.waitForTimeout(60);
+  await page.waitForFunction(() => {
+    const current = JSON.parse(window.render_game_to_text?.() ?? '{}');
+    return current.dash?.mode === 'normal' && current.dash.ready === false;
+  }, undefined, { timeout: 700 });
   current = await state();
-  assert(current.dash?.mode === 'normal' && current.dash.active, `Normal dash did not activate: ${JSON.stringify(current.dash)}.`);
+  assert(current.dash?.mode === 'normal' && current.dash.ready === false, `Normal dash did not start its cooldown: ${JSON.stringify(current.dash)}.`);
   await page.locator('canvas').screenshot({ path: path.join(outputDir, 'progression-pass.png') });
   assert(errors.length === 0, `Browser errors: ${errors.join(' | ')}`);
   console.log(JSON.stringify({ ok: true, migratedLegacyLens: true, tonicFullHealthGuard: true, normalDash: current.dash, errors }, null, 2));

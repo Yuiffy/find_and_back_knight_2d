@@ -14,6 +14,7 @@ import type {
   GridItem,
   GridSize,
   ItemStack,
+  GearSlot,
   Loadout,
   PlayerProfile,
 } from '../types/game';
@@ -28,6 +29,19 @@ function canonicalItemId(itemId: unknown): string | null {
   const canonical = LEGACY_ITEM_IDS[itemId] ?? itemId;
   return ITEMS[canonical] ? canonical : null;
 }
+
+function canonicalGearItem(itemId: unknown, slot: GearSlot): string | null {
+  const canonical = canonicalItemId(itemId);
+  return canonical && ITEMS[canonical].category === slot ? canonical : null;
+}
+
+export const EMPTY_DEATH_LOADOUT: Loadout = {
+  weapon: null,
+  armor: null,
+  head: null,
+  shoes: null,
+  backpack: null,
+};
 
 function canonicalizeStacks(raw: readonly ItemStack[]): ItemStack[] {
   return raw.flatMap((stack) => {
@@ -141,16 +155,19 @@ function normalizeProfile(value: unknown): PlayerProfile {
   if (!candidate.loadout) throw new Error('存档版本不受支持');
 
   const defaults = createDefaultProfile();
+  const isLegacy = candidate.version !== 2;
   const loadout: Loadout = {
-    ...defaults.loadout,
-    ...candidate.loadout,
-    weapon: canonicalItemId(candidate.loadout.weapon) ?? defaults.loadout.weapon,
-    armor: candidate.loadout.armor === null ? null : canonicalItemId(candidate.loadout.armor),
-    head: candidate.loadout.head === null ? null : canonicalItemId(candidate.loadout.head),
-    shoes: candidate.loadout.shoes === null ? null : (canonicalItemId(candidate.loadout.shoes) ?? defaults.loadout.shoes),
-    backpack: candidate.version === 2
-      ? (canonicalItemId(candidate.loadout.backpack) ?? null)
-      : (canonicalItemId(candidate.loadout.backpack) ?? 'field_pack'),
+    weapon: candidate.loadout.weapon === null
+      ? null
+      : (canonicalGearItem(candidate.loadout.weapon, 'weapon') ?? (isLegacy ? defaults.loadout.weapon : null)),
+    armor: candidate.loadout.armor === null ? null : canonicalGearItem(candidate.loadout.armor, 'armor'),
+    head: candidate.loadout.head === null ? null : canonicalGearItem(candidate.loadout.head, 'head'),
+    shoes: candidate.loadout.shoes === null
+      ? null
+      : (canonicalGearItem(candidate.loadout.shoes, 'shoes') ?? (isLegacy ? defaults.loadout.shoes : null)),
+    backpack: candidate.loadout.backpack === null
+      ? null
+      : (canonicalGearItem(candidate.loadout.backpack, 'backpack') ?? (isLegacy ? 'field_pack' : null)),
   };
   const warehouseSize = candidate.version === 2 && candidate.warehouseSize
     ? {
@@ -232,14 +249,8 @@ function normalizeProfile(value: unknown): PlayerProfile {
       items: addStacks(activeItems, abandonedGear),
       createdAtRaid: Math.max(0, Math.floor(Number(candidate.activeRaid.raidId) || 0)),
     };
-    normalized.loadout = {
-      weapon: 'rust_nail',
-      armor: null,
-      head: null,
-      shoes: 'soft_boots',
-      backpack: 'field_pack',
-    };
-    normalized.backpack = { width: 4, height: 5, items: [] };
+    normalized.loadout = { ...EMPTY_DEATH_LOADOUT };
+    normalized.backpack = { width: 0, height: 0, items: [] };
     normalized.armorCondition = 0;
     normalized.deaths += 1;
   }

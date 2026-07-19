@@ -64,7 +64,7 @@ async function moveNear(targetX) {
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const current = await state();
     const distance = targetX - current.player.x;
-    if (Math.abs(distance) < 55) return;
+    if (Math.abs(distance) < 15) return;
     await hold(distance > 0 ? 'ArrowRight' : 'ArrowLeft', Math.min(420, Math.max(90, Math.abs(distance) * 2.3)));
   }
 }
@@ -87,7 +87,7 @@ try {
   await moveNear(430);
   await page.locator('canvas').screenshot({ path: path.join(outputDir, '01-echo-found.png') });
   await page.keyboard.press('Enter');
-  await page.waitForTimeout(180);
+  await page.waitForFunction(() => JSON.parse(window.render_game_to_text?.() ?? '{}').flags?.recoveredEcho === true, undefined, { timeout: 800 });
   let current = await state();
   assert(current.flags.recoveredEcho, `Lost Echo was not marked recovered: ${JSON.stringify({ player: current.player, nearbyInteraction: current.nearbyInteraction })}.`);
 
@@ -113,7 +113,7 @@ try {
   saved = await page.evaluate(() => JSON.parse(localStorage.getItem('sui-echoes-below.save.v1')));
   assert(saved.lostEcho, 'Second death did not create a replacement Lost Echo.');
   assert(!saved.lostEcho.items.some((stack) => stack.itemId === 'echo_lance'), 'Old Lost Echo survived a second death.');
-  assert(saved.lostEcho.items.some((stack) => stack.itemId === 'rust_nail'), 'Replacement Lost Echo did not contain current gear.');
+  assert(saved.lostEcho.items.filter((stack) => stack.itemId === 'rust_nail').reduce((total, stack) => total + stack.quantity, 0) === 1, 'Death did not preserve exactly the one Rust Nail that was equipped before the run.');
   await page.screenshot({ path: path.join(outputDir, '03-old-echo-overwritten.png'), fullPage: true });
 
   assert(errors.length === 0, `Browser errors: ${errors.join(' | ')}`);

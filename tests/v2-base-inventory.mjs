@@ -78,6 +78,18 @@ try {
   saved = await page.evaluate(() => JSON.parse(localStorage.getItem('sui-echoes-below.save.v1')));
   assert(saved.loadout.shoes === null, 'Unload toolbar did not clear the shoes slot.');
   assert(saved.warehouse.some((item) => item.itemId === 'soft_boots'), 'Unload toolbar did not return shoes to warehouse.');
+  await dragTo(page, page.getByRole('button', { name: /软羽靴/ }), shoesSlot);
+
+  const weaponSlot = page.getByRole('button', { name: /武器/ });
+  await weaponSlot.click();
+  await page.getByRole('button', { name: '卸到仓库' }).click();
+  saved = await page.evaluate(() => JSON.parse(localStorage.getItem('sui-echoes-below.save.v1')));
+  assert(saved.loadout.weapon === null, 'Unloading a weapon did not leave the weapon slot empty.');
+  assert(saved.warehouse.filter((item) => item.itemId === 'rust_nail').reduce((total, item) => total + item.quantity, 0) === 1, 'Unloading a weapon created an extra Rust Nail.');
+  await page.reload({ waitUntil: 'networkidle' });
+  saved = await page.evaluate(() => JSON.parse(localStorage.getItem('sui-echoes-below.save.v1')));
+  assert(saved.loadout.weapon === null, 'Reload restored a Rust Nail into an intentionally empty weapon slot.');
+  assert(saved.warehouse.filter((item) => item.itemId === 'rust_nail').reduce((total, item) => total + item.quantity, 0) === 1, 'Reload duplicated the unloaded Rust Nail.');
 
   await page.getByRole('button', { name: '选择入口并开始远征' }).click();
   await page.getByRole('dialog').waitFor();

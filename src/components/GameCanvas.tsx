@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import Phaser from 'phaser';
 import { RaidScene } from '../game/RaidScene';
-import type { PlayerProfile, RaidResult } from '../types/game';
+import type { PlayerProfile, RaidResult, RaidRunState, RaidTransition } from '../types/game';
 
 const LOGICAL_WIDTH = 1280;
 const LOGICAL_HEIGHT = 720;
@@ -25,10 +25,12 @@ interface GameCanvasProps {
   profile: PlayerProfile;
   mapId: string;
   entryId: string;
+  runState?: RaidRunState | null;
   onResult: (result: RaidResult) => void;
+  onTransition?: (transition: RaidTransition) => void;
 }
 
-export function GameCanvas({ profile, mapId, entryId, onResult }: GameCanvasProps) {
+export function GameCanvas({ profile, mapId, entryId, runState, onResult, onTransition }: GameCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const renderScale = useMemo(() => chooseRenderScale(
     window.innerWidth,
@@ -41,7 +43,7 @@ export function GameCanvas({ profile, mapId, entryId, onResult }: GameCanvasProp
     if (!container) return undefined;
     container.replaceChildren();
 
-    const scene = new RaidScene({ profile, mapId, entryId, renderScale, onResult });
+    const scene = new RaidScene({ profile, mapId, entryId, renderScale, runState, onResult, onTransition });
     const game = new Phaser.Game({
       type: Phaser.AUTO,
       parent: container,
@@ -71,7 +73,7 @@ export function GameCanvas({ profile, mapId, entryId, onResult }: GameCanvasProp
       container.replaceChildren();
       window.__SUI_GAME_STATE__ = { mode: 'base', objective: '返回饼干台' };
     };
-  }, [entryId, mapId, onResult, profile, renderScale]);
+  }, [entryId, mapId, onResult, onTransition, profile, renderScale, runState]);
 
   return (
     <main className="raid-shell">

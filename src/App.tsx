@@ -17,9 +17,9 @@ import {
   validateGrid,
 } from './game/inventory';
 import { getArmorMaximum, getCurrentObjective, getDeathPersistentClues, ITEMS } from './game/items';
-import { saveRepository } from './services/saveRepository';
+import { EMPTY_DEATH_LOADOUT, saveRepository } from './services/saveRepository';
 import { publishDomainEvent } from './services/gameNetworkBoundary';
-import type { GearSlot, GridItem, GridSize, PlayerProfile, RaidResult, TextGameState } from './types/game';
+import type { GearSlot, GridItem, GridSize, PlayerProfile, RaidResult, RaidRunState, RaidTransition, TextGameState } from './types/game';
 
 type AppMode = 'base' | 'raid' | 'ending';
 
@@ -32,6 +32,7 @@ export function App() {
   const [mode, setMode] = useState<AppMode>('base');
   const [raidMapId, setRaidMapId] = useState('hollow_01');
   const [raidEntryId, setRaidEntryId] = useState('foyer');
+  const [raidRunState, setRaidRunState] = useState<RaidRunState | null>(null);
   const [notice, setNotice] = useState<string | null>('饼干台上线。浏览器自动存档已启用。');
   const objective = getCurrentObjective(profile);
 
@@ -288,9 +289,14 @@ export function App() {
 
   function handleUpgradeWarehouse(): void {
     if (profile.warehouseSize.width >= 10) return;
+    const nextSize = { width: 10, height: Math.max(10, profile.warehouseSize.height) };
+    if (!validateGrid(profile.warehouse, nextSize)) {
+      setNotice('扩建不会缩小仓库；请先整理无法放入新宽度的物品。');
+      return;
+    }
     const nextWarehouse = removeGridQuantity(profile.warehouse, 'echo_dust', 6);
     if (!nextWarehouse) return;
-    commit({ ...profile, warehouse: nextWarehouse, warehouseSize: { width: 10, height: 10 } }, '基地仓库已扩建为 10×10；随身背包保持不变。');
+    commit({ ...profile, warehouse: nextWarehouse, warehouseSize: nextSize }, `基地仓库已扩建为 ${nextSize.width}×${nextSize.height}；随身背包保持不变。`);
   }
 
   function handleBeginRaid(mapId: string, entryId: string): void {
@@ -309,6 +315,7 @@ export function App() {
     setProfile(next);
     setRaidMapId(mapId);
     setRaidEntryId(entryId);
+    setRaidRunState(null);
     setNotice(null);
     publishDomainEvent({
       type: 'raid.started',
@@ -319,6 +326,13 @@ export function App() {
     });
     setMode('raid');
   }
+
+  const handleRaidTransition = useCallback((transition: RaidTransition) => {
+    setRaidRunState(transition.runState);
+    setRaidMapId(transition.targetMapId);
+    setRaidEntryId(transition.targetEntryId);
+    setNotice(null);
+  }, []);
 
   const handleRaidResult = useCallback((result: RaidResult) => {
     publishDomainEvent({
@@ -359,6 +373,7 @@ export function App() {
         activeRaid: null,
       });
       setProfile(next);
+      setRaidRunState(null);
       if (result.endingTriggered) {
         setMode('ending');
         return;
@@ -375,14 +390,8 @@ export function App() {
     const deathPosition = result.deathPosition ?? { x: 240, y: 1940 };
     const next = saveRepository.save({
       ...profile,
-      loadout: {
-        weapon: 'rust_nail',
-        armor: null,
-        head: null,
-        shoes: 'soft_boots',
-        backpack: 'field_pack',
-      },
-      backpack: { width: 4, height: 5, items: [] },
+      loadout: { ...EMPTY_DEATH_LOADOUT },
+      backpack: { width: 0, height: 0, items: [] },
       armorCondition: 0,
       deaths: profile.deaths + 1,
       discoveredItems: Array.from(new Set([...profile.discoveredItems, ...(result.discoveredItems ?? [])])),
@@ -401,7 +410,8 @@ export function App() {
       activeRaid: null,
     });
     setProfile(next);
-    setNotice('远征失败。饼干岁送来了救济羽钉；遗失装备将在下一轮的死亡地点出现一次。');
+    setRaidRunState(null);
+    setNotice('远征失败。装备与背包物品留在死亡地点的遗失回声中；从安全仓库重新配装，或下一轮前去回收。');
     setMode('base');
   }, [profile]);
 
@@ -424,7 +434,14 @@ export function App() {
   if (mode === 'raid') {
     return (
       <Suspense fallback={<main className="game-loading">正在打开远征地图…</main>}>
-        <GameCanvas profile={profile} mapId={raidMapId} entryId={raidEntryId} onResult={handleRaidResult} />
+        <GameCanvas
+          profile={profile}
+          mapId={raidMapId}
+          entryId={raidEntryId}
+          runState={raidRunState}
+          onResult={handleRaidResult}
+          onTransition={handleRaidTransition}
+        />
       </Suspense>
     );
   }

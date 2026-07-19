@@ -78,6 +78,28 @@ export interface ActiveRaid {
   entryId?: string;
 }
 
+export interface RaidRunState {
+  backpack: GridItem[];
+  loadout: Loadout;
+  armorCondition: number;
+  health: number;
+  recoveredItems: ItemStack[];
+  recoveredEcho: boolean;
+  mapUnlocked: boolean;
+  shortcutUnlocked: boolean;
+  bossDefeated: boolean;
+  discoveredItems: string[];
+  discoveredClues: string[];
+  openedCrateIds: string[];
+  defeatedEnemyIds: string[];
+}
+
+export interface RaidTransition {
+  targetMapId: string;
+  targetEntryId: string;
+  runState: RaidRunState;
+}
+
 export interface PlayerProfile {
   version: 2;
   updatedAt: string;

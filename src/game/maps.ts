@@ -36,6 +36,7 @@ export const MAP_REGISTRY: Record<string, MapDefinition> = {
     entries: {
       foyer: { id: 'foyer', name: '失落前庭随机投放', x: 240, y: 1960, zoneId: 'foyer' },
       lift: { id: 'lift', name: '维护电梯深层站', x: 2780, y: 850, zoneId: 'rift', unlockedBy: 'shortcutUnlocked' },
+      relay_return: { id: 'relay_return', name: '深场折跃门返程', x: 4040, y: 535, zoneId: 'graveyard', unlockedBy: 'shortcutUnlocked' },
     },
     // Bounds intentionally leave narrow transition gaps. Region resolution must
     // preserve the previous zone briefly instead of inventing a foyer fallback.

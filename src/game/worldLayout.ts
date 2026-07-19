@@ -47,6 +47,15 @@ export interface RelayInteractionDefinition {
   name: string;
 }
 
+export interface GateDefinition {
+  id: string;
+  x: number;
+  y: number;
+  name: string;
+  targetMapId: string;
+  targetEntryId: string;
+}
+
 export interface WorldLayoutDefinition {
   terrain: TerrainSegment[];
   hazards: HazardDefinition[];
@@ -56,6 +65,7 @@ export interface WorldLayoutDefinition {
   routes: Array<Array<{ x: number; y: number }>>;
   extractionPoints: Array<{ x: number; y: number; label: string }>;
   relayInteractions?: RelayInteractionDefinition[];
+  gates?: GateDefinition[];
   terminal?: { x: number; y: number; name: string };
 }
 
@@ -80,10 +90,16 @@ export const TERRAIN_SEGMENTS: TerrainSegment[] = [
   { x: 2700, y: 1660, width: 440, style: 'cistern', massDepth: 140 },
   { x: 3050, y: 1480, width: 340, style: 'cistern', massDepth: 150, edge: 'right' },
   { x: 2660, y: 1300, width: 480, style: 'cistern', massDepth: 140 },
+  // A real stepping stone between the right shelf and the upper cistern; the
+  // former near-overlap offered no run-up against full solid collision masses.
+  { x: 2960, y: 1385, width: 150, style: 'cistern', massDepth: 72 },
   { x: 3300, y: 830, width: 700, style: 'machine', massDepth: 100 },
   { x: 3925, y: 620, width: 550, style: 'graveyard', massDepth: 240 },
   // 档案窟的短跳教学支路，避开主线和撤离点。
-  { x: 300, y: 760, width: 190, style: 'archive', massDepth: 80 },
+  // Broad first step and a low approach ledge keep this optional cache route
+  // reachable without relying on edge correction against a solid wall.
+  { x: 450, y: 850, width: 170, style: 'archive', massDepth: 72 },
+  { x: 345, y: 760, width: 250, style: 'archive', massDepth: 80 },
   { x: 590, y: 620, width: 170, style: 'archive', massDepth: 76 },
   { x: 875, y: 485, width: 160, style: 'archive', massDepth: 72 },
   { x: 1150, y: 610, width: 180, style: 'archive', massDepth: 80 },
@@ -131,7 +147,8 @@ export const MAP_ROOM_SHAPES: MapRoomShape[] = [
 export const MAP_ROUTES: Array<Array<{ x: number; y: number }>> = [
   [{ x: 240, y: 1990 }, { x: 760, y: 1970 }, { x: 1250, y: 1785 }, { x: 570, y: 1600 }, { x: 1450, y: 1420 }, { x: 2000, y: 1235 }, { x: 2450, y: 1050 }, { x: 2700, y: 930 }, { x: 3250, y: 830 }, { x: 3925, y: 620 }],
   [{ x: 1450, y: 1420 }, { x: 600, y: 1320 }, { x: 250, y: 1120 }, { x: 600, y: 930 }, { x: 1050, y: 1040 }, { x: 1450, y: 1420 }],
-  [{ x: 2000, y: 1990 }, { x: 2290, y: 1840 }, { x: 2700, y: 1660 }, { x: 3050, y: 1480 }, { x: 2660, y: 1300 }, { x: 2000, y: 1235 }],
+  [{ x: 2000, y: 1990 }, { x: 2290, y: 1840 }, { x: 2700, y: 1660 }, { x: 3050, y: 1480 }, { x: 2960, y: 1385 }, { x: 2660, y: 1300 }, { x: 2000, y: 1235 }],
+  [{ x: 450, y: 850 }, { x: 345, y: 760 }, { x: 590, y: 620 }, { x: 875, y: 485 }, { x: 1150, y: 610 }],
   [{ x: 3925, y: 620 }, { x: 4520, y: 760 }, { x: 4930, y: 620 }, { x: 5260, y: 520 }, { x: 5590, y: 690 }, { x: 5920, y: 510 }, { x: 6200, y: 350 }],
   [{ x: 4520, y: 760 }, { x: 4750, y: 1120 }, { x: 5140, y: 1260 }, { x: 5530, y: 1140 }, { x: 5920, y: 1320 }],
 ];
@@ -187,6 +204,9 @@ export const WORLD_LAYOUTS: Record<string, WorldLayoutDefinition> = {
     storyEchoes: STORY_ECHOES,
     roomShapes: MAP_ROOM_SHAPES,
     routes: MAP_ROUTES,
+    gates: [
+      { id: 'graveyard-relay-gate', x: 4040, y: 535, name: '深场折跃门', targetMapId: 'relay_01', targetEntryId: 'west' },
+    ],
     extractionPoints: [
       { x: 520, y: 1995, label: '前庭撤离点' },
       { x: 3010, y: 1415, label: '沉钟应急浮标' },
@@ -215,6 +235,9 @@ export const WORLD_LAYOUTS: Record<string, WorldLayoutDefinition> = {
     storyEchoes: RELAY_ECHOES,
     roomShapes: RELAY_ROOMS,
     routes: [[{ x: 230, y: 1510 }, { x: 1125, y: 1400 }, { x: 1575, y: 1260 }, { x: 2100, y: 1390 }, { x: 2525, y: 1180 }, { x: 2930, y: 990 }, { x: 3310, y: 800 }], [{ x: 500, y: 1510 }, { x: 760, y: 1100 }, { x: 1370, y: 920 }, { x: 1840, y: 1260 }]],
+    gates: [
+      { id: 'relay-hollow-gate', x: 620, y: 1515, name: '空洞折跃门', targetMapId: 'hollow_01', targetEntryId: 'relay_return' },
+    ],
     extractionPoints: [
       { x: 350, y: 1515, label: '西侧返航信标' },
       { x: 2920, y: 985, label: '东侧返航信标' },

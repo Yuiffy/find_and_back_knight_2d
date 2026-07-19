@@ -15,6 +15,7 @@ import { getArmorMaximum, ITEMS, RARITY_NAMES, SLOT_NAMES } from './items';
 import { containsPoint, findZoneAt, getMapDefinition, type MapDefinition, type MapZoneDefinition } from './maps';
 import {
   getWorldLayout,
+  type GateDefinition,
   type HazardDefinition,
   type RelayInteractionDefinition,
   type StoryEchoDefinition,
@@ -22,13 +23,18 @@ import {
   type TerrainStyle,
   type WorldLayoutDefinition,
 } from './worldLayout';
-import type { GearSlot, GridItem, ItemStack, Loadout, PlayerProfile, RaidResult, TextGameState } from '../types/game';
+import type { GearSlot, GridItem, ItemStack, Loadout, PlayerProfile, RaidResult, RaidRunState, RaidTransition, TextGameState } from '../types/game';
 
 const VIEW_WIDTH = 1280;
 const VIEW_HEIGHT = 720;
 const ZONE_HYSTERESIS = 40;
 const ZONE_CANDIDATE_DWELL = 600;
 const DOWNSTRIKE_BOUNCE_VELOCITY = -760;
+const UNARMED_ATTACK = {
+  attack: 1,
+  range: 56,
+  attackCooldown: 420,
+};
 
 type AttackDirection = 'left' | 'right' | 'up' | 'down';
 
@@ -37,7 +43,9 @@ interface RaidSceneOptions {
   mapId: string;
   entryId: string;
   renderScale: 1 | 1.5 | 2;
+  runState?: RaidRunState | null;
   onResult: (result: RaidResult) => void;
+  onTransition?: (transition: RaidTransition) => void;
 }
 
 interface RaidKeys {
@@ -140,6 +148,8 @@ export class RaidScene extends Phaser.Scene {
   private readonly worldWidth: number;
   private readonly worldHeight: number;
   private readonly onResult: (result: RaidResult) => void;
+  private readonly onTransition?: (transition: RaidTransition) => void;
+  private readonly initialRunState: RaidRunState | null;
   private player!: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
   private platforms!: Phaser.Physics.Arcade.StaticGroup;
   private hazards!: Phaser.Physics.Arcade.StaticGroup;
@@ -213,7 +223,7 @@ export class RaidScene extends Phaser.Scene {
   private lastSpawnPosition: { x: number; y: number } | null = null;
   private lastAttack: { direction: AttackDirection; connected: boolean; bounced: boolean } | null = null;
 
-  constructor({ profile, mapId, entryId, renderScale, onResult }: RaidSceneOptions) {
+  constructor({ profile, mapId, entryId, renderScale, runState, onResult, onTransition }: RaidSceneOptions) {
     super('raid');
     this.profile = profile;
     this.loadout = { ...profile.loadout };
@@ -225,7 +235,9 @@ export class RaidScene extends Phaser.Scene {
     this.extractionPoints = this.layout.extractionPoints;
     this.entryId = this.mapDefinition.entries[entryId] ? entryId : Object.keys(this.mapDefinition.entries)[0];
     this.renderScale = renderScale;
+    this.initialRunState = runState ?? null;
     this.onResult = onResult;
+    this.onTransition = onTransition;
   }
 
   preload(): void {
@@ -233,15 +245,19 @@ export class RaidScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.health = this.maxHealth;
+    const runState = this.initialRunState;
+    if (runState) this.loadout = { ...runState.loadout };
+    this.health = Math.max(1, Math.min(this.maxHealth, runState?.health ?? this.maxHealth));
     this.maxArmor = getArmorMaximum({ loadout: this.loadout });
-    this.armor = Math.min(this.profile.armorCondition, this.maxArmor);
-    this.mapUnlocked = this.profile.mapUnlocked;
-    this.shortcutUnlocked = this.profile.shortcutUnlocked;
-    this.bossDefeated = this.profile.bossDefeated;
-    this.discoveredItems = new Set(this.profile.discoveredItems ?? []);
-    this.discoveredClues = new Set(this.profile.discoveredClues ?? []);
-    this.backpack = cloneGridItems(this.profile.backpack.items);
+    this.armor = Math.min(runState?.armorCondition ?? this.profile.armorCondition, this.maxArmor);
+    this.mapUnlocked = runState?.mapUnlocked ?? this.profile.mapUnlocked;
+    this.shortcutUnlocked = runState?.shortcutUnlocked ?? this.profile.shortcutUnlocked;
+    this.bossDefeated = runState?.bossDefeated ?? this.profile.bossDefeated;
+    this.discoveredItems = new Set(runState?.discoveredItems ?? this.profile.discoveredItems ?? []);
+    this.discoveredClues = new Set(runState?.discoveredClues ?? this.profile.discoveredClues ?? []);
+    this.recoveredEchoItems = runState?.recoveredItems.map((item) => ({ ...item })) ?? [];
+    this.recoveredEcho = runState?.recoveredEcho ?? false;
+    this.backpack = cloneGridItems(runState?.backpack ?? this.profile.backpack.items);
     this.createTextures();
     this.createBackdrop();
     this.createPlatforms();
@@ -900,11 +916,12 @@ export class RaidScene extends Phaser.Scene {
     this.spawnMoth('moth-conservatory-1', 5200, 430, 4850, 5520);
     this.spawnHusk('husk-conservatory-2', 5570, 620, 5450, 5720);
     this.spawnMoth('moth-conservatory-2', 6030, 250, 5800, 6280);
-    if (!this.profile.bossDefeated) this.spawnWarden();
+    if (!this.bossDefeated) this.spawnWarden();
   }
 
   private createLandmarks(): void {
     for (const extraction of this.extractionPoints) this.createExtractionBeacon(extraction.x, extraction.y, extraction.label);
+    for (const gate of this.layout.gates ?? []) this.createGate(gate);
     if (this.mapId === 'relay_01') {
       this.createRelayLandmarks();
       this.layout.storyEchoes.forEach((echo) => this.createStoryEcho(echo));
@@ -919,8 +936,8 @@ export class RaidScene extends Phaser.Scene {
     ]);
     // 原深层箱子曾嵌进 x=2700 的厚平台；移到平台右侧安全表面。
     this.spawnCrate('crate-deep', 2825, 855, [
-      { itemId: 'miner_shell', quantity: 1 },
-      { itemId: 'echo_dust', quantity: 3 },
+      { itemId: 'echo_dust', quantity: 5 },
+      { itemId: 'repair_patch', quantity: 1 },
     ]);
     this.spawnCrate('crate-archive', 390, 1040, this.getRaidSupplyDrops('archive'));
     this.spawnCrate('crate-platforming-cache', 1150, 545, [
@@ -929,6 +946,7 @@ export class RaidScene extends Phaser.Scene {
     ]);
     this.spawnCrate('crate-cistern', 3020, 1400, [
       { itemId: 'cat_cap', quantity: 1 },
+      { itemId: 'bell_maul', quantity: 1 },
       { itemId: 'repair_patch', quantity: 1 },
     ]);
     this.spawnCrate('crate-graveyard', 3990, 535, [
@@ -941,6 +959,7 @@ export class RaidScene extends Phaser.Scene {
     ]);
     this.spawnCrate('crate-conservatory-depths', 5920, 1245, [
       { itemId: 'flower_hat', quantity: 1 },
+      { itemId: 'wind_needle', quantity: 1 },
       { itemId: 'echo_tonic', quantity: 2 },
     ]);
     this.spawnCrate('crate-conservatory-summit', 6200, 270, [
@@ -983,7 +1002,7 @@ export class RaidScene extends Phaser.Scene {
       ? [{ itemId: 'echo_dust', quantity: 3 }, { itemId: 'echo_tonic', quantity: 1 }]
       : [{ itemId: 'echo_dust', quantity: 5 }, { itemId: 'repair_patch', quantity: 1 }]);
     this.spawnCrate('crate-relay-east', 2450, 1170, [{ itemId: 'biscuit_note', quantity: 1 }, { itemId: 'echo_dust', quantity: 4 }]);
-    this.spawnCrate('crate-relay-crown', 3100, 990, [{ itemId: 'storm_feather', quantity: 1 }]);
+    this.spawnCrate('crate-relay-crown', 3100, 990, [{ itemId: 'relay_sabre', quantity: 1 }]);
     for (const relay of this.layout.relayInteractions ?? []) this.createRelayInteraction(relay);
     const terminal = this.layout.terminal;
     if (terminal) {
@@ -1042,6 +1061,13 @@ export class RaidScene extends Phaser.Scene {
     echo.marker.setAlpha(0.48).setScale(1);
     echo.halo.setAlpha(0.025).setScale(1).setStrokeStyle(2, echo.color, 0.16);
     echo.label.setColor('#566e6c');
+  }
+
+  private createGate(gate: GateDefinition): void {
+    const ring = this.add.circle(gate.x, gate.y, 40, 0x8978e8, 0.12).setStrokeStyle(3, 0xc7b7ff, 0.62).setDepth(8);
+    this.add.text(gate.x, gate.y, '⌘', { fontFamily: 'Georgia, serif', fontSize: '34px', color: '#e4dcff', stroke: '#07151d', strokeThickness: 4 }).setOrigin(0.5).setDepth(9);
+    this.add.text(gate.x, gate.y - 68, gate.name, { fontFamily: 'Arial, sans-serif', fontSize: '12px', color: '#b8afe0' }).setOrigin(0.5).setDepth(9);
+    this.tweens.add({ targets: ring, scale: 1.16, alpha: 0.34, duration: 900, yoyo: true, repeat: -1 });
   }
 
   private createExtractionBeacon(x: number, y: number, label: string): void {
@@ -1379,7 +1405,6 @@ export class RaidScene extends Phaser.Scene {
 
     if (time < this.staggerEndsAt) return;
 
-    const weapon = this.loadout.weapon ? ITEMS[this.loadout.weapon] : ITEMS.rust_nail;
     const shoes = this.loadout.shoes ? ITEMS[this.loadout.shoes] : null;
     const armor = this.loadout.armor ? ITEMS[this.loadout.armor] : null;
     const catHaste = this.getHeadEffect() === 'panic-haste' && time < this.hasteUntil ? 1.28 : 1;
@@ -1414,7 +1439,7 @@ export class RaidScene extends Phaser.Scene {
       else this.showHint('冲刺仍在冷却。', 700);
     }
 
-    if (weapon.stats?.range && Math.abs(body.velocity.x) > 20 && grounded) {
+    if (this.loadout.weapon && Math.abs(body.velocity.x) > 20 && grounded) {
       this.player.angle = Math.sin(time / 85) * 1.4;
     } else {
       this.player.angle = Phaser.Math.Linear(this.player.angle, 0, 0.2);
@@ -1484,14 +1509,14 @@ export class RaidScene extends Phaser.Scene {
 
   private tryAttack(time: number, direction: AttackDirection = this.facing < 0 ? 'left' : 'right'): void {
     if (time < this.attackReadyAt || this.isDashing || !this.player.active) return;
-    const weapon = this.loadout.weapon ? ITEMS[this.loadout.weapon] : ITEMS.rust_nail;
-    const range = weapon.stats?.range ?? 84;
-    const damage = weapon.stats?.attack ?? 2;
+    const weapon = this.loadout.weapon ? ITEMS[this.loadout.weapon] : null;
+    const range = weapon?.stats?.range ?? UNARMED_ATTACK.range;
+    const damage = weapon?.stats?.attack ?? UNARMED_ATTACK.attack;
     const vertical = direction === 'up' || direction === 'down';
     const directionX = direction === 'left' ? -1 : direction === 'right' ? 1 : 0;
     const directionY = direction === 'up' ? -1 : direction === 'down' ? 1 : 0;
     if (directionX !== 0) this.facing = directionX as -1 | 1;
-    this.attackReadyAt = time + (weapon.stats?.attackCooldown ?? 340);
+    this.attackReadyAt = time + (weapon?.stats?.attackCooldown ?? UNARMED_ATTACK.attackCooldown);
 
     const hitboxWidth = vertical ? 88 : range + 56;
     const hitboxHeight = vertical ? range + 56 : 88;
@@ -1823,8 +1848,9 @@ export class RaidScene extends Phaser.Scene {
     if (enemy.boss) {
       this.bossDefeated = true;
       this.discoveredClues.add('warden-trace');
-      this.spawnLoot('boss-core', 'echo_core', 1, x - 34, y - 18);
-      this.spawnLoot('boss-boots', 'shadow_boots', 1, x + 36, y - 18);
+      const strandedRewards = new Set(this.profile.lostEcho?.items.map((item) => item.itemId) ?? []);
+      if (!strandedRewards.has('echo_core')) this.spawnLoot('boss-core', 'echo_core', 1, x - 34, y - 18);
+      if (!strandedRewards.has('shadow_boots')) this.spawnLoot('boss-boots', 'shadow_boots', 1, x + 36, y - 18);
       this.cameras.main.flash(380, 151, 113, 224);
       this.showHint('失频守卫停止了。回声核心正在等待被带回。', 2600);
     } else {
@@ -1967,6 +1993,24 @@ export class RaidScene extends Phaser.Scene {
     this.showHint(this.lastSafePosition ? '空洞把你送回最近的安全落点。失去 1 点生命。' : '空洞把你吐回了投放点。失去 1 点生命。', 1800);
   }
 
+  private createRunState(): RaidRunState {
+    return {
+      backpack: cloneGridItems(this.backpack),
+      loadout: { ...this.loadout },
+      armorCondition: this.armor,
+      health: this.health,
+      recoveredItems: this.recoveredEchoItems.map((item) => ({ ...item })),
+      recoveredEcho: this.recoveredEcho,
+      mapUnlocked: this.mapUnlocked,
+      shortcutUnlocked: this.shortcutUnlocked,
+      bossDefeated: this.bossDefeated,
+      discoveredItems: Array.from(this.discoveredItems),
+      discoveredClues: Array.from(this.discoveredClues),
+      openedCrateIds: this.crates.filter((crate) => crate.broken).map((crate) => crate.id),
+      defeatedEnemyIds: this.enemies.filter((enemy) => !enemy.sprite.active).map((enemy) => enemy.id),
+    };
+  }
+
   private updateInteractions(time: number): void {
     if (this.extractingUntil > 0) {
       const distance = this.extractionPoint
@@ -2030,6 +2074,23 @@ export class RaidScene extends Phaser.Scene {
           this.showHint('维护电梯已记录到基地。以后可快速进入深层。', 2200);
         }
       } else {
+        const nearbyGate = this.layout.gates?.find((gate) => Phaser.Math.Distance.Between(
+          this.player.x, this.player.y, gate.x, gate.y,
+        ) < 105);
+        if (nearbyGate) {
+          const canCross = nearbyGate.targetMapId !== 'relay_01' || this.bossDefeated || this.profile.bossDefeated;
+          prompt = canCross ? `E · 穿过${nearbyGate.name}` : `${nearbyGate.name}等待回声核心回应`;
+          if (interactPressed && canCross && this.onTransition) {
+            this.runEnded = true;
+            this.physics.pause();
+            this.showHint('折跃门展开，携带中的物资将随你穿过深场。', 900);
+            this.time.delayedCall(260, () => this.onTransition?.({
+              targetMapId: nearbyGate.targetMapId,
+              targetEntryId: nearbyGate.targetEntryId,
+              runState: this.createRunState(),
+            }));
+          }
+        } else {
         const nearbyRelay = this.layout.relayInteractions?.find((relay) => Phaser.Math.Distance.Between(
           this.player.x, this.player.y, relay.x, relay.y,
         ) < 105);
@@ -2090,6 +2151,7 @@ export class RaidScene extends Phaser.Scene {
           }
         }
       }
+    }
     }
     }
 

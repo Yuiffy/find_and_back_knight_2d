@@ -140,16 +140,21 @@ try {
   assert(sawBossWindup, 'Boss fight never exposed a telegraph or charge state to the player.');
   assert(capturedBossWindup, 'Boss telegraph was not visible long enough to capture before its charge.');
 
-  for (let pickup = 0; pickup < 8; pickup += 1) {
+  for (let pickup = 0; pickup < 12; pickup += 1) {
     current = await state();
     const nextLoot = current.visibleLoot.find((loot) => loot.itemId === 'echo_core') ?? current.visibleLoot[0];
     if (!nextLoot) break;
-    await moveX(nextLoot.x, 45);
-    await page.keyboard.press('Enter');
-    await page.waitForTimeout(260);
+    await moveX(nextLoot.x, 24);
+    for (let press = 0; press < 3; press += 1) {
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(180);
+      current = await state();
+      if (current.backpack.some((item) => item.itemId === 'echo_core')) break;
+    }
+    if (current.backpack.some((item) => item.itemId === 'echo_core')) break;
   }
   current = await state();
-  assert(current.backpack.some((item) => item.itemId === 'echo_core'), '3x3 Echo Core was not placed in the 4x5 backpack.');
+  assert(current.backpack.some((item) => item.itemId === 'echo_core'), `3x3 Echo Core was not placed in the 4x5 backpack: ${JSON.stringify({ player: current.player, nearby: current.nearbyInteraction, loot: current.visibleLoot, backpack: current.backpack })}.`);
   await page.locator('canvas').screenshot({ path: path.join(outputDir, '02-boss-loot-in-grid-pack.png') });
 
   if (current.player.y > 820) {
