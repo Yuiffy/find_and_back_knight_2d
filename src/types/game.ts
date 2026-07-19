@@ -200,6 +200,11 @@ export interface TextGameState {
     state?: 'patrol' | 'telegraph' | 'charge' | 'aim' | 'burst';
   }>;
   visibleLoot?: Array<{ id: string; itemId: string; x: number; y: number }>;
+  outpost?: {
+    spawn: { x: number; y: number } | null;
+    targetExtraction: { x: number; y: number };
+    scavengersAlive: number;
+  };
   nearbyInteraction?: string | null;
   flags?: Record<string, boolean>;
 }

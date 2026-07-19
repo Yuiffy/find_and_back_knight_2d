@@ -51,6 +51,23 @@ export const MAP_REGISTRY: Record<string, MapDefinition> = {
       { id: 'foyer', name: '失落前庭', risk: 'I', bounds: { x: 0, y: 1780, width: 1820, height: 420 } },
     ],
   },
+  outpost_01: {
+    id: 'outpost_01',
+    name: '雾港封锁区',
+    subtitle: '随机潜入 · 拟态拾荒者 · 远距撤离',
+    worldWidth: 7800,
+    worldHeight: 2600,
+    entries: {
+      infiltration: { id: 'infiltration', name: '随机潜入投放', x: 420, y: 2260, zoneId: 'south-docks' },
+    },
+    zones: [
+      { id: 'north-yard', name: '北侧货场', risk: 'IV', bounds: { x: 5900, y: 120, width: 1900, height: 1180 } },
+      { id: 'relay-tower', name: '风暴中继塔', risk: 'IV', bounds: { x: 4700, y: 180, width: 1180, height: 980 } },
+      { id: 'market-ruins', name: '废弃集市', risk: 'III', bounds: { x: 2850, y: 840, width: 1750, height: 1180 } },
+      { id: 'container-berth', name: '集装箱泊位', risk: 'III', bounds: { x: 1250, y: 1120, width: 1450, height: 1220 } },
+      { id: 'south-docks', name: '南侧码头', risk: 'II', bounds: { x: 0, y: 1850, width: 1450, height: 750 } },
+    ],
+  },
   relay_01: {
     id: 'relay_01',
     name: '天线深场',

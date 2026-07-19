@@ -285,19 +285,19 @@ export const ITEMS: Record<string, ItemDefinition> = {
   },
   rtx_3050: {
     id: 'rtx_3050', name: '3050 显卡', icon: '🖥️', category: 'collectible', rarity: 'rare', collectibleKind: 'electronics',
-    description: '风扇还能转。也许足够让饼干台恢复一次清晰直播。', stackLimit: 1, sellPrice: 128, size: { width: 3, height: 2 },
+    description: '风扇还能转。也许足够让饼干台恢复一次清晰直播。', stackLimit: 1, sellPrice: 128, size: { width: 1, height: 2 },
   },
   cpu_12400f: {
     id: 'cpu_12400f', name: '12400F 处理器', icon: '🔲', category: 'collectible', rarity: 'rare', collectibleKind: 'electronics',
-    description: '盒角磨损，标签依然清楚。机房收藏家会很喜欢。', stackLimit: 1, sellPrice: 108, size: { width: 2, height: 2 },
+    description: '盒角磨损，标签依然清楚。机房收藏家会很喜欢。', stackLimit: 1, sellPrice: 108, size: { width: 1, height: 1 },
   },
   glucose_monitor: {
     id: 'glucose_monitor', name: '动态血糖仪', icon: '📟', category: 'collectible', rarity: 'uncommon', collectibleKind: 'electronics',
-    description: '屏幕冻在一条平稳的曲线，提醒岁己按时吃东西。', stackLimit: 1, sellPrice: 46, size: { width: 2, height: 1 },
+    description: '屏幕冻在一条平稳的曲线，提醒岁己按时吃东西。', stackLimit: 1, sellPrice: 46, size: { width: 1, height: 1 },
   },
   broken_iphone14: {
     id: 'broken_iphone14', name: '摔碎的苹果 14', icon: '📱', category: 'collectible', rarity: 'uncommon', collectibleKind: 'electronics',
-    description: '裂屏下还亮着未发出的“我到了”。', stackLimit: 1, sellPrice: 52, size: { width: 1, height: 2 },
+    description: '裂屏下还亮着未发出的“我到了”。', stackLimit: 1, sellPrice: 52, size: { width: 1, height: 1 },
   },
   inn_leather_shoes: {
     id: 'inn_leather_shoes', name: '民宿小皮鞋', icon: '👞', category: 'collectible', rarity: 'relic', collectibleKind: 'homeware',
@@ -313,11 +313,11 @@ export const ITEMS: Record<string, ItemDefinition> = {
   },
   supreme_glucose_monitor: {
     id: 'supreme_glucose_monitor', name: '至尊动态血糖仪', icon: '⌚', category: 'collectible', rarity: 'relic', collectibleKind: 'electronics',
-    description: '镶着金边的监测仪，读数旁边跳着一只像素小鸟。红色藏品。', stackLimit: 1, sellPrice: 560, size: { width: 2, height: 2 },
+    description: '镶着金边的监测仪，读数旁边跳着一只像素小鸟。红色藏品。', stackLimit: 1, sellPrice: 560, size: { width: 1, height: 1 },
   },
   iphone16: {
     id: 'iphone16', name: '苹果 16', icon: '📲', category: 'collectible', rarity: 'relic', collectibleKind: 'electronics',
-    description: '镜头完好，锁屏壁纸是一张饼干岁合照。红色藏品。', stackLimit: 1, sellPrice: 600, size: { width: 2, height: 2 },
+    description: '镜头完好，锁屏壁纸是一张饼干岁合照。红色藏品。', stackLimit: 1, sellPrice: 600, size: { width: 1, height: 1 },
   },
 };
 

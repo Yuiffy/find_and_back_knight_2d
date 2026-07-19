@@ -529,8 +529,8 @@ export function BaseScreen({
                       onClick={() => onBeginRaid(map.id, entry.id)}
                       key={`${map.id}:${entry.id}`}
                     >
-                      <span>{map.id === 'relay_01' ? '📡' : (entry.id === 'lift' ? '⇣' : '⌂')}</span>
-                      <div><strong>{entry.name}</strong><small>{unlocked ? `${map.name} · ${entryZone?.risk ?? 'I'} 级区域` : '需要先启动维护电梯'}</small></div>
+                      <span>{map.id === 'outpost_01' ? '⚔️' : (map.id === 'relay_01' ? '📡' : (entry.id === 'lift' ? '⇣' : '⌂'))}</span>
+                      <div><strong>{entry.name}</strong><small>{unlocked ? (map.id === 'outpost_01' ? '大型搜打撤战场 · 随机出生 · 远距撤离 · 拟态拾荒者' : `${map.name} · ${entryZone?.risk ?? 'I'} 级区域`) : '需要先启动维护电梯'}</small></div>
                     </button>
                   );
                 })}

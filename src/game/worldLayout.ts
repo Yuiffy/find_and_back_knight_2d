@@ -190,7 +190,55 @@ const RELAY_ROOMS: MapRoomShape[] = [
   { id: 'terminal-crown', name: '冠顶终端', x: 3020, y: 430, width: 550, height: 1050, color: 0x68557f },
 ];
 
+const OUTPOST_TERRAIN: TerrainSegment[] = [
+  { x: 520, y: 2380, width: 1120, style: 'relay', massDepth: 240, edge: 'left' },
+  { x: 1480, y: 2200, width: 720, style: 'relay', massDepth: 240 },
+  { x: 2320, y: 2020, width: 720, style: 'relay', massDepth: 240 },
+  { x: 3120, y: 1820, width: 720, style: 'machine', massDepth: 240 },
+  { x: 3980, y: 1640, width: 850, style: 'machine', massDepth: 250 },
+  { x: 4900, y: 1430, width: 700, style: 'machine', massDepth: 250 },
+  { x: 5680, y: 1240, width: 720, style: 'graveyard', massDepth: 260 },
+  { x: 6500, y: 1040, width: 780, style: 'graveyard', massDepth: 260 },
+  { x: 7350, y: 850, width: 700, style: 'relay', massDepth: 270, edge: 'right' },
+  { x: 1080, y: 1900, width: 440, style: 'relay', massDepth: 180 },
+  { x: 1900, y: 1700, width: 440, style: 'relay', massDepth: 180 },
+  { x: 2720, y: 1500, width: 500, style: 'machine', massDepth: 180 },
+  { x: 3580, y: 1300, width: 500, style: 'machine', massDepth: 180 },
+  { x: 4460, y: 1100, width: 500, style: 'machine', massDepth: 180 },
+  { x: 5340, y: 900, width: 480, style: 'graveyard', massDepth: 180 },
+  { x: 6220, y: 700, width: 500, style: 'graveyard', massDepth: 180 },
+];
+
+const OUTPOST_ROOMS: MapRoomShape[] = [
+  { id: 'south-docks', name: '南侧码头', x: 60, y: 1830, width: 1400, height: 650, color: 0x315d72 },
+  { id: 'container-berth', name: '集装箱泊位', x: 1220, y: 1080, width: 1550, height: 1220, color: 0x4f607c },
+  { id: 'market-ruins', name: '废弃集市', x: 2800, y: 780, width: 1820, height: 1220, color: 0x68557f },
+  { id: 'relay-tower', name: '风暴中继塔', x: 4650, y: 120, width: 1250, height: 1100, color: 0x5a6d8d },
+  { id: 'north-yard', name: '北侧货场', x: 5850, y: 80, width: 1900, height: 1150, color: 0x476b67 },
+];
+
+const OUTPOST_SPAWNS: Array<{ x: number; y: number }> = [
+  { x: 420, y: 2260 }, { x: 1480, y: 2080 }, { x: 2900, y: 1700 }, { x: 4450, y: 1500 }, { x: 6100, y: 1090 }, { x: 7200, y: 700 },
+];
+
 export const WORLD_LAYOUTS: Record<string, WorldLayoutDefinition> = {
+  outpost_01: {
+    terrain: OUTPOST_TERRAIN,
+    hazards: [
+      { id: 'outpost-crane-spikes', x: 2070, y: 1681, width: 120 },
+      { id: 'outpost-market-spikes', x: 3950, y: 1281, width: 150 },
+      { id: 'outpost-yard-spikes', x: 6740, y: 681, width: 130 },
+    ],
+    spawnClusters: [{ entryId: 'infiltration', positions: OUTPOST_SPAWNS }],
+    storyEchoes: [],
+    roomShapes: OUTPOST_ROOMS,
+    routes: [[...OUTPOST_SPAWNS], [{ x: 420, y: 2260 }, { x: 1900, y: 1700 }, { x: 3580, y: 1300 }, { x: 5340, y: 900 }, { x: 7200, y: 700 }]],
+    extractionPoints: [
+      { x: 350, y: 2300, label: '南码头撤离艇' },
+      { x: 3750, y: 1740, label: '集市地下通道' },
+      { x: 7420, y: 790, label: '北场吊机索降' },
+    ],
+  },
   hollow_01: {
     terrain: TERRAIN_SEGMENTS,
     hazards: [

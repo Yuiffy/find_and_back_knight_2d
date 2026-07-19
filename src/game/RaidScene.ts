@@ -36,6 +36,11 @@ const UNARMED_ATTACK = {
   attackCooldown: 420,
 };
 
+function indexedScavengerTint(id: string): number {
+  const index = Number(id.slice(-1)) || 0;
+  return [0xf3bd6b, 0x8dbeee, 0xd98ccf, 0x90d9a7][index % 4];
+}
+
 type AttackDirection = 'left' | 'right' | 'up' | 'down';
 
 export type VirtualControl = 'left' | 'right' | 'jump' | 'aimUp' | 'aimDown' | 'attack' | 'dash' | 'interact' | 'map' | 'backpack' | 'pause' | 'patch' | 'tonic';
@@ -79,7 +84,7 @@ interface RaidKeys {
 
 interface EnemyEntity {
   id: string;
-  kind: 'husk' | 'moth' | 'warden' | 'sentry';
+  kind: 'husk' | 'moth' | 'warden' | 'sentry' | 'scavenger';
   sprite: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
   health: number;
   maxHealth: number;
@@ -96,6 +101,10 @@ interface EnemyEntity {
   chargeUntil?: number;
   chargeDirection?: -1 | 1;
   warning?: Phaser.GameObjects.Arc;
+  carriedLoot?: ItemStack[];
+  waypointIndex?: number;
+  waypoints?: Array<{ x: number; y: number }>;
+  lootReadyAt?: number;
 }
 
 interface SentryBolt {
@@ -125,13 +134,13 @@ interface RaidCrate {
   rarity: 'common' | 'uncommon' | 'rare' | 'relic';
   searchDuration: number;
   requiresSearch: boolean;
+  revealed: boolean[];
 }
 
 interface ActiveContainerSearch {
   crate: RaidCrate;
+  itemIndex: number;
   completesAt: number;
-  ring: Phaser.GameObjects.Arc;
-  label: Phaser.GameObjects.Text;
 }
 
 
@@ -231,7 +240,7 @@ export class RaidScene extends Phaser.Scene {
   private attackGraphics: Phaser.GameObjects.Rectangle | null = null;
   private lastTextStateAt = 0;
   private overlay: Phaser.GameObjects.Container | null = null;
-  private overlayMode: 'map' | 'backpack' | 'pause' | null = null;
+  private overlayMode: 'map' | 'backpack' | 'pause' | 'container' | null = null;
   private overlayNotice = '';
   private activeInventoryDrag: RaidInventoryDrag | null = null;
   private inventoryDragGhost: Phaser.GameObjects.Text | null = null;
@@ -355,18 +364,13 @@ export class RaidScene extends Phaser.Scene {
       return;
     }
     if (this.overlayMode) {
+      if (this.overlayMode === 'container') this.updateContainerSearch(time);
       if (this.overlayMode === 'backpack'
         && this.activeInventoryDrag
         && Phaser.Input.Keyboard.JustDown(this.keys.usePatch)) {
         this.rotateActiveRaidDrag();
       }
       if (this.overlayMode === 'pause') this.updateAbandonHold();
-      this.publishTextState(time - this.lastTextStateAt > 100);
-      return;
-    }
-
-    if (this.updateContainerSearch(time)) {
-      this.updateHud();
       this.publishTextState(time - this.lastTextStateAt > 100);
       return;
     }
@@ -539,6 +543,12 @@ export class RaidScene extends Phaser.Scene {
       color: '#c7e8df',
     }).setAlpha(0.12);
     if (this.mapId === 'relay_01') return;
+    if (this.mapId === 'outpost_01') {
+      this.add.text(260, 2200, 'MIST HARBOR QUARANTINE', { fontFamily: 'Arial, sans-serif', fontSize: '22px', letterSpacing: 6, color: '#87c7d8' }).setAlpha(0.18);
+      this.add.text(3300, 1320, '废弃集市', { fontFamily: 'Georgia, serif', fontSize: '52px', color: '#c6a8e9' }).setAlpha(0.11);
+      this.add.text(6100, 500, '北侧货场', { fontFamily: 'Georgia, serif', fontSize: '52px', color: '#9de1c9' }).setAlpha(0.11);
+      return;
+    }
     this.add.text(96, 1844, 'THE HOLLOW OF LOST FEATHERS', {
       fontFamily: 'Arial, sans-serif',
       fontSize: '11px',
@@ -929,6 +939,13 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private createEnemies(): void {
+    if (this.mapId === 'outpost_01') {
+      this.spawnOutpostScavengers();
+      this.spawnHusk('husk-outpost-dock', 1060, 1840, 820, 1280);
+      this.spawnMoth('moth-outpost-market', 4060, 1180, 3650, 4450);
+      this.spawnSentry('sentry-outpost-yard', 6730, 800);
+      return;
+    }
     if (this.mapId === 'relay_01') {
       this.spawnHusk('husk-relay-west', 520, 1510, 390, 740);
       this.spawnMoth('moth-relay-trench', 1550, 1160, 1250, 1950);
@@ -960,6 +977,11 @@ export class RaidScene extends Phaser.Scene {
     for (const extraction of this.extractionPoints) this.createExtractionBeacon(extraction.x, extraction.y, extraction.label);
     for (const passage of this.layout.boundaryPassages ?? []) this.createBoundaryPassage(passage);
     for (const gate of this.layout.gates ?? []) this.createGate(gate);
+    if (this.mapId === 'outpost_01') {
+      this.createOutpostLandmarks();
+      this.createMatchingLostEcho();
+      return;
+    }
     if (this.mapId === 'relay_01') {
       this.createRelayLandmarks();
       this.layout.storyEchoes.forEach((echo) => this.createStoryEcho(echo));
@@ -1044,6 +1066,15 @@ export class RaidScene extends Phaser.Scene {
     return alternate
       ? [{ itemId: 'echo_dust', quantity: 3 }, { itemId: 'echo_tonic', quantity: 2 }]
       : [{ itemId: 'repair_patch', quantity: 2 }, { itemId: 'echo_tonic', quantity: 1 }];
+  }
+
+  private createOutpostLandmarks(): void {
+    this.spawnCrate('outpost-docks-hotpot', 1040, 1880, [{ itemId: 'sichuan_hotpot', quantity: 1 }, { itemId: 'beef_jerky', quantity: 2 }], { kind: 'hotpot', label: '码头保温锅', rarity: 'uncommon' });
+    this.spawnCrate('outpost-berth-wardrobe', 2140, 1660, [{ itemId: 'soft_boots', quantity: 1 }, { itemId: 'broken_iphone14', quantity: 1 }], { kind: 'wardrobe', label: '泊位旅行衣柜', rarity: 'rare' });
+    this.spawnCrate('outpost-market-electronics', 3820, 1460, [{ itemId: 'cpu_12400f', quantity: 1 }, { itemId: 'glucose_monitor', quantity: 1 }], { kind: 'electronics_case', label: '集市电子货箱', rarity: 'rare' });
+    this.spawnCrate('outpost-tower-relic', 5360, 920, [{ itemId: 'inn_leather_shoes', quantity: 1 }, { itemId: 'airlift_firecloud', quantity: 1 }], { kind: 'relic_cache', label: '中继塔红色保险柜', rarity: 'relic' });
+    this.spawnCrate('outpost-yard-relic', 7100, 710, [{ itemId: 'iphone16', quantity: 1 }, { itemId: 'shiori_library_parcel', quantity: 1 }], { kind: 'relic_cache', label: '北场红色货柜', rarity: 'relic' });
+    this.showHint('雾港封锁区：随机出生，优先寻找远离投放点的撤离信标。拟态拾荒者会争夺同一批战利品。', 5200);
   }
 
   private createRelayLandmarks(): void {
@@ -1180,7 +1211,7 @@ export class RaidScene extends Phaser.Scene {
       fontFamily: 'Arial, sans-serif', fontSize: '19px', color: rarity === 'relic' ? '#ff8b70' : '#9cebd8', stroke: '#07151d', strokeThickness: 4,
     }).setOrigin(0.5).setDepth(14);
     sprite.setData('containerMarker', marker);
-    this.crates.push({ id, sprite, drops, broken: false, kind, label, rarity, searchDuration, requiresSearch });
+    this.crates.push({ id, sprite, drops, broken: false, kind, label, rarity, searchDuration, requiresSearch, revealed: drops.map(() => false) });
   }
 
   private spawnLoot(id: string, itemId: string, quantity: number, x: number, y: number): void {
@@ -1245,6 +1276,38 @@ export class RaidScene extends Phaser.Scene {
       patrolLeft,
       patrolRight,
       baseY: y,
+    });
+  }
+
+  private spawnOutpostScavengers(): void {
+    const routes = [
+      [{ x: 1260, y: 1840 }, { x: 2050, y: 1660 }, { x: 2900, y: 1500 }],
+      [{ x: 3080, y: 1620 }, { x: 3900, y: 1420 }, { x: 4640, y: 1220 }],
+      [{ x: 4940, y: 1220 }, { x: 5740, y: 1040 }, { x: 6480, y: 840 }],
+      [{ x: 7100, y: 720 }, { x: 6280, y: 880 }, { x: 5500, y: 1080 }],
+    ];
+    const lootSets: ItemStack[][] = [
+      [{ itemId: 'beef_jerky', quantity: 1 }, { itemId: 'soft_boots', quantity: 1 }],
+      [{ itemId: 'glucose_monitor', quantity: 1 }, { itemId: 'echo_lance', quantity: 1 }],
+      [{ itemId: 'rtx_3050', quantity: 1 }, { itemId: 'repair_patch', quantity: 2 }],
+      [{ itemId: 'grapefruit_soda', quantity: 1 }, { itemId: 'cat_cap', quantity: 1 }],
+    ];
+    routes.forEach((route, index) => this.spawnScavenger(`scavenger-${index + 1}`, route, lootSets[index]));
+  }
+
+  private spawnScavenger(id: string, waypoints: Array<{ x: number; y: number }>, carriedLoot: ItemStack[]): void {
+    if (this.initialRunState?.defeatedEnemyIds.includes(id)) return;
+    const start = waypoints[0];
+    const sprite = this.physics.add.sprite(start.x, start.y, 'sui-bird').setScale(0.21).setDepth(19).setTint(indexedScavengerTint(id));
+    sprite.body.allowGravity = false;
+    sprite.setFlipX(true);
+    sprite.body.setSize(180, 185, true);
+    const label = this.add.text(start.x, start.y - 58, `拟态拾荒者 ${id.slice(-1)}`, {
+      fontFamily: 'Arial, sans-serif', fontSize: '12px', color: '#f3d1a5', stroke: '#07151d', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(20);
+    this.enemies.push({
+      id, kind: 'scavenger', sprite, health: 7, maxHealth: 7, speed: 118, direction: 1,
+      patrolLeft: 0, patrolRight: this.worldWidth, baseY: start.y, label, carriedLoot, waypointIndex: 1, waypoints, lootReadyAt: this.time.now + 1500,
     });
   }
 
@@ -1707,6 +1770,10 @@ export class RaidScene extends Phaser.Scene {
         enemy.sprite.setPosition((enemy.patrolLeft + enemy.patrolRight) / 2, enemy.baseY ?? 600);
         enemy.sprite.setVelocity(0, 0);
       }
+      if (enemy.kind === 'scavenger') {
+        this.updateScavenger(enemy);
+        continue;
+      }
       if (enemy.kind === 'moth') {
         const distance = this.player.x - enemy.sprite.x;
         // 飞行敌人可以追逐玩家，但不能跨越整张地图离开自己的生态区。
@@ -1737,6 +1804,38 @@ export class RaidScene extends Phaser.Scene {
       enemy.sprite.setFlipX(enemy.direction > 0);
       enemy.sprite.angle = Math.sin(this.time.now / 130 + enemy.sprite.x) * 2;
       enemy.label?.setPosition(enemy.sprite.x, enemy.sprite.y - 86);
+    }
+  }
+
+  private updateScavenger(enemy: EnemyEntity): void {
+    const routes = enemy.waypoints;
+    if (!routes || routes.length === 0) return;
+    const target = routes[enemy.waypointIndex ?? 0] ?? routes[0];
+    const dx = target.x - enemy.sprite.x;
+    const dy = target.y - enemy.sprite.y;
+    const playerDistance = Phaser.Math.Distance.Between(this.player.x, this.player.y, enemy.sprite.x, enemy.sprite.y);
+    const facing = dx < 0 ? -1 : 1;
+    enemy.sprite.setFlipX(facing > 0);
+    enemy.sprite.setVelocity(Phaser.Math.Clamp(dx * 0.8, -enemy.speed, enemy.speed), Phaser.Math.Clamp(dy * 0.8, -enemy.speed * 0.55, enemy.speed * 0.55));
+    enemy.label?.setPosition(enemy.sprite.x, enemy.sprite.y - 58).setText(playerDistance < 460 ? '拟态拾荒者 · 警戒' : '拟态拾荒者 · 搜索中');
+    if (Math.hypot(dx, dy) < 58) enemy.waypointIndex = ((enemy.waypointIndex ?? 0) + 1) % routes.length;
+    if (playerDistance < 215 && this.time.now >= (enemy.lootReadyAt ?? 0)) {
+      enemy.lootReadyAt = this.time.now + 1200;
+      const bolt = this.add.circle(enemy.sprite.x, enemy.sprite.y, 7, 0xf3bd6b, 0.9).setDepth(35);
+      this.tweens.add({ targets: bolt, x: this.player.x, y: this.player.y, alpha: 0, duration: 280, onComplete: () => bolt.destroy() });
+      this.damagePlayer(enemy);
+      return;
+    }
+    // NPCs also skirmish when their patrols converge, making the outpost feel
+    // populated even while the player chooses a quiet route to extraction.
+    const rival = this.enemies.find((candidate) => candidate.id !== enemy.id && candidate.kind === 'scavenger' && candidate.sprite.active
+      && Phaser.Math.Distance.Between(candidate.sprite.x, candidate.sprite.y, enemy.sprite.x, enemy.sprite.y) < 96);
+    if (rival && this.time.now >= (enemy.lootReadyAt ?? 0)) {
+      enemy.lootReadyAt = this.time.now + 1450;
+      rival.health -= 1;
+      this.spawnImpact(rival.sprite.x, rival.sprite.y);
+      this.spawnDamageNumber(rival.sprite.x, rival.sprite.y - 28, 1, rival.health <= 0);
+      if (rival.health <= 0) this.defeatEnemy(rival);
     }
   }
 
@@ -1959,7 +2058,12 @@ export class RaidScene extends Phaser.Scene {
     }
     enemy.label?.destroy();
     enemy.warning?.destroy();
-    if (enemy.boss) {
+    if (enemy.kind === 'scavenger') {
+      for (const stack of enemy.carriedLoot ?? []) {
+        this.spawnLoot(`scavenger-drop-${enemy.id}-${stack.itemId}`, stack.itemId, stack.quantity, x + Phaser.Math.Between(-26, 26), y - 10);
+      }
+      this.showHint('击倒拟态拾荒者：对方搜集到的装备与藏品散落在脚边。', 2300);
+    } else if (enemy.boss) {
       this.bossDefeated = true;
       this.discoveredClues.add('warden-trace');
       const strandedRewards = new Set(this.profile.lostEcho?.items.map((item) => item.itemId) ?? []);
@@ -1988,38 +2092,143 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private beginContainerSearch(crate: RaidCrate): void {
-    if (crate.broken || this.activeContainerSearch) return;
-    const { x, y } = crate.sprite;
-    const color = crate.rarity === 'relic' ? 0xff725f : crate.rarity === 'rare' ? 0xa99cff : crate.rarity === 'uncommon' ? 0x78d9c4 : 0xc1d1cb;
-    const ring = this.add.circle(x, y, 42, color, 0.1).setStrokeStyle(4, color, 0.88).setDepth(35);
-    const label = this.add.text(x, y - 78, `正在搜索 ${crate.label}`, {
-      fontFamily: 'Arial, sans-serif', fontSize: '14px', color: '#effff9', stroke: '#07151d', strokeThickness: 4,
-    }).setOrigin(0.5).setDepth(36);
-    this.activeContainerSearch = { crate, completesAt: this.time.now + crate.searchDuration, ring, label };
+    if (crate.broken) return;
+    if (this.activeContainerSearch && this.activeContainerSearch.crate.id !== crate.id) return;
+    if (!this.activeContainerSearch) this.activeContainerSearch = { crate, itemIndex: 0, completesAt: 0 };
     this.player.setVelocity(0, 0);
-    this.showHint(crate.rarity === 'relic' ? '红色容器发出急促的高频回响。' : `正在翻找 ${crate.label}…`, 900);
+    this.toggleContainerOverlay();
+  }
+
+  private getItemSearchDuration(itemId: string): number {
+    const rarity = ITEMS[itemId]?.rarity ?? 'common';
+    return rarity === 'relic' ? 2600 : rarity === 'rare' ? 1650 : rarity === 'uncommon' ? 1000 : 520;
+  }
+
+  private getRarityTone(rarity: 'common' | 'uncommon' | 'rare' | 'relic'): string {
+    return rarity === 'relic' ? '叮——铃——' : rarity === 'rare' ? '叮——' : rarity === 'uncommon' ? '叮♪' : '叮';
+  }
+
+  private toggleContainerOverlay(): void {
+    if (this.overlayMode) this.closeOverlay();
+    if (!this.activeContainerSearch) return;
+    this.overlayMode = 'container';
+    this.physics.pause();
+    this.overlay = this.createContainerSearchOverlay();
+  }
+
+  private createContainerSearchOverlay(): Phaser.GameObjects.Container {
+    const active = this.activeContainerSearch;
+    if (!active) throw new Error('Container search overlay requires active search state');
+    const crate = active.crate;
+    const container = this.add.container(0, 0).setScrollFactor(0).setDepth(180);
+    const shade = this.add.rectangle(VIEW_WIDTH / 2, VIEW_HEIGHT / 2, VIEW_WIDTH, VIEW_HEIGHT, 0x02090d, 0.92);
+    const panel = this.add.rectangle(VIEW_WIDTH / 2, VIEW_HEIGHT / 2, 950, 530, 0x0a2028, 0.99)
+      .setStrokeStyle(2, crate.rarity === 'relic' ? 0xff7868 : crate.rarity === 'rare' ? 0xaa9cff : 0x78d9c4, 0.62);
+    const label = this.add.text(165, 135, `搜索中 · ${crate.label}`, { fontFamily: 'Georgia, serif', fontSize: '30px', color: '#e7f7f1' });
+    const subtitle = this.add.text(165, 174, '物品轮廓已显现。逐件鉴定，品质越高需要越久，也越值得期待。', { fontFamily: 'Arial, sans-serif', fontSize: '13px', color: '#849f9d' });
+    container.add([shade, panel, label, subtitle]);
+    crate.drops.forEach((drop, index) => {
+      const item = ITEMS[drop.itemId];
+      const known = crate.revealed[index];
+      const searching = index === active.itemIndex && active.completesAt > 0;
+      const x = 210 + (index % 3) * 210;
+      const y = 275 + Math.floor(index / 3) * 150;
+      const rarityColor = item.rarity === 'relic' ? 0xff7868 : item.rarity === 'rare' ? 0xaa9cff : item.rarity === 'uncommon' ? 0x78d9c4 : 0xb8c8c3;
+      const duration = this.getItemSearchDuration(drop.itemId);
+      const card = this.add.rectangle(x, y, 178, 120, known ? 0x143d3b : 0x111f28, 0.97)
+        .setStrokeStyle(known ? 3 : 2, known ? rarityColor : 0x4c6266, known ? 0.95 : 0.36);
+      const silhouette = this.add.text(x, y - 20, known ? item.icon : '▧', { fontFamily: 'Arial, sans-serif', fontSize: known ? '34px' : '38px', color: known ? '#ffffff' : '#60777b' }).setOrigin(0.5);
+      const text = this.add.text(x, y + 24, known ? `${item.name}${drop.quantity > 1 ? ` ×${drop.quantity}` : ''}` : '未鉴定物品', { fontFamily: 'Arial, sans-serif', fontSize: '12px', color: known ? '#e7f7f1' : '#789290' }).setOrigin(0.5);
+      container.add([card, silhouette, text]);
+      if (known) {
+        const takeButton = this.add.rectangle(x, y + 45, 138, 26, 0x235c52, 0.95).setStrokeStyle(1, rarityColor, 0.8).setInteractive({ cursor: 'pointer' });
+        takeButton.on('pointerdown', () => this.takeContainerItem(crate, index));
+        container.add([takeButton, this.add.text(x, y + 45, `拿取 · ${RARITY_NAMES[item.rarity]} · ${item.size.width}×${item.size.height}`, { fontFamily: 'Arial, sans-serif', fontSize: '10px', color: Phaser.Display.Color.IntegerToColor(rarityColor).rgba }).setOrigin(0.5)]);
+        return;
+      }
+      if (index > active.itemIndex) {
+        container.add(this.add.text(x, y + 45, '等待前一件完成', { fontFamily: 'Arial, sans-serif', fontSize: '10px', color: '#607775' }).setOrigin(0.5));
+        return;
+      }
+      if (index < active.itemIndex) {
+        const button = this.add.rectangle(x, y + 44, 138, 28, 0x1d5b56, 0.92).setStrokeStyle(1, 0x8ce8d3, 0.58).setInteractive({ cursor: 'pointer' });
+        button.on('pointerdown', () => {
+          if (!this.activeContainerSearch || this.activeContainerSearch.completesAt > 0) return;
+          this.activeContainerSearch.itemIndex = index;
+          this.activeContainerSearch.completesAt = this.time.now + duration;
+          this.refreshContainerOverlay();
+        });
+        container.add([button, this.add.text(x, y + 44, `开始鉴定 · ${(duration / 1000).toFixed(1)} 秒`, { fontFamily: 'Arial, sans-serif', fontSize: '10px', color: '#d6f6ed' }).setOrigin(0.5)]);
+        return;
+      }
+      if (searching) {
+        const progress = Phaser.Math.Clamp(1 - (active.completesAt - this.time.now) / duration, 0, 1);
+        const blocks = Math.ceil(progress * 8);
+        container.add(this.add.text(x, y + 45, `鉴定中 ${'◌'.repeat(blocks)}${'·'.repeat(8 - blocks)}`, { fontFamily: 'Arial, sans-serif', fontSize: '10px', color: '#f1c879' }).setOrigin(0.5));
+      } else {
+        const button = this.add.rectangle(x, y + 44, 138, 28, 0x1d5b56, 0.92).setStrokeStyle(1, 0x8ce8d3, 0.58).setInteractive({ cursor: 'pointer' });
+        button.on('pointerdown', () => {
+          if (!this.activeContainerSearch || this.activeContainerSearch.itemIndex !== index || this.activeContainerSearch.completesAt > 0) return;
+          this.activeContainerSearch.completesAt = this.time.now + duration;
+          this.refreshContainerOverlay();
+        });
+        container.add([button, this.add.text(x, y + 44, `开始鉴定 · ${(duration / 1000).toFixed(1)} 秒`, { fontFamily: 'Arial, sans-serif', fontSize: '10px', color: '#d6f6ed' }).setOrigin(0.5)]);
+      }
+    });
+    const close = this.add.text(1000, 585, 'Tab 关闭 · 已鉴定物品会留在容器内', { fontFamily: 'Arial, sans-serif', fontSize: '11px', color: '#718e8c' }).setOrigin(1, 0.5);
+    container.add(close);
+    return container;
+  }
+
+  private takeContainerItem(crate: RaidCrate, index: number): void {
+    const drop = crate.drops[index];
+    if (!drop || !crate.revealed[index]) return;
+    const inserted = insertGridStack(this.backpack, this.profile.backpack, drop);
+    if (!inserted) {
+      const size = ITEMS[drop.itemId].size;
+      this.overlayNotice = `背包缺少 ${size.width}×${size.height} 连续空格，无法拿取。`;
+      this.refreshContainerOverlay();
+      return;
+    }
+    this.backpack = inserted;
+    this.discoveredItems.add(drop.itemId);
+    crate.drops.splice(index, 1);
+    crate.revealed.splice(index, 1);
+    if (this.activeContainerSearch) this.activeContainerSearch.itemIndex = Math.min(this.activeContainerSearch.itemIndex, crate.drops.length - 1);
+    this.overlayNotice = `已放入背包：${ITEMS[drop.itemId].name}`;
+    if (crate.drops.length === 0) {
+      crate.broken = true;
+      crate.sprite.getData('containerMarker')?.destroy();
+      crate.sprite.destroy();
+      this.activeContainerSearch = null;
+      this.closeOverlay();
+      this.showHint('容器已清空。', 900);
+      return;
+    }
+    this.refreshContainerOverlay();
+  }
+
+  private refreshContainerOverlay(): void {
+    if (this.overlayMode !== 'container') return;
+    this.overlay?.destroy(true);
+    this.overlay = this.createContainerSearchOverlay();
   }
 
   private updateContainerSearch(time: number): boolean {
     const active = this.activeContainerSearch;
-    if (!active) return false;
-    const distance = Phaser.Math.Distance.Between(this.player.x, this.player.y, active.crate.sprite.x, active.crate.sprite.y);
-    if (distance > 125) {
-      active.ring.destroy();
-      active.label.destroy();
-      this.activeContainerSearch = null;
-      this.showHint('离开容器，搜索取消。', 900);
-      return false;
+    if (!active || active.completesAt <= 0) return false;
+    if (time < active.completesAt) {
+      this.refreshContainerOverlay();
+      return true;
     }
-    const progress = Phaser.Math.Clamp(1 - (active.completesAt - time) / active.crate.searchDuration, 0, 1);
-    active.ring.setScale(0.8 + progress * 0.5).setAlpha(0.55 + Math.sin(time / 55) * 0.25);
-    active.label.setText(`搜索 ${active.crate.label}  ${'▰'.repeat(Math.ceil(progress * 10))}${'▱'.repeat(10 - Math.ceil(progress * 10))}`);
-    if (time >= active.completesAt) {
-      active.ring.destroy();
-      active.label.destroy();
-      this.activeContainerSearch = null;
-      this.breakCrate(active.crate);
-    }
+    const item = active.crate.drops[active.itemIndex];
+    const rarity = ITEMS[item.itemId].rarity;
+    active.crate.revealed[active.itemIndex] = true;
+    this.showHint(`${this.getRarityTone(rarity)} 发现 ${RARITY_NAMES[rarity]}物品！`, 1600);
+    this.cameras.main.flash(110, rarity === 'relic' ? 255 : 150, rarity === 'relic' ? 110 : 220, rarity === 'rare' ? 255 : 170);
+    active.itemIndex += 1;
+    active.completesAt = 0;
+    this.refreshContainerOverlay();
     return true;
   }
 
@@ -2028,21 +2237,8 @@ export class RaidScene extends Phaser.Scene {
     const { x, y } = crate.sprite;
     const marker = crate.sprite.getData('containerMarker') as Phaser.GameObjects.Text | undefined;
     marker?.destroy();
-    this.tweens.add({
-      targets: crate.sprite,
-      angle: 14,
-      alpha: 0,
-      scaleX: 1.3,
-      scaleY: 0.65,
-      y: y + 18,
-      duration: 180,
-      onComplete: () => crate.sprite.destroy(),
-    });
-    crate.drops.forEach((drop, index) => {
-      this.time.delayedCall(index * 90, () => {
-        this.spawnLoot(`${crate.id}-${drop.itemId}`, drop.itemId, drop.quantity, x + (index * 46 - 22), y - 24);
-      });
-    });
+    this.tweens.add({ targets: crate.sprite, angle: 14, alpha: 0, scaleX: 1.3, scaleY: 0.65, y: y + 18, duration: 180, onComplete: () => crate.sprite.destroy() });
+    crate.drops.forEach((drop, index) => this.time.delayedCall(index * 90, () => this.spawnLoot(`${crate.id}-${drop.itemId}`, drop.itemId, drop.quantity, x + (index * 46 - 22), y - 24)));
     this.spawnImpact(x, y);
   }
 
@@ -2468,7 +2664,10 @@ export class RaidScene extends Phaser.Scene {
     const bagTotal = this.profile.backpack.width * this.profile.backpack.height;
     const patches = this.backpack.filter((item) => item.itemId === 'repair_patch').reduce((sum, item) => sum + item.quantity, 0);
     const tonics = this.backpack.filter((item) => item.itemId === 'echo_tonic').reduce((sum, item) => sum + item.quantity, 0);
-    this.statusText.setText(`生命  ${hearts}    蓝甲  ${armor}    背包  ${bagUsed}/${bagTotal} 格${patches > 0 ? `    修补 R×${patches}` : ''}${tonics > 0 ? `    糖浆 H×${tonics}` : ''}`);
+    const scavengerStatus = this.mapId === 'outpost_01'
+      ? `    拾荒者 ${this.enemies.filter((enemy) => enemy.kind === 'scavenger' && enemy.sprite.active).length}`
+      : '';
+    this.statusText.setText(`生命  ${hearts}    蓝甲  ${armor}    背包  ${bagUsed}/${bagTotal} 格${patches > 0 ? `    修补 R×${patches}` : ''}${tonics > 0 ? `    糖浆 H×${tonics}` : ''}${scavengerStatus}`);
     this.objectiveText.setText(`目标  ${this.getRaidObjective()}${this.getScoutGuidance() ? `  ·  ${this.getScoutGuidance()}` : ''}`);
     this.updateScoutVisuals();
     this.updateZoneState(this.time.now);
@@ -2486,6 +2685,7 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private toggleOverlay(mode: 'map' | 'backpack' | 'pause'): void {
+    if (this.overlayMode === 'container') this.activeContainerSearch = null;
     if (this.overlayMode === mode) {
       this.closeOverlay();
       return;
@@ -2499,6 +2699,7 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private closeOverlay(): void {
+    if (this.overlayMode !== 'container') this.activeContainerSearch = null;
     this.activeInventoryDrag = null;
     this.inventoryDragGhost?.destroy();
     this.inventoryDragGhost = null;
@@ -2572,7 +2773,7 @@ export class RaidScene extends Phaser.Scene {
     const shade = this.add.rectangle(VIEW_WIDTH / 2, VIEW_HEIGHT / 2, VIEW_WIDTH, VIEW_HEIGHT, 0x02090d, 0.9);
     const panel = this.add.rectangle(VIEW_WIDTH / 2, VIEW_HEIGHT / 2, 1090, 540, 0x0a2028, 0.98)
       .setStrokeStyle(2, 0x75d7c2, 0.24);
-    const mapKnown = this.mapId === 'relay_01' || this.mapUnlocked;
+    const mapKnown = this.mapId === 'relay_01' || this.mapId === 'outpost_01' || this.mapUnlocked;
     const title = this.add.text(145, 135, `${this.mapDefinition.name} · ${mapKnown ? '完整测绘' : '相对定位'}`, {
       fontFamily: 'Georgia, serif',
       fontSize: '30px',
@@ -2639,7 +2840,17 @@ export class RaidScene extends Phaser.Scene {
       container.add(roomLabel);
     }
 
-    const nodes = this.mapId === 'relay_01'
+    const nodes = this.mapId === 'outpost_01'
+      ? [
+        { x: 420, y: 2260, known: '南码头投放', unknown: '南侧投放' },
+        { x: 1480, y: 2080, known: '泊位投放', unknown: '西侧投放' },
+        { x: 2900, y: 1700, known: '集市投放', unknown: '中部投放' },
+        { x: 4450, y: 1500, known: '中继投放', unknown: '中部投放' },
+        { x: 6100, y: 1090, known: '北场投放', unknown: '北侧投放' },
+        { x: 7200, y: 700, known: '北场投放', unknown: '北侧投放' },
+        ...this.extractionPoints.map((entry) => ({ x: entry.x, y: entry.y, known: `撤离 · ${entry.label}`, unknown: '撤离信号' })),
+      ]
+      : this.mapId === 'relay_01'
       ? [
         { x: 230, y: 1510, known: '入口', unknown: '入口' },
         { x: 760, y: 1515, known: '西向校准', unknown: '西向校准' },
@@ -2674,6 +2885,15 @@ export class RaidScene extends Phaser.Scene {
       container.add([node, label]);
     });
 
+    if (this.mapId === 'outpost_01') {
+      for (const scavenger of this.enemies.filter((enemy) => enemy.kind === 'scavenger' && enemy.sprite.active)) {
+        const marker = this.add.text(sx(scavenger.sprite.x), sy(scavenger.sprite.y), '◆', {
+          fontFamily: 'Arial, sans-serif', fontSize: '15px', color: '#f3bd6b', stroke: '#07151d', strokeThickness: 3,
+        }).setOrigin(0.5);
+        container.add(marker);
+      }
+    }
+
     const playerMarker = this.add.text(sx(this.player.x), sy(this.player.y) - 18, '▼ 你', {
       fontFamily: 'Arial, sans-serif',
       fontSize: '14px',
@@ -2687,7 +2907,9 @@ export class RaidScene extends Phaser.Scene {
       fontSize: '13px',
       color: '#d8b3ff',
     }).setOrigin(0.5);
-    const footer = this.add.text(VIEW_WIDTH / 2, 602, 'M 关闭地图 · 房间图同时使用 X / Y 两个坐标轴', {
+    const footer = this.add.text(VIEW_WIDTH / 2, 602, this.mapId === 'outpost_01'
+      ? 'M 关闭地图 · ▼ 你 · ◆ 拟态拾荒者 · 紫色◇为远距撤离目标'
+      : 'M 关闭地图 · 房间图同时使用 X / Y 两个坐标轴', {
       fontFamily: 'Arial, sans-serif',
       fontSize: '12px',
       color: '#63817f',
@@ -2926,7 +3148,7 @@ export class RaidScene extends Phaser.Scene {
       shade,
       panel,
       this.add.text(90, 70, '远征整备', { fontFamily: 'Georgia, serif', fontSize: '30px', color: '#d8eee8' }),
-      this.add.text(90, 109, '拖动物品可换装、整理或丢弃；抓取格决定落点，拖动时按 R 可旋转。', {
+      this.add.text(90, 109, '拖动物品可换装、整理或丢弃；拖到右侧地面 / 容器区域即可丢弃，按 R 可旋转。', {
         fontFamily: 'Arial, sans-serif', fontSize: '13px', color: '#789795',
       }),
       this.add.text(90, 148, '当前装备', { fontFamily: 'Arial, sans-serif', fontSize: '15px', color: '#9ee6d5', fontStyle: 'bold' }),
@@ -3014,7 +3236,7 @@ export class RaidScene extends Phaser.Scene {
     container.add([
       dropZone,
       this.add.text(625, 560, '↓  丢到脚边', { fontSize: '15px', color: '#f1b0af', fontStyle: 'bold' }).setOrigin(0.5),
-      this.add.text(625, 580, '整组物品会回到地面，可再次拾取', { fontSize: '9px', color: '#a77578' }).setOrigin(0.5),
+      this.add.text(625, 580, '也可直接拖到右侧地面 / 容器区域丢弃', { fontSize: '9px', color: '#a77578' }).setOrigin(0.5),
     ]);
 
     const nearby = this.getNearbyLoot().slice(0, 6);
@@ -3068,7 +3290,9 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private handleRaidInventoryPointerDrop(drag: RaidInventoryDrag, pointer: Phaser.Input.Pointer): boolean {
-    if (pointer.x >= 475 && pointer.x <= 775 && pointer.y >= 539 && pointer.y <= 601) {
+    const dropToGround = (pointer.x >= 475 && pointer.x <= 775 && pointer.y >= 539 && pointer.y <= 601)
+      || (pointer.x >= 850 && pointer.x <= 1160 && pointer.y >= 150 && pointer.y <= 610);
+    if (dropToGround) {
       if (drag.source !== 'backpack' || !drag.uid) {
         this.overlayNotice = '地面物品已经在脚边了。';
         this.refreshBackpackOverlay();
@@ -3316,6 +3540,11 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private getMapTarget(): { x: number; y: number } {
+    if (this.mapId === 'outpost_01') {
+      const origin = this.lastSpawnPosition ?? { x: this.player.x, y: this.player.y };
+      return this.extractionPoints.reduce((furthest, candidate) => Phaser.Math.Distance.Between(origin.x, origin.y, candidate.x, candidate.y)
+        > Phaser.Math.Distance.Between(origin.x, origin.y, furthest.x, furthest.y) ? candidate : furthest, this.extractionPoints[0]);
+    }
     if (this.mapId === 'relay_01') {
       if (!this.discoveredClues.has('relay-west-calibrated')) return { x: 760, y: 1515 };
       if (!this.discoveredClues.has('relay-east-calibrated')) return { x: 2525, y: 1155 };
@@ -3330,6 +3559,11 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private getRaidObjective(): string {
+    if (this.mapId === 'outpost_01') {
+      const target = this.getMapTarget();
+      const extraction = this.extractionPoints.find((point) => point.x === target.x && point.y === target.y);
+      return `搜集战利品并前往远距撤离 · ${extraction?.label ?? '撤离点'}`;
+    }
     if (this.mapId === 'relay_01') {
       const west = this.discoveredClues.has('relay-west-calibrated');
       const east = this.discoveredClues.has('relay-east-calibrated');
@@ -3438,6 +3672,11 @@ export class RaidScene extends Phaser.Scene {
           health: enemy.health,
           state: enemy.combatState,
         })),
+      outpost: this.mapId === 'outpost_01' ? {
+        spawn: this.lastSpawnPosition ? { ...this.lastSpawnPosition } : null,
+        targetExtraction: this.getMapTarget(),
+        scavengersAlive: this.enemies.filter((enemy) => enemy.kind === 'scavenger' && enemy.sprite.active).length,
+      } : undefined,
       visibleLoot: this.loot
         .filter((entry) => entry.icon.active && Phaser.Math.Distance.Between(entry.icon.x, entry.icon.y, this.player.x, this.player.y) < 850)
         .map((entry) => ({
