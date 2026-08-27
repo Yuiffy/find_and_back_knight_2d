@@ -12,6 +12,15 @@ import {
   splitGridItem,
 } from './inventory';
 import { getArmorMaximum, ITEMS, RARITY_NAMES, SLOT_NAMES } from './items';
+import {
+  cloneRaidTelemetry,
+  EMPTY_ONBOARDING_PROGRESS,
+  getContractProgress,
+  getDefaultContract,
+  getFieldLevel,
+  normalizeContractId,
+  RAID_CONTRACTS,
+} from './contracts';
 import { containsPoint, findZoneAt, getMapDefinition, type MapDefinition, type MapZoneDefinition } from './maps';
 import {
   getWorldLayout,
@@ -23,7 +32,7 @@ import {
   type TerrainStyle,
   type WorldLayoutDefinition,
 } from './worldLayout';
-import type { GearSlot, GridItem, ItemStack, Loadout, PlayerProfile, RaidContainerState, RaidResult, RaidRunState, RaidTransition, TextGameState } from '../types/game';
+import type { GearSlot, GridItem, ItemStack, Loadout, PlayerProfile, RaidContainerState, RaidContractId, RaidOnboardingProgress, RaidResult, RaidRunState, RaidTelemetry, RaidTransition, TextGameState } from '../types/game';
 
 const VIEW_WIDTH = 1280;
 const VIEW_HEIGHT = 720;
@@ -200,6 +209,17 @@ export class RaidScene extends Phaser.Scene {
   private readonly onResult: (result: RaidResult) => void;
   private readonly onTransition?: (transition: RaidTransition) => void;
   private readonly initialRunState: RaidRunState | null;
+  private readonly contractId: RaidContractId;
+  private readonly fieldLevel: number;
+  private telemetry: RaidTelemetry;
+  private onboarding: RaidOnboardingProgress;
+  private resonance = 0;
+  private exposure = 0;
+  private surgeUntil = 0;
+  private sceneStartedAt = 0;
+  private lastExposureUpdateAt = 0;
+  private exposureSpawnedTiers = new Set<number>();
+  private contractCompletionAnnounced = false;
   private player!: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
   private platforms!: Phaser.Physics.Arcade.StaticGroup;
   private hazards!: Phaser.Physics.Arcade.StaticGroup;
@@ -238,6 +258,8 @@ export class RaidScene extends Phaser.Scene {
   private objectiveText!: Phaser.GameObjects.Text;
   private hintText!: Phaser.GameObjects.Text;
   private bossHealthText!: Phaser.GameObjects.Text;
+  private contractText!: Phaser.GameObjects.Text;
+  private expeditionText!: Phaser.GameObjects.Text;
   private promptText!: Phaser.GameObjects.Text;
   private extractionText!: Phaser.GameObjects.Text;
   private extractingUntil = 0;
@@ -296,6 +318,16 @@ export class RaidScene extends Phaser.Scene {
     this.entryId = this.mapDefinition.entries[entryId] ? entryId : Object.keys(this.mapDefinition.entries)[0];
     this.renderScale = renderScale;
     this.initialRunState = runState ?? null;
+    this.contractId = normalizeContractId(
+      runState?.contractId ?? profile.activeRaid?.contractId ?? getDefaultContract(profile).id,
+      profile.successfulExtractions,
+    );
+    this.fieldLevel = getFieldLevel(profile.fieldXp);
+    this.telemetry = cloneRaidTelemetry(runState?.telemetry);
+    this.onboarding = { ...EMPTY_ONBOARDING_PROGRESS, ...(runState?.onboarding ?? {}) };
+    this.resonance = Phaser.Math.Clamp(runState?.resonance ?? 0, 0, 99);
+    this.exposure = Phaser.Math.Clamp(runState?.exposure ?? 0, 0, 100);
+    this.contractCompletionAnnounced = getContractProgress(this.contractId, this.telemetry).complete;
     this.onResult = onResult;
     this.onTransition = onTransition;
   }
@@ -330,6 +362,10 @@ export class RaidScene extends Phaser.Scene {
     this.createInput();
     this.createHud();
     this.applyRenderScale();
+    this.sceneStartedAt = this.time.now;
+    this.lastExposureUpdateAt = this.time.now;
+    if (this.exposure >= 50) this.exposureSpawnedTiers.add(50);
+    if (this.exposure >= 78) this.exposureSpawnedTiers.add(78);
     this.currentZone = findZoneAt(this.mapDefinition, this.player.x, this.player.y);
     if (this.currentZone) this.showZoneReveal(this.currentZone, this.time.now);
     this.invulnerableUntil = this.time.now + 3000;
@@ -357,7 +393,9 @@ export class RaidScene extends Phaser.Scene {
     }
 
     this.cameras.main.fadeIn(480, 4, 15, 19);
-    this.showHint('A / D 移动 · Space 跳跃 · W / ↑ + J 上劈 · S / ↓ + J 下劈', 5000);
+    this.showHint(this.profile.successfulExtractions === 0 && this.mapId === 'hollow_01'
+      ? '先确认落点。向右移动，目标会跟随你的动作逐步更新。'
+      : `本轮契约：${RAID_CONTRACTS[this.contractId].name} · ${RAID_CONTRACTS[this.contractId].condition}`, 5000);
     this.publishTextState(true);
   }
 
@@ -399,6 +437,7 @@ export class RaidScene extends Phaser.Scene {
       return;
     }
 
+    this.updateExpeditionSystems(time);
     this.updateMovement(time);
     if (this.tryBoundaryPassage()) return;
     this.updateSafePosition(time);
@@ -973,9 +1012,9 @@ export class RaidScene extends Phaser.Scene {
     if (this.mapId === 'relay_01') {
       this.spawnHusk('husk-relay-west', 520, 1510, 390, 740);
       this.spawnMoth('moth-relay-trench', 1550, 1160, 1250, 1950);
-      this.spawnHusk('husk-relay-east', 2480, 1160, 2320, 2720);
+      this.spawnHusk('husk-relay-east', 2710, 1160, 2620, 2830);
       this.spawnMoth('moth-relay-crown', 3150, 720, 2940, 3440);
-      if (this.profile.raidsStarted % 2 === 0) this.spawnSentry('sentry-relay-east', 2680, 1160);
+      if (this.profile.raidsStarted % 2 === 0) this.spawnSentry('sentry-relay-east', 2860, 1160);
       return;
     }
     // Keep the manifest's open floor clear; its former overlapping patrol is moved east.
@@ -1508,7 +1547,7 @@ export class RaidScene extends Phaser.Scene {
     ]);
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (this.overlayMode === 'backpack' && this.activeContainerSearch?.crate.kind === 'lost_corpse'
-        && pointer.x >= 915 && pointer.x <= 1105 && pointer.y >= 531 && pointer.y <= 565) {
+        && pointer.x >= 915 && pointer.x <= 1105 && pointer.y >= 393 && pointer.y <= 427) {
         this.takeAllFromCorpse();
         return;
       }
@@ -1612,11 +1651,158 @@ export class RaidScene extends Phaser.Scene {
       padding: { x: 15, y: 7 },
     }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(122).setVisible(false);
 
+    this.contractText = this.add.text(VIEW_WIDTH - 28, 51, '', {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: '12px',
+      color: '#f2cf8b',
+      stroke: '#07151d',
+      strokeThickness: 4,
+    }).setOrigin(1, 0).setScrollFactor(0).setDepth(100);
+
+    this.expeditionText = this.add.text(VIEW_WIDTH - 28, 76, '', {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: '11px',
+      color: '#a7c7c2',
+      stroke: '#07151d',
+      strokeThickness: 4,
+    }).setOrigin(1, 0).setScrollFactor(0).setDepth(100);
+
     this.add.text(VIEW_WIDTH - 24, VIEW_HEIGHT - 20, 'J 攻击 / 方向劈 · K 冲刺 · H 糖浆 · E 互动 · M 地图 · Tab 背包 · F 全屏', {
       fontFamily: 'Arial, sans-serif',
       fontSize: '11px',
       color: '#5d7f7e',
     }).setOrigin(1, 1).setScrollFactor(0).setDepth(100);
+  }
+
+  private getExposureTier(): number {
+    if (this.exposure >= 78) return 3;
+    if (this.exposure >= 50) return 2;
+    if (this.exposure >= 25) return 1;
+    return 0;
+  }
+
+  private getExposureLabel(): string {
+    return ['静默', '留痕', '锁定', '追猎'][this.getExposureTier()];
+  }
+
+  private isSurgeActive(): boolean {
+    return this.time.now < this.surgeUntil;
+  }
+
+  private addExposure(amount: number): void {
+    this.exposure = Phaser.Math.Clamp(this.exposure + amount, 0, 100);
+  }
+
+  private awardResonance(amount: number): void {
+    if (this.isSurgeActive() || amount <= 0) return;
+    this.resonance = Phaser.Math.Clamp(this.resonance + amount, 0, 100);
+    if (this.resonance < 100) return;
+    this.resonance = 0;
+    this.surgeUntil = this.time.now + 8500;
+    this.telemetry.surgesTriggered += 1;
+    this.cameras.main.flash(170, 128, 231, 205);
+    this.showHint('回声共鸣爆发：攻击、移动与冲刺暂时强化。', 1900);
+  }
+
+  private updateExpeditionSystems(time: number): void {
+    const delta = Phaser.Math.Clamp(time - this.lastExposureUpdateAt, 0, 250);
+    this.lastExposureUpdateAt = time;
+    this.addExposure((delta / 1000) * 0.045);
+    if (this.profile.successfulExtractions <= 0) return;
+    for (const threshold of [50, 78]) {
+      if (this.exposure < threshold || this.exposureSpawnedTiers.has(threshold)) continue;
+      this.exposureSpawnedTiers.add(threshold);
+      this.spawnEchoHunter(threshold);
+    }
+  }
+
+  private spawnEchoHunter(threshold: number): void {
+    const id = `echo-hunter-${this.mapId}-${threshold}`;
+    const direction = this.player.x > this.worldWidth / 2 ? -1 : 1;
+    const x = Phaser.Math.Clamp(this.player.x + direction * 560, 160, this.worldWidth - 160);
+    const y = Phaser.Math.Clamp(this.player.y - 150, 160, this.worldHeight - 180);
+    this.spawnMoth(id, x, y, Math.max(80, x - 380), Math.min(this.worldWidth - 80, x + 380));
+    const hunter = this.enemies.find((enemy) => enemy.id === id);
+    if (!hunter) return;
+    hunter.health += threshold >= 78 ? 2 : 1;
+    hunter.maxHealth = hunter.health;
+    hunter.speed += threshold >= 78 ? 45 : 25;
+    this.physics.add.overlap(this.player, hunter.sprite, () => this.damagePlayer(hunter));
+    this.showHint(threshold >= 78
+      ? '信号完全暴露：精英追猎回声正在逼近。'
+      : '搜索痕迹被锁定：追猎回声已进入当前区域。', 2100);
+  }
+
+  private registerContainerSearch(crate: RaidCrate): void {
+    if (crate.kind === 'lost_corpse') return;
+    this.onboarding.searched = true;
+    if (!this.telemetry.searchedContainerIds.includes(crate.id)) {
+      this.telemetry.searchedContainerIds.push(crate.id);
+      this.addExposure(7);
+      this.awardResonance(9);
+    }
+    this.checkContractCompletion();
+  }
+
+  private registerRecoveredItem(itemId: string, quantity: number): void {
+    const definition = ITEMS[itemId];
+    if (!definition || quantity <= 0) return;
+    this.discoveredItems.add(itemId);
+    if (itemId === 'map_feather') {
+      this.mapUnlocked = true;
+      this.discoveredClues.add('map-trace');
+      this.discoveredClues.add('lift-trace');
+    }
+    this.onboarding.looted = true;
+    this.telemetry.itemsRecovered += quantity;
+    const rare = definition.rarity === 'epic' || definition.rarity === 'legendary' || definition.rarity === 'relic';
+    if (rare) this.telemetry.rareFinds += 1;
+    const rarityWeight = definition.rarity === 'relic' ? 12
+      : definition.rarity === 'legendary' ? 10
+        : definition.rarity === 'epic' ? 8
+          : definition.rarity === 'rare' ? 5
+            : definition.rarity === 'uncommon' ? 3 : 1;
+    this.addExposure(2 + rarityWeight * 0.65);
+    this.awardResonance(5 + rarityWeight);
+    this.checkContractCompletion();
+  }
+
+  private registerEnemyDefeat(enemy: EnemyEntity): void {
+    this.telemetry.enemiesDefeated += 1;
+    this.addExposure(enemy.boss ? 14 : enemy.kind === 'scavenger' ? 9 : 5);
+    this.awardResonance(enemy.boss ? 48 : enemy.kind === 'scavenger' ? 28 : 20);
+    this.checkContractCompletion();
+  }
+
+  private registerZoneVisit(zone: MapZoneDefinition): void {
+    if (this.telemetry.zonesVisited.includes(zone.id)) return;
+    this.telemetry.zonesVisited.push(zone.id);
+    this.addExposure(1.5);
+    this.awardResonance(8);
+    this.checkContractCompletion();
+  }
+
+  private checkContractCompletion(): void {
+    const progress = getContractProgress(this.contractId, this.telemetry);
+    if (!progress.complete || this.contractCompletionAnnounced) return;
+    this.contractCompletionAnnounced = true;
+    this.showHint(`契约「${RAID_CONTRACTS[this.contractId].name}」条件已达成。现在安全撤离即可结算。`, 2200);
+  }
+
+  private getTelemetrySnapshot(): RaidTelemetry {
+    const telemetry = cloneRaidTelemetry(this.telemetry);
+    telemetry.elapsedMs += Math.max(0, Math.round(this.time.now - this.sceneStartedAt));
+    return telemetry;
+  }
+
+  private getOnboardingObjective(): string | null {
+    if (this.profile.successfulExtractions > 0 || this.mapId !== 'hollow_01') return null;
+    if (!this.onboarding.moved) return '新手 1/5 · 向右移动，确认落点';
+    if (!this.onboarding.jumped) return '新手 2/5 · 跳一次，熟悉腾空与落地';
+    if (!this.onboarding.attacked) return '新手 3/5 · 挥动羽钉试一次攻击';
+    if (!this.onboarding.searched) return '新手 4/5 · 靠近发光容器并开始搜索';
+    if (!this.onboarding.looted) return '新手 5/5 · 从容器或地面取走一件物资';
+    return '带着物资回到前庭绿色信号圈，安全撤离';
   }
 
   private getHeadEffect(): 'kill-heal' | 'scout' | 'tonic-boost' | 'panic-haste' | undefined {
@@ -1658,10 +1844,12 @@ export class RaidScene extends Phaser.Scene {
     const shoes = this.loadout.shoes ? ITEMS[this.loadout.shoes] : null;
     const armor = this.loadout.armor ? ITEMS[this.loadout.armor] : null;
     const catHaste = this.getHeadEffect() === 'panic-haste' && time < this.hasteUntil ? 1.28 : 1;
-    const speedMultiplier = (shoes?.stats?.speedMultiplier ?? 1) * (armor?.stats?.speedMultiplier ?? 1) * catHaste;
+    const surgeHaste = this.isSurgeActive() ? 1.1 : 1;
+    const speedMultiplier = (shoes?.stats?.speedMultiplier ?? 1) * (armor?.stats?.speedMultiplier ?? 1) * catHaste * surgeHaste;
     const moveSpeed = 350 * speedMultiplier;
     const leftDown = this.keys.left.isDown || this.keys.leftArrow.isDown || this.isVirtualDown('left');
     const rightDown = this.keys.right.isDown || this.keys.rightArrow.isDown || this.isVirtualDown('right');
+    if (leftDown !== rightDown) this.onboarding.moved = true;
     const desiredVelocity = leftDown === rightDown ? 0 : (leftDown ? -moveSpeed : moveSpeed);
     const responsiveness = grounded ? 0.52 : 0.3;
     this.player.setVelocityX(Phaser.Math.Linear(body.velocity.x, desiredVelocity, responsiveness));
@@ -1674,6 +1862,7 @@ export class RaidScene extends Phaser.Scene {
     // 保留略长于受击硬直的输入缓冲；玩家在落地或挨打瞬间按跳跃不应丢输入。
     if (time - this.jumpQueuedAt <= 260 && time - this.lastGroundedAt <= 120) {
       this.player.setVelocityY(-1050);
+      this.onboarding.jumped = true;
       this.jumpQueuedAt = -1000;
       this.lastGroundedAt = -1000;
     }
@@ -1720,7 +1909,7 @@ export class RaidScene extends Phaser.Scene {
     const shadow = mode === 'shadow';
     this.isDashing = true;
     this.dashEndsAt = time + 180;
-    this.dashReadyAt = time + 900;
+    this.dashReadyAt = time + (this.isSurgeActive() ? 650 : 900);
     this.player.body.allowGravity = false;
     this.player.setVelocity(this.facing * 820, 0);
     this.player.setTint(shadow ? 0x8c76ff : 0x78e2bf);
@@ -1763,12 +1952,14 @@ export class RaidScene extends Phaser.Scene {
     if (time < this.attackReadyAt || this.isDashing || !this.player.active) return;
     const weapon = this.loadout.weapon ? ITEMS[this.loadout.weapon] : null;
     const range = weapon?.stats?.range ?? UNARMED_ATTACK.range;
-    const damage = weapon?.stats?.attack ?? UNARMED_ATTACK.attack;
+    const damage = (weapon?.stats?.attack ?? UNARMED_ATTACK.attack) + (this.isSurgeActive() ? 1 : 0);
     const vertical = direction === 'up' || direction === 'down';
     const directionX = direction === 'left' ? -1 : direction === 'right' ? 1 : 0;
     const directionY = direction === 'up' ? -1 : direction === 'down' ? 1 : 0;
     if (directionX !== 0) this.facing = directionX as -1 | 1;
-    this.attackReadyAt = time + (weapon?.stats?.attackCooldown ?? UNARMED_ATTACK.attackCooldown);
+    this.onboarding.attacked = true;
+    this.addExposure(0.35);
+    this.attackReadyAt = time + (weapon?.stats?.attackCooldown ?? UNARMED_ATTACK.attackCooldown) * (this.isSurgeActive() ? 0.72 : 1);
 
     const hitboxWidth = vertical ? 88 : range + 56;
     const hitboxHeight = vertical ? range + 56 : 88;
@@ -1836,10 +2027,15 @@ export class RaidScene extends Phaser.Scene {
       this.cameras.main.shake(70, 0.003);
       this.showHint('下劈命中 · 借力反弹', 650);
     }
+    if (attackConnected) {
+      this.addExposure(0.8);
+      this.awardResonance(5);
+    }
     this.lastAttack = { direction, connected: attackConnected, bounced };
   }
 
   private updateEnemies(): void {
+    const threatPace = 1 + this.getExposureTier() * 0.06;
     for (const enemy of this.enemies) {
       if (!enemy.sprite.active) continue;
       if (enemy.sprite.y > this.worldHeight + 100) {
@@ -1857,7 +2053,7 @@ export class RaidScene extends Phaser.Scene {
         else if (enemy.sprite.x >= enemy.patrolRight) enemy.direction = -1;
         else if (Math.abs(distance) < 420) enemy.direction = distance < 0 ? -1 : 1;
         const targetY = (enemy.baseY ?? 470) + Math.sin(this.time.now / 420 + enemy.patrolLeft) * 52;
-        enemy.sprite.setVelocity(enemy.direction * enemy.speed, (targetY - enemy.sprite.y) * 2.1);
+        enemy.sprite.setVelocity(enemy.direction * enemy.speed * threatPace, (targetY - enemy.sprite.y) * 2.1);
         enemy.sprite.setFlipX(enemy.direction > 0);
         enemy.sprite.setScale(1, 0.92 + Math.sin(this.time.now / 90) * 0.08);
         continue;
@@ -1876,7 +2072,7 @@ export class RaidScene extends Phaser.Scene {
       }
       if (enemy.sprite.x <= enemy.patrolLeft) enemy.direction = 1;
       if (enemy.sprite.x >= enemy.patrolRight) enemy.direction = -1;
-      enemy.sprite.setVelocityX(enemy.direction * enemy.speed);
+      enemy.sprite.setVelocityX(enemy.direction * enemy.speed * threatPace);
       enemy.sprite.setFlipX(enemy.direction > 0);
       enemy.sprite.angle = Math.sin(this.time.now / 130 + enemy.sprite.x) * 2;
       enemy.label?.setPosition(enemy.sprite.x, enemy.sprite.y - 86);
@@ -1932,7 +2128,7 @@ export class RaidScene extends Phaser.Scene {
       rival.health -= 1;
       this.spawnImpact(rival.sprite.x, rival.sprite.y);
       this.spawnDamageNumber(rival.sprite.x, rival.sprite.y - 28, 1, rival.health <= 0);
-      if (rival.health <= 0) this.defeatEnemy(rival);
+      if (rival.health <= 0) this.defeatEnemy(rival, false);
     }
   }
 
@@ -2124,6 +2320,9 @@ export class RaidScene extends Phaser.Scene {
     this.staggerEndsAt = time + 190;
     if (this.armor > 0) this.armor -= 1;
     else this.health -= 1;
+    this.telemetry.damageTaken += 1;
+    this.resonance = Math.max(0, this.resonance - (this.fieldLevel >= 4 ? 14 : 28));
+    this.addExposure(3);
     if (this.getHeadEffect() === 'panic-haste') {
       this.hasteUntil = time + 1800;
       this.showHint('小猫帽应激：移动速度暂时提升', 900);
@@ -2144,9 +2343,10 @@ export class RaidScene extends Phaser.Scene {
     return true;
   }
 
-  private defeatEnemy(enemy: EnemyEntity): void {
+  private defeatEnemy(enemy: EnemyEntity, creditedToPlayer = true): void {
     const { x, y } = enemy.sprite;
     enemy.sprite.disableBody(true, true);
+    if (creditedToPlayer) this.registerEnemyDefeat(enemy);
     if (this.getHeadEffect() === 'kill-heal' && this.health < this.maxHealth && this.time.now >= this.nextKillHealAt) {
       this.health += 1;
       this.nextKillHealAt = this.time.now + 3000;
@@ -2198,6 +2398,7 @@ export class RaidScene extends Phaser.Scene {
   private beginContainerSearch(crate: RaidCrate): void {
     if (crate.broken) return;
     if (this.activeContainerSearch && this.activeContainerSearch.crate.id !== crate.id) return;
+    this.registerContainerSearch(crate);
     if (!this.activeContainerSearch) {
       const firstItem = crate.drops[0];
       this.activeContainerSearch = {
@@ -2212,7 +2413,8 @@ export class RaidScene extends Phaser.Scene {
 
   private getItemSearchDuration(itemId: string): number {
     const rarity = ITEMS[itemId]?.rarity ?? 'common';
-    return rarity === 'relic' ? 2600 : rarity === 'legendary' ? 2200 : rarity === 'epic' ? 1900 : rarity === 'rare' ? 1650 : rarity === 'uncommon' ? 1000 : 520;
+    const base = rarity === 'relic' ? 2600 : rarity === 'legendary' ? 2200 : rarity === 'epic' ? 1900 : rarity === 'rare' ? 1650 : rarity === 'uncommon' ? 1000 : 520;
+    return Math.round(base * (this.fieldLevel >= 2 ? 0.88 : 1));
   }
 
   private getRarityTone(rarity: RaidCrate['rarity']): string {
@@ -2359,6 +2561,7 @@ export class RaidScene extends Phaser.Scene {
       }
       this.backpack = inserted;
       this.removeContainerDrop(corpse, index);
+      this.registerRecoveredItem(drop.itemId, drop.quantity);
       moved += 1;
       if (corpse.broken) break;
     }
@@ -2379,6 +2582,7 @@ export class RaidScene extends Phaser.Scene {
       return;
     }
     this.backpack = inserted;
+    this.registerRecoveredItem(drop.itemId, drop.quantity);
     this.removeContainerDrop(crate, index);
     this.overlayNotice = `已放入背包：${ITEMS[drop.itemId].name}`;
     if (crate.broken) {
@@ -2406,6 +2610,7 @@ export class RaidScene extends Phaser.Scene {
     const item = active.crate.drops[active.itemIndex];
     const rarity = ITEMS[item.itemId].rarity;
     active.crate.revealed[active.itemIndex] = true;
+    this.awardResonance(rarity === 'relic' ? 14 : rarity === 'legendary' ? 11 : rarity === 'epic' ? 9 : rarity === 'rare' ? 7 : 4);
     this.lastContainerReveal = { crateId: active.crate.id, index: active.itemIndex, at: time };
     this.showHint(`${this.getRarityTone(rarity)} 发现 ${RARITY_NAMES[rarity]}物品！`, 1600);
     active.itemIndex += 1;
@@ -2416,6 +2621,7 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private breakCrate(crate: RaidCrate): void {
+    this.registerContainerSearch(crate);
     crate.broken = true;
     const { x, y } = crate.sprite;
     const marker = crate.sprite.getData('containerMarker') as Phaser.GameObjects.Text | undefined;
@@ -2511,6 +2717,9 @@ export class RaidScene extends Phaser.Scene {
 
   private respawnFromPit(): void {
     this.health -= 1;
+    this.telemetry.damageTaken += 1;
+    this.resonance = Math.max(0, this.resonance - (this.fieldLevel >= 4 ? 14 : 28));
+    this.addExposure(4);
     if (this.health <= 0) {
       this.finishRaid('died');
       return;
@@ -2545,6 +2754,11 @@ export class RaidScene extends Phaser.Scene {
         return states;
       }, {}),
       defeatedEnemyIds: this.enemies.filter((enemy) => !enemy.sprite.active).map((enemy) => enemy.id),
+      contractId: this.contractId,
+      telemetry: this.getTelemetrySnapshot(),
+      onboarding: { ...this.onboarding },
+      resonance: this.resonance,
+      exposure: this.exposure,
     };
   }
 
@@ -2588,6 +2802,11 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private tryBoundaryPassage(): boolean {
+    if (this.extractingUntil > 0) return false;
+    const standingAtExtraction = this.getAvailableExtractionPoints().some((point) => (
+      Phaser.Math.Distance.Between(this.player.x, this.player.y, point.x, point.y) <= 105
+    ));
+    if (standingAtExtraction) return false;
     const passage = (this.layout.boundaryPassages ?? []).find((entry) => {
       // Trigger before the sprite leaves the physical floor edge, so passages
       // remain reliable even where a border platform provides the walkable lip.
@@ -2632,12 +2851,13 @@ export class RaidScene extends Phaser.Scene {
 
     if (this.lostEchoIcon?.active && this.lostCorpse && !this.lostCorpse.broken) {
       const remaining = this.lostCorpse.drops.length;
-      addCandidate(0, 'lost-corpse', this.lostEchoIcon.x, this.lostEchoIcon.y, 105,
+      const alreadyInspected = this.activeContainerSearch?.crate === this.lostCorpse;
+      addCandidate(alreadyInspected ? 2 : 0, 'lost-corpse', this.lostEchoIcon.x, this.lostEchoIcon.y, 105,
         `E · 打开遗失遗体（${remaining} 组装备）`, () => this.openLostCorpse());
     }
 
     if (this.mapId === 'hollow_01') {
-      addCandidate(1, 'maintenance-elevator', this.elevatorPoint.x, this.elevatorPoint.y, 105,
+      addCandidate(0, 'maintenance-elevator', this.elevatorPoint.x, this.elevatorPoint.y, 105,
         this.shortcutUnlocked ? '维护电梯已启动 · 下轮可从深层入口出发' : 'E · 启动维护电梯捷径', () => {
           if (this.shortcutUnlocked) return;
           this.shortcutUnlocked = true;
@@ -2649,7 +2869,7 @@ export class RaidScene extends Phaser.Scene {
 
     for (const gate of this.layout.gates ?? []) {
       const canCross = gate.targetMapId !== 'relay_01' || this.bossDefeated || this.profile.bossDefeated;
-      addCandidate(1, `gate-${gate.name}`, gate.x, gate.y, 105,
+      addCandidate(0, `gate-${gate.name}`, gate.x, gate.y, 105,
         canCross ? `E · 穿过${gate.name}` : `${gate.name}等待回声核心回应`, () => {
           if (!canCross || !this.onTransition) return;
           this.runEnded = true;
@@ -2665,7 +2885,7 @@ export class RaidScene extends Phaser.Scene {
 
     for (const relay of this.layout.relayInteractions ?? []) {
       const calibrated = this.discoveredClues.has(relay.id);
-      addCandidate(1, `relay-${relay.id}`, relay.x, relay.y, 105,
+      addCandidate(0, `relay-${relay.id}`, relay.x, relay.y, 105,
         calibrated ? `${relay.name} · 已校准` : `E · 校准${relay.name}`, () => {
           if (calibrated) return;
           this.discoveredClues.add(relay.id);
@@ -2679,7 +2899,7 @@ export class RaidScene extends Phaser.Scene {
       const terminalPrompt = this.profile.endingSeen
         ? '归航频道已锁定 · 可从附近信标撤离'
         : (ready ? 'E · 锁定饼干岛频道（3.5 秒）' : '归航终端等待东西阵列校准');
-      addCandidate(1, 'home-terminal', terminal.x, terminal.y, 110, terminalPrompt, () => {
+      addCandidate(0, 'home-terminal', terminal.x, terminal.y, 110, terminalPrompt, () => {
         if (!ready || this.profile.endingSeen || this.extractingUntil > 0) return;
         this.endingTriggered = true;
         this.extractionDuration = 3500;
@@ -2694,29 +2914,40 @@ export class RaidScene extends Phaser.Scene {
     }
 
     for (const echo of this.storyEchoes) {
-      addCandidate(2, `echo-${echo.id}`, echo.x, echo.y, 92,
+      addCandidate(1, `echo-${echo.id}`, echo.x, echo.y, 92,
         `E · ${echo.heard ? '重听' : '聆听'}「${echo.title}」`, () => {
+          const firstListen = !echo.heard;
           this.discoveredClues.add(echo.id);
           if (echo.id === 'graveyard-terminal') this.discoveredClues.add('home-trace');
           this.markStoryEchoHeard(echo);
+          if (firstListen) {
+            this.awardResonance(14);
+            this.addExposure(1);
+          }
           this.showHint(echo.message, 5200);
           this.tweens.add({ targets: [echo.marker, echo.halo], scale: 1.22, duration: 180, yoyo: true });
         });
     }
 
     for (const extraction of this.getAvailableExtractionPoints()) {
-      addCandidate(3, `extraction-${extraction.label}`, extraction.x, extraction.y, 100,
-        'E · 开始安全撤离（2.5 秒）', () => {
+      const guidedExtraction = this.profile.successfulExtractions === 0 && this.onboarding.looted;
+      const insideBeaconCore = Phaser.Math.Distance.Between(this.player.x, this.player.y, extraction.x, extraction.y) < 70;
+      addCandidate(guidedExtraction || insideBeaconCore ? 0 : 3, `extraction-${extraction.label}`, extraction.x, extraction.y, 100,
+        `E · 开始安全撤离（${(this.getStandardExtractionDuration() / 1000).toFixed(2)} 秒）`, () => {
           if (this.extractingUntil > 0) return;
-          this.extractionDuration = 2500;
+          this.extractionDuration = this.getStandardExtractionDuration();
           this.extractionPoint = extraction;
-          this.extractingUntil = time + 2500;
+          this.extractingUntil = time + this.extractionDuration;
         });
     }
 
     for (const crate of this.crates) {
       if (!crate.sprite.active || crate.broken || !crate.requiresSearch) continue;
-      addCandidate(1, `container-${crate.id}`, crate.sprite.x, crate.sprite.y, 112,
+      const guidedStarterSearch = this.profile.successfulExtractions === 0
+        && this.onboarding.attacked
+        && !this.onboarding.searched
+        && crate.id === 'crate-foyer';
+      addCandidate(guidedStarterSearch ? 0 : 1, `container-${crate.id}`, crate.sprite.x, crate.sprite.y, 112,
         `E · 搜索${RARITY_NAMES[crate.rarity]}${crate.label}（${(crate.searchDuration / 1000).toFixed(1)} 秒）`, () => this.beginContainerSearch(crate));
     }
 
@@ -2742,6 +2973,7 @@ export class RaidScene extends Phaser.Scene {
       return;
     }
     this.backpack = inserted;
+    this.registerRecoveredItem(entry.itemId, entry.quantity);
     this.discoveredItems.add(entry.itemId);
     if (entry.itemId === 'map_feather') {
       this.mapUnlocked = true;
@@ -2776,6 +3008,8 @@ export class RaidScene extends Phaser.Scene {
       discoveredItems: Array.from(this.discoveredItems),
       discoveredClues: Array.from(this.discoveredClues),
       endingTriggered: outcome === 'extracted' && this.endingTriggered,
+      contractId: this.contractId,
+      telemetry: this.getTelemetrySnapshot(),
     };
 
     if (outcome === 'died') {
@@ -2845,6 +3079,18 @@ export class RaidScene extends Phaser.Scene {
       : '';
     this.statusText.setText(`生命  ${hearts}    蓝甲  ${armor}    背包  ${bagUsed}/${bagTotal} 格${patches > 0 ? `    修补 R×${patches}` : ''}${tonics > 0 ? `    糖浆 H×${tonics}` : ''}${scavengerStatus}`);
     this.objectiveText.setText(`目标  ${this.getRaidObjective()}${this.getScoutGuidance() ? `  ·  ${this.getScoutGuidance()}` : ''}`);
+    const contract = RAID_CONTRACTS[this.contractId];
+    const contractProgress = getContractProgress(this.contractId, this.telemetry);
+    this.contractText
+      .setText(`${contractProgress.complete ? '✓' : contract.icon} 契约 · ${contract.name}  ${Math.min(contractProgress.progress, contractProgress.target)}/${contractProgress.target}`)
+      .setColor(contractProgress.complete ? '#9cebd4' : '#f2cf8b');
+    const resonanceBlocks = Math.round(this.resonance / 10);
+    const surgeRemaining = Math.max(0, this.surgeUntil - this.time.now);
+    this.expeditionText
+      .setText(this.isSurgeActive()
+        ? `共鸣爆发 ${(surgeRemaining / 1000).toFixed(1)}s  ·  暴露 ${this.getExposureLabel()} ${Math.round(this.exposure)}%`
+        : `共鸣 ${'▰'.repeat(resonanceBlocks)}${'▱'.repeat(10 - resonanceBlocks)}  ·  暴露 ${this.getExposureLabel()} ${Math.round(this.exposure)}%`)
+      .setColor(this.isSurgeActive() ? '#aefbe4' : (this.getExposureTier() >= 2 ? '#efb3c0' : '#a7c7c2'));
     this.updateScoutVisuals();
     this.updateZoneState(this.time.now);
     const zone = this.currentZone;
@@ -3544,6 +3790,10 @@ export class RaidScene extends Phaser.Scene {
   private createContainerInventoryPanel(container: Phaser.GameObjects.Container, crate: RaidCrate, compact = false): void {
     const grid = compact ? { x: 850, y: 174, width: 5, height: 4, cell: 44 } : { x: 850, y: 174, width: 5, height: 5, cell: 56 };
     const active = this.activeContainerSearch;
+    const isCorpse = crate.kind === 'lost_corpse';
+    const visibleDrops = isCorpse && compact
+      ? crate.drops.slice(0, grid.width * grid.height)
+      : crate.drops;
     const placements: Array<{ x: number; y: number }> = [];
     const occupied = new Set<string>();
     const firstFit = (width: number, height: number): { x: number; y: number } => {
@@ -3557,14 +3807,19 @@ export class RaidScene extends Phaser.Scene {
       }
       return { x: 0, y: 0 };
     };
-    crate.drops.forEach((drop) => {
+    visibleDrops.forEach((drop, index) => {
+      if (isCorpse && compact) {
+        placements.push({ x: index % grid.width, y: Math.floor(index / grid.width) });
+        return;
+      }
       const footprint = getGridItemSize({ itemId: drop.itemId, rotated: drop.rotated ?? false });
       placements.push(firstFit(footprint.width, footprint.height));
     });
-    const isCorpse = crate.kind === 'lost_corpse';
-    container.add(this.add.text(1010, compact ? 156 : 148, isCorpse ? '遗失遗体 · 所有物品已可取' : `容器 · ${crate.label}`, {
-      fontFamily: 'Arial, sans-serif', fontSize: compact ? '12px' : '15px', color: isCorpse ? '#d7b9ff' : '#f1c879', fontStyle: 'bold',
-    }).setOrigin(0.5));
+    if (!compact) {
+      container.add(this.add.text(1010, 148, isCorpse ? '遗失遗体 · 所有物品已可取' : `容器 · ${crate.label}`, {
+        fontFamily: 'Arial, sans-serif', fontSize: '15px', color: isCorpse ? '#d7b9ff' : '#f1c879', fontStyle: 'bold',
+      }).setOrigin(0.5));
+    }
     if (isCorpse) {
       const takeAll = this.add.rectangle(1010, compact ? 410 : 548, 190, 34, 0x4a3560, 0.96)
         .setStrokeStyle(1, 0xd7b9ff, 0.7)
@@ -3578,12 +3833,13 @@ export class RaidScene extends Phaser.Scene {
     for (let row = 0; row < grid.height; row += 1) for (let column = 0; column < grid.width; column += 1) {
       container.add(this.add.rectangle(grid.x + column * grid.cell + grid.cell / 2, grid.y + row * grid.cell + grid.cell / 2, grid.cell - 3, grid.cell - 3, 0x102a31, 0.48).setStrokeStyle(1, 0x6bcbb6, 0.16));
     }
-    crate.drops.forEach((drop, index) => {
+    visibleDrops.forEach((drop, index) => {
       const item = ITEMS[drop.itemId];
       const footprint = getGridItemSize({ itemId: drop.itemId, rotated: drop.rotated ?? false });
+      const displayFootprint = isCorpse && compact ? { width: 1, height: 1 } : footprint;
       const placement = placements[index];
-      const width = footprint.width * grid.cell - 7;
-      const height = footprint.height * grid.cell - 7;
+      const width = displayFootprint.width * grid.cell - 7;
+      const height = displayFootprint.height * grid.cell - 7;
       const x = grid.x + placement.x * grid.cell + width / 2 + 3;
       const y = grid.y + placement.y * grid.cell + height / 2 + 3;
       const known = crate.revealed[index];
@@ -3607,8 +3863,8 @@ export class RaidScene extends Phaser.Scene {
       this.tweens.add({ targets: spinner, angle: 360, duration: 720, repeat: -1, ease: 'Linear' });
       container.add(spinner);
     });
-    container.add(this.add.text(1010, compact ? 400 : 500, isCorpse
-      ? '直接拖入背包或装备槽；未拿走的物品仍留在遗体中'
+    container.add(this.add.text(1010, compact ? 382 : 500, isCorpse
+      ? `遗体物品可拖取；未带走的会继续保留${crate.drops.length > visibleDrops.length ? ` · 另有 ${crate.drops.length - visibleDrops.length} 组` : ''}`
       : '已显示物品可拖入背包或装备槽', {
       fontSize: compact ? '9px' : '10px', color: isCorpse ? '#cbb1eb' : '#839f9c', align: 'center', wordWrap: { width: 280 },
     }).setOrigin(0.5));
@@ -3779,6 +4035,9 @@ export class RaidScene extends Phaser.Scene {
         loot.halo.destroy();
       }
     }
+    if (drag.source === 'container' || drag.source === 'ground') {
+      this.registerRecoveredItem(candidate.itemId, candidate.quantity);
+    }
     this.backpack = result.items;
     this.overlayNotice = result.kind === 'merged' ? '同类物品已完整合并。' : result.kind === 'swapped' ? '物品已直接交换。' : '物品已精确放入背包。';
     this.refreshBackpackOverlay();
@@ -3855,6 +4114,9 @@ export class RaidScene extends Phaser.Scene {
     if (sourceLoot) {
       sourceLoot.icon.destroy();
       sourceLoot.halo.destroy();
+    }
+    if (drag.source === 'container' || drag.source === 'ground') {
+      this.registerRecoveredItem(itemId, Math.max(1, drag.quantity ?? 1));
     }
     if (slot === 'armor') {
       this.maxArmor = getArmorMaximum({ loadout: this.loadout });
@@ -3958,6 +4220,7 @@ export class RaidScene extends Phaser.Scene {
   }
 
   private showZoneReveal(zone: MapZoneDefinition, time: number): void {
+    this.registerZoneVisit(zone);
     this.revealedZoneIds.add(zone.id);
     this.lastZoneRevealAt = time;
     this.tweens.killTweensOf(this.zoneRevealText);
@@ -4014,7 +4277,15 @@ export class RaidScene extends Phaser.Scene {
     return { x: 3620, y: 745 };
   }
 
+  private getStandardExtractionDuration(): number {
+    const licenseReduction = this.fieldLevel >= 5 ? 350 : 0;
+    const exposurePenalty = this.getExposureTier() >= 3 ? 700 : this.getExposureTier() >= 2 ? 350 : 0;
+    return 2500 - licenseReduction + exposurePenalty;
+  }
+
   private getRaidObjective(): string {
+    const onboardingObjective = this.getOnboardingObjective();
+    if (onboardingObjective) return onboardingObjective;
     if (this.mapId === 'outpost_01') {
       const target = this.getMapTarget();
       const extraction = this.extractionPoints.find((point) => point.x === target.x && point.y === target.y);
@@ -4158,6 +4429,20 @@ export class RaidScene extends Phaser.Scene {
           active: index === this.activeContainerSearch?.itemIndex && this.activeContainerSearch.completesAt > this.time.now,
         })),
       } : null,
+      contract: {
+        id: this.contractId,
+        name: RAID_CONTRACTS[this.contractId].name,
+        ...getContractProgress(this.contractId, this.telemetry),
+      },
+      expedition: {
+        fieldLevel: this.fieldLevel,
+        resonance: Math.round(this.resonance),
+        surgeActive: this.isSurgeActive(),
+        exposure: Math.round(this.exposure),
+        exposureTier: this.getExposureTier(),
+        telemetry: this.getTelemetrySnapshot(),
+        onboarding: { ...this.onboarding },
+      },
       flags: {
         dashReady: this.time.now >= this.dashReadyAt,
         dashEquipped: Boolean(this.loadout.shoes && ITEMS[this.loadout.shoes]?.stats?.dashEnabled),
@@ -4167,6 +4452,7 @@ export class RaidScene extends Phaser.Scene {
         lostCorpseRemaining: Boolean(this.remainingLostEchoItems?.length),
         extracting: this.extractingUntil > 0,
         inventoryOpen: this.overlayMode === 'backpack',
+        draggingInventoryItem: Boolean(this.activeInventoryDrag),
         paused: this.overlayMode === 'pause',
         abandonHoldActive: this.overlayMode === 'pause' && this.keys.abort.isDown,
       },

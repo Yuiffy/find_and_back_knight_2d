@@ -66,7 +66,7 @@ try {
   await moveX(760);
   let current = await state();
   assert(current.nearbyInteraction?.includes('校准西向'), `West calibration was not reachable: ${current.nearbyInteraction}.`);
-  await page.keyboard.press('Enter');
+  await hold('Enter', 80);
   await page.waitForTimeout(160);
   current = await state();
   assert(current.objective.includes('东向阵列'), `West calibration did not advance this run: ${current.objective}.`);
@@ -83,32 +83,43 @@ try {
   current = await state();
   assert(current.objective.includes('西向阵列'), `Failed relay calibration incorrectly persisted: ${current.objective}.`);
   await moveX(760);
+  await page.waitForFunction(() => {
+    const current = JSON.parse(window.render_game_to_text());
+    return current.nearbyInteraction?.includes('打开遗失遗体')
+      || current.nearbyInteraction?.includes('校准西向');
+  }, undefined, { timeout: 1200 });
   current = await state();
   if (current.nearbyInteraction?.includes('打开遗失遗体')) {
-    await page.keyboard.press('Enter');
-    await page.waitForTimeout(120);
-    await page.keyboard.press('Tab');
+    await hold('Enter', 80);
+    await page.waitForFunction(() => JSON.parse(window.render_game_to_text()).flags?.inventoryOpen === true, undefined, { timeout: 800 });
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await hold('Tab', 100);
+      await page.waitForTimeout(120);
+      current = await state();
+      if (!current.flags?.inventoryOpen) break;
+    }
+    assert(!current.flags?.inventoryOpen, `Lost-corpse inventory did not close: ${JSON.stringify(current.flags)}.`);
   }
-  for (let attempt = 0; attempt < 5 && !current.nearbyInteraction?.includes('校准西向'); attempt += 1) {
-    await hold('ArrowRight', 180);
+  await moveX(760);
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    await page.waitForTimeout(100);
     current = await state();
+    if (!current.flags?.inventoryOpen && current.nearbyInteraction?.includes('校准西向')) break;
   }
-  assert(current.nearbyInteraction?.includes('校准西向'), `West calibration was not available on the retry: ${current.nearbyInteraction}.`);
-  await page.keyboard.press('Enter');
-  for (let attempt = 0; attempt < 5 && !current.objective.includes('东向阵列'); attempt += 1) {
-    await page.waitForTimeout(110);
-    current = await state();
-  }
-  assert(current.objective.includes('东向阵列'), `Retry calibration did not advance the objective: ${current.objective}.`);
+  assert(current.nearbyInteraction?.includes('校准西向'), `West calibration was not available on the retry: ${JSON.stringify(current)}.`);
+  await hold('Enter', 80);
+  await page.waitForFunction(() => JSON.parse(window.render_game_to_text()).objective?.includes('东向阵列'), undefined, { timeout: 1000 });
+  current = await state();
+  assert(current.objective.includes('东向阵列'), `Retry calibration did not advance the objective: ${JSON.stringify(current)}.`);
   await moveX(350);
   current = await state();
   if (current.nearbyInteraction?.includes('聆听')) {
-    await page.keyboard.press('Enter');
+    await hold('Enter', 80);
     await hold('ArrowLeft', 150);
     current = await state();
   }
   assert(current.nearbyInteraction?.includes('安全撤离'), `West extraction was not reachable: ${current.nearbyInteraction}.`);
-  await page.keyboard.press('Enter');
+  await hold('Enter', 80);
   await page.waitForTimeout(4800);
   current = await state();
   assert(current.mode === 'base', `Extraction did not settle the relay run: ${JSON.stringify(current)}.`);

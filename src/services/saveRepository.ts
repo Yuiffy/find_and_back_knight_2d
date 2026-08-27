@@ -8,6 +8,7 @@ import {
 } from '../game/inventory';
 import { MAP_REGISTRY, normalizeMapEntry } from '../game/maps';
 import { getArmorMaximum, ITEMS } from '../game/items';
+import { cloneRaidTelemetry, getBetterGrade, normalizeContractId } from '../game/contracts';
 import type {
   ActiveRaid,
   BackpackInventory,
@@ -17,6 +18,8 @@ import type {
   GearSlot,
   Loadout,
   PlayerProfile,
+  RaidGrade,
+  RaidReport,
 } from '../types/game';
 
 const SAVE_KEY = 'sui-echoes-below.save.v1';
@@ -87,6 +90,31 @@ function now(): string {
   return new Date().toISOString();
 }
 
+function normalizeGrade(value: unknown): RaidGrade {
+  return value === 'S' || value === 'A' || value === 'B' || value === 'C' ? value : 'D';
+}
+
+function normalizeRaidReport(value: unknown, successfulExtractions: number): RaidReport | null {
+  if (!value || typeof value !== 'object') return null;
+  const report = value as Partial<RaidReport>;
+  if (report.outcome !== 'extracted' && report.outcome !== 'died') return null;
+  if (typeof report.mapId !== 'string' || !MAP_REGISTRY[report.mapId]) return null;
+  return {
+    raidId: Math.max(0, Math.floor(Number(report.raidId) || 0)),
+    mapId: report.mapId,
+    outcome: report.outcome,
+    contractId: normalizeContractId(report.contractId, successfulExtractions),
+    contractCompleted: Boolean(report.contractCompleted),
+    grade: normalizeGrade(report.grade),
+    creditsEarned: Math.max(0, Math.floor(Number(report.creditsEarned) || 0)),
+    xpEarned: Math.max(0, Math.floor(Number(report.xpEarned) || 0)),
+    extractedItemCount: Math.max(0, Math.floor(Number(report.extractedItemCount) || 0)),
+    extractedValue: Math.max(0, Math.floor(Number(report.extractedValue) || 0)),
+    telemetry: cloneRaidTelemetry(report.telemetry),
+    completedAt: typeof report.completedAt === 'string' ? report.completedAt : now(),
+  };
+}
+
 function getPackSize(loadout: Loadout): GridSize {
   const pack = loadout.backpack ? ITEMS[loadout.backpack] : null;
   return {
@@ -151,6 +179,11 @@ export function createDefaultProfile(): PlayerProfile {
     successfulExtractions: 0,
     deaths: 0,
     credits: 45,
+    fieldXp: 0,
+    extractionStreak: 0,
+    bestExtractionStreak: 0,
+    bestRaidGrade: 'D',
+    lastRaidReport: null,
     warehouseLevel: 1,
     workshopLevel: 1,
     collectionItems: [],
@@ -227,6 +260,11 @@ function normalizeProfile(value: unknown): PlayerProfile {
     successfulExtractions: Math.max(0, Number(candidate.successfulExtractions ?? 0)),
     deaths: Math.max(0, Number(candidate.deaths ?? 0)),
     credits: Math.max(0, Math.floor(Number(candidate.credits ?? 45))),
+    fieldXp: Math.max(0, Math.floor(Number(candidate.fieldXp ?? 0))),
+    extractionStreak: Math.max(0, Math.floor(Number(candidate.extractionStreak ?? 0))),
+    bestExtractionStreak: Math.max(0, Math.floor(Number(candidate.bestExtractionStreak ?? 0))),
+    bestRaidGrade: getBetterGrade('D', normalizeGrade(candidate.bestRaidGrade)),
+    lastRaidReport: normalizeRaidReport(candidate.lastRaidReport, Math.max(0, Number(candidate.successfulExtractions ?? 0))),
     warehouseLevel: Math.max(1, Math.min(3, Math.floor(Number(candidate.warehouseLevel ?? (warehouseSize.width >= 10 ? 2 : 1))))),
     workshopLevel: Math.max(1, Math.min(3, Math.floor(Number(candidate.workshopLevel ?? 1)))),
     collectionItems: Array.from(new Set(
@@ -278,6 +316,7 @@ function normalizeProfile(value: unknown): PlayerProfile {
     normalized.backpack = { width: 0, height: 0, items: [] };
     normalized.armorCondition = 0;
     normalized.deaths += 1;
+    normalized.extractionStreak = 0;
   }
   return normalized;
 }
@@ -312,6 +351,7 @@ export const saveRepository = {
         return { mapId: normalized.map.id, entryId: normalized.entry.id };
       })(),
       backpack: cloneGridItems(profile.activeRaid.backpack),
+      contractId: normalizeContractId(profile.activeRaid.contractId, saved.successfulExtractions),
     } : null;
     saved.updatedAt = now();
     window.localStorage.setItem(SAVE_KEY, JSON.stringify(saved));

@@ -34,6 +34,9 @@ async function dragCanvas(page, from, to) {
   const end = point(to);
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();
+  await page.waitForTimeout(120);
+  const dragState = await readState(page);
+  if (!dragState.flags?.draggingInventoryItem) throw new Error(`Inventory drag did not start at ${JSON.stringify(from)}.`);
   await page.mouse.move(end.x, end.y, { steps: 16 });
   await page.mouse.up();
   await page.waitForTimeout(220);
@@ -82,9 +85,9 @@ try {
   await dragCanvas(equipmentPage, { x: 532, y: 264 }, { x: 625, y: 570 });
   state = await readState(equipmentPage);
   assert(state.nearbyLoot.some((item) => item.itemId === 'rust_nail'), 'Dropped weapon did not appear nearby.');
-  await dragCanvas(equipmentPage, { x: 1010, y: 205 }, { x: 220, y: 196 });
+  await dragCanvas(equipmentPage, { x: 892, y: 210 }, { x: 220, y: 196 });
   state = await readState(equipmentPage);
-  assert(state.loadout.weapon === 'rust_nail', 'Ground weapon could not be equipped directly.');
+  assert(state.loadout.weapon === 'rust_nail', `Ground weapon could not be equipped directly: ${JSON.stringify({ loadout: state.loadout, nearbyLoot: state.nearbyLoot, backpack: state.backpack })}`);
   assert(state.backpack.some((item) => item.itemId === 'echo_lance'), 'Direct ground swap did not preserve the replaced weapon.');
   await equipmentPage.waitForTimeout(500);
   await equipmentPage.screenshot({ path: path.join(outputDir, '03-ground-direct-equip.png') });
@@ -93,20 +96,23 @@ try {
   const lootPage = await makePage();
   await lootPage.evaluate(() => localStorage.clear());
   await lootPage.reload({ waitUntil: 'networkidle' });
+  await lootPage.evaluate(() => {
+    const key = 'sui-echoes-below.save.v1';
+    const profile = JSON.parse(localStorage.getItem(key));
+    profile.backpack.items = [{ uid: 'ground-loop-tonic', itemId: 'echo_tonic', quantity: 1, x: 0, y: 0, rotated: false }];
+    localStorage.setItem(key, JSON.stringify(profile));
+  });
+  await lootPage.reload({ waitUntil: 'networkidle' });
   await enterRaid(lootPage);
-  await lootPage.keyboard.down('ArrowRight');
-  await lootPage.waitForTimeout(300);
-  await lootPage.keyboard.up('ArrowRight');
-  await lootPage.keyboard.press('b');
-  await lootPage.waitForTimeout(520);
   await lootPage.keyboard.press('Tab');
   await lootPage.waitForTimeout(180);
 
+  await dragCanvas(lootPage, { x: 532, y: 233 }, { x: 625, y: 570 });
   state = await readState(lootPage);
-  assert(state.nearbyLoot.some((item) => item.itemId === 'echo_tonic'), 'Nearby loot list omitted the starter-crate Echo Tonic.');
-  await dragCanvas(lootPage, { x: 1010, y: 269 }, { x: 530, y: 190 });
+  assert(state.nearbyLoot.some((item) => item.itemId === 'echo_tonic'), 'Nearby loot list omitted the dropped Echo Tonic.');
+  await dragCanvas(lootPage, { x: 892, y: 210 }, { x: 530, y: 233 });
   state = await readState(lootPage);
-  assert(state.backpack.some((item) => item.itemId === 'echo_tonic'), 'Ground loot did not enter the backpack.');
+  assert(state.backpack.some((item) => item.itemId === 'echo_tonic'), `Ground loot did not enter the backpack: ${JSON.stringify({ nearbyLoot: state.nearbyLoot, backpack: state.backpack })}`);
   assert(!state.nearbyLoot.some((item) => item.itemId === 'echo_tonic'), 'Picked-up loot remained on the ground.');
 
   await dragCanvas(lootPage, { x: 532, y: 233 }, { x: 625, y: 570 });

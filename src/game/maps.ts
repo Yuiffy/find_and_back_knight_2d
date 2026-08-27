@@ -23,7 +23,7 @@ export interface MapDefinition {
   worldHeight: number;
   entries: Record<string, MapEntryDefinition>;
   zones: MapZoneDefinition[];
-  unlockedBy?: 'bossDefeated';
+  unlockedBy?: 'bossDefeated' | 'successfulExtractions';
 }
 
 export const MAP_REGISTRY: Record<string, MapDefinition> = {
@@ -57,6 +57,7 @@ export const MAP_REGISTRY: Record<string, MapDefinition> = {
     subtitle: '随机潜入 · 拟态拾荒者 · 远距撤离',
     worldWidth: 7800,
     worldHeight: 2600,
+    unlockedBy: 'successfulExtractions',
     entries: {
       infiltration: { id: 'infiltration', name: '随机潜入投放', x: 420, y: 2260, zoneId: 'south-docks' },
     },

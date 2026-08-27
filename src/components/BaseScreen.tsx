@@ -18,7 +18,14 @@ import {
 } from '../game/items';
 import { MAP_REGISTRY, isEntryUnlocked, isMapUnlocked } from '../game/maps';
 import { occupiedGridCells } from '../game/inventory';
-import type { GearSlot, PlayerProfile } from '../types/game';
+import {
+  FIELD_LEVEL_BONUSES,
+  getAvailableContracts,
+  getDefaultContract,
+  getFieldLevelProgress,
+  RAID_CONTRACTS,
+} from '../game/contracts';
+import type { GearSlot, PlayerProfile, RaidContractId } from '../types/game';
 import {
   InventoryGrid,
   rotateInventoryDragPayload,
@@ -32,7 +39,7 @@ interface BaseScreenProps {
   profile: PlayerProfile;
   objective: string;
   notice: string | null;
-  onBeginRaid: (mapId: string, entryId: string) => void;
+  onBeginRaid: (mapId: string, entryId: string, contractId: RaidContractId) => void;
   onMoveItem: (payload: InventoryDragPayload, target: Exclude<InventorySource, 'loadout'>, x: number, y: number) => void;
   onRotateItem: (payload: InventoryDragPayload) => void;
   onQuickTransfer: (payload: InventoryDragPayload) => void;
@@ -83,6 +90,8 @@ export function BaseScreen({
   const firstEntryRef = useRef<HTMLButtonElement>(null);
   const [activeTab, setActiveTab] = useState<BaseTab>('storage');
   const [entryOpen, setEntryOpen] = useState(false);
+  const [selectedContractId, setSelectedContractId] = useState<RaidContractId>(() => getDefaultContract(profile).id);
+  const [dismissedReportId, setDismissedReportId] = useState<number | null>(null);
   const [selected, setSelected] = useState<InventoryDragPayload | null>(null);
   const [activeDrag, setActiveDrag] = useState<InventoryDragPayload | null>(null);
   const activeDragRef = useRef<InventoryDragPayload | null>(null);
@@ -93,6 +102,9 @@ export function BaseScreen({
   const clues = getClueRecords(profile);
   const objectiveSteps = getObjectiveSteps(profile);
   const availableMaps = Object.values(MAP_REGISTRY).filter((map) => isMapUnlocked(map, profile as unknown as Record<string, unknown>));
+  const availableContracts = getAvailableContracts(profile);
+  const fieldProgress = getFieldLevelProgress(profile.fieldXp);
+  const lastReport = profile.lastRaidReport?.raidId === dismissedReportId ? null : profile.lastRaidReport;
   const discoveredItems = profile.discoveredItems ?? [];
   const selectedItem = selected?.itemId ? ITEMS[selected.itemId] : null;
   const selectedStack = selected?.uid && (selected.source === 'warehouse' || selected.source === 'backpack')
@@ -101,6 +113,11 @@ export function BaseScreen({
   const starterQuote = quoteMarketOrder(STARTER_STANDARD_LOADOUT, profile);
   const lastLoadoutStacks = profile.lastDeployedLoadout ? loadoutToPurchaseStacks(profile.lastDeployedLoadout) : [];
   const lastLoadoutQuote = quoteMarketOrder(lastLoadoutStacks, profile);
+
+  useEffect(() => {
+    if (availableContracts.some((contract) => contract.id === selectedContractId)) return;
+    setSelectedContractId(getDefaultContract(profile).id);
+  }, [availableContracts, profile, selectedContractId]);
 
   useEffect(() => {
     if (!entryOpen) return undefined;
@@ -238,6 +255,7 @@ export function BaseScreen({
         </div>
         <div className="header-actions" aria-label="存档操作">
           <span className="credits-badge">◈ {profile.credits} 小鸟币</span>
+          <span className="license-badge">执照 Lv.{fieldProgress.level}</span>
           <span className="save-status">● 自动存档</span>
           <button className="text-button" type="button" onClick={onExport}>导出</button>
           <button className="text-button" type="button" onClick={() => importRef.current?.click()}>导入</button>
@@ -269,6 +287,24 @@ export function BaseScreen({
       </nav>
 
       {notice && <div className="notice" role="status">{notice}</div>}
+
+      {lastReport && (
+        <section className={`raid-report-band outcome-${lastReport.outcome}`} aria-label="最近远征战报">
+          <div className={`report-grade grade-${lastReport.grade}`}><small>远征评级</small><strong>{lastReport.grade}</strong></div>
+          <div className="report-summary">
+            <span className="eyebrow">AFTER ACTION REPORT · #{lastReport.raidId}</span>
+            <h2>{lastReport.outcome === 'extracted' ? '安全回传完成' : '信号中断，坐标已记录'}</h2>
+            <p>{MAP_REGISTRY[lastReport.mapId]?.name ?? lastReport.mapId} · 契约「{RAID_CONTRACTS[lastReport.contractId].name}」{lastReport.contractCompleted ? '完成' : '未完成'}</p>
+          </div>
+          <dl className="report-stats">
+            <div><dt>带回</dt><dd>{lastReport.extractedItemCount} 件</dd></div>
+            <div><dt>估值</dt><dd>◈ {lastReport.extractedValue}</dd></div>
+            <div><dt>击破 / 搜索</dt><dd>{lastReport.telemetry.enemiesDefeated} / {lastReport.telemetry.searchedContainerIds.length}</dd></div>
+            <div><dt>本轮收益</dt><dd>◈ {lastReport.creditsEarned} · {lastReport.xpEarned} XP</dd></div>
+          </dl>
+          <button className="report-dismiss" type="button" aria-label="收起最近远征战报" onClick={() => setDismissedReportId(lastReport.raidId)}>×</button>
+        </section>
+      )}
 
       {selectedItem && selected && (
         <div className="selection-toolbar" role="toolbar" aria-label="所选物品操作">
@@ -395,6 +431,24 @@ export function BaseScreen({
             <span className="service-icon">🧪</span>
             <div><span className="eyebrow">CRAFT BENCH</span><h2>制造台 · Lv.{profile.workshopLevel}</h2><p>提升制造台会解锁更可靠的远征补给与高级装备报价。下一次升级使用小鸟币支付。</p></div>
             <button className="secondary-button" type="button" onClick={onUpgradeWorkshop} disabled={profile.workshopLevel >= 3}>{profile.workshopLevel >= 3 ? '最高等级' : `升级 · ◈ ${profile.workshopLevel === 1 ? 120 : 360}`}</button>
+          </article>
+          <article className="panel service-card license-card">
+            <span className="service-icon">⌁</span>
+            <div>
+              <span className="eyebrow">FIELD LICENSE</span>
+              <h2>探索执照 · Lv.{fieldProgress.level}</h2>
+              <p>{fieldProgress.capped ? '当前执照已达到最高等级。' : `再获得 ${fieldProgress.required - fieldProgress.current} 经验可提升等级。每次远征都有经验，契约与安全撤离会显著加快成长。`}</p>
+              <div className="license-progress" aria-label={`探索执照经验 ${fieldProgress.current}/${fieldProgress.required || fieldProgress.current}`}>
+                <span style={{ width: `${fieldProgress.ratio * 100}%` }} />
+              </div>
+              <div className="license-bonus-list">
+                {FIELD_LEVEL_BONUSES.map((bonus) => (
+                  <span className={bonus.level <= fieldProgress.level ? 'is-unlocked' : ''} title={bonus.description} key={bonus.level}>
+                    Lv.{bonus.level} · {bonus.name}
+                  </span>
+                ))}
+              </div>
+            </div>
           </article>
         </section>
       )}
@@ -562,7 +616,24 @@ export function BaseScreen({
           <section ref={entryModalRef} className="entry-modal" role="dialog" aria-modal="true" aria-labelledby="entry-title" onMouseDown={(event) => event.stopPropagation()}>
             <span className="eyebrow">DEPLOYMENT</span>
             <h2 id="entry-title">选择地图与入口</h2>
-            <p>每轮只加载一张完整地图；普通入口会在多个安全投放点中轮换，深层电梯则直接前往远端区域。</p>
+            <p>{profile.successfulExtractions === 0 ? '第一次只需要搜索一件物资并安全返回；进入远征后，目标会随你的动作逐步更新。' : '先选择本轮行动契约，再从入口投放。契约失败不会扣除装备，只有死亡会留下遗失遗体。'}</p>
+            <div className="contract-picker" role="radiogroup" aria-label="本轮远征契约">
+              {availableContracts.map((contract) => (
+                <button
+                  className={`contract-option${selectedContractId === contract.id ? ' is-selected' : ''}`}
+                  type="button"
+                  role="radio"
+                  aria-checked={selectedContractId === contract.id}
+                  aria-label={`选择契约 ${contract.name}`}
+                  onClick={() => setSelectedContractId(contract.id)}
+                  key={contract.id}
+                >
+                  <span>{contract.icon}</span>
+                  <div><strong>{contract.name}</strong><small>{contract.condition}</small></div>
+                  <em>◈ {contract.creditReward} · {contract.xpReward} XP</em>
+                </button>
+              ))}
+            </div>
             {availableMaps.map((map, mapIndex) => (
               <div className="destination-group" key={map.id}>
                 <h3>{map.name}<small>{map.subtitle}</small></h3>
@@ -575,7 +646,7 @@ export function BaseScreen({
                       className="entry-option"
                       type="button"
                       disabled={!unlocked}
-                      onClick={() => onBeginRaid(map.id, entry.id)}
+                      onClick={() => onBeginRaid(map.id, entry.id, selectedContractId)}
                       key={`${map.id}:${entry.id}`}
                     >
                       <span>{map.id === 'outpost_01' ? '⚔️' : (map.id === 'relay_01' ? '📡' : (entry.id === 'lift' ? '⇣' : '⌂'))}</span>
@@ -585,6 +656,7 @@ export function BaseScreen({
                 })}
               </div>
             ))}
+            {profile.successfulExtractions === 0 && <p className="destination-locked">完成首次回传后，雾港封锁区将作为高风险搜打撤战场解锁。</p>}
             {!profile.bossDefeated && <p className="destination-locked">带回回声核心后，天线深场目的地将解锁。</p>}
             <button className="text-button modal-cancel" type="button" onClick={() => setEntryOpen(false)}>取消</button>
           </section>

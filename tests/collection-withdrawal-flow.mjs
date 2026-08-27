@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
 
-const baseUrl = 'http://127.0.0.1:4181/knight/';
+const baseUrl = process.env.BASE_URL ?? 'http://127.0.0.1:4175/knight/';
 const outputDir = path.resolve('.tmp/test-artifacts/collection-withdrawal-flow');
 fs.mkdirSync(outputDir, { recursive: true });
 const browser = await chromium.launch({ headless: true });

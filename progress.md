@@ -183,3 +183,32 @@ ok，你来创作这个理想的游戏！当然我们可以分批次，你可以
 - Raid dragging now renders a full-size red/green grid footprint at the intended landing cells instead of only a small text ghost; the footprint updates immediately after R.
 - Added `tests/raid-drag-rotate-flow.mjs`; it verifies real KeyR input rotates a held 1×4 item to a visible 4×1 preview and preserves that orientation on drop.
 - Re-ran `npm run build`, `drag-rotate-flow`, `raid-drag-rotate-flow`, and the official Playwright client with no browser errors.
+
+## 2026-08-27 · 大规模可玩性更新（进行中）
+
+- 新增远征契约领域模型：首局“初次回传”，后续可选择封箱清点、静默清场或深场测绘；契约进度由真实搜索、击杀、拾取与区域访问记录驱动。
+- 新增永久探索执照经验与 6 级被动成长，旧 v2 存档会自动补齐字段而不丢失仓库、装备或主线进度。
+- 新增持久远征战报：记录评级、契约结果、带回数量/估值、击破/搜索、货币与经验收益、连续撤离和历史最佳评级。
+- 基地入口弹窗已接入契约选择；首局只显示一个低压力目标。工作台显示执照进度与已解锁被动，基地返回后显示可收起的最近战报。
+- 局内加入五步情境引导、回声共鸣爆发和信号暴露档位；高暴露会加快敌人并引来追猎回声，共鸣爆发会短时强化伤害、移动、攻击频率与冲刺。
+- `npm run typecheck` 已通过。下一步进行真实首局闭环、契约成长、QHD/移动端视觉和既有回归测试。
+
+## 2026-08-27 · 大规模可玩性更新完成
+
+- 首局已形成五步情境教学 → 搜索并带回物资 → A 级战报 → 探索执照 Lv.2 的完整成长闭环；完成首撤后才解锁三类自由契约和高风险雾港。
+- 远征契约、六级探索执照、局后评级/收益/连撤战报、共鸣爆发、信号暴露与追猎增援均已接入真实局内遥测和持久存档；旧 v2 存档兼容。
+- 修复遗失遗体物品布局重叠、部分取回无法延续、雾港出生/撤离路线断言、新手箱与故事回声交互优先级，以及移动端画布比例和横屏触控工具栏位置。
+- 加固自动化的真实状态等待：容器揭示/拖取、空中方向攻击、遗体叠层关闭、撤离重试校准、深层起跳接地和 Boss 核心现场拖取均不再依赖固定帧竞态。
+
+### 最终验证
+
+- `npm run build` 通过；仅有既有 Phaser 动态场景包体积提示。
+- 首局契约闭环连续三次冷启动通过；方向攻击、撤离结算和深层 Boss 长链分别连续复跑通过。
+- `npm run test:flows` 的 17 条生产流程全部通过，覆盖基地/局内库存、战斗、暂停、跨图、撤离结算、Boss/结局、雾港、遗体、存档、交易、图鉴与响应式触控，所有浏览器错误数组为空。
+- 官方 `web_game_playwright_client` 定向走到新手容器：移动、跳跃、攻击、搜索进度正确，三件物资完成揭示且故事回声未抢占交互。
+- 已人工检查 QHD 前庭/深场/结局、390×844 竖屏基地/契约/远征、844×390 横屏远征和官方容器截图；画布非空、比例正确、HUD 与触控区无关键遮挡。
+- `git diff --check` 通过；预览继续运行在 `http://127.0.0.1:4175/knight/`。
+
+### 后续可选（不阻塞本轮）
+
+- 增加原创环境音、战斗音效与手柄震动；继续扩展 Boss 招式、每日契约轮换和第二张地图。

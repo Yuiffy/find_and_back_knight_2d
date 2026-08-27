@@ -25,9 +25,15 @@ import {
   quoteMarketOrder,
   STARTER_STANDARD_LOADOUT,
 } from './game/items';
+import {
+  createRaidReport,
+  getBetterGrade,
+  getDefaultContract,
+  RAID_CONTRACTS,
+} from './game/contracts';
 import { EMPTY_DEATH_LOADOUT, saveRepository } from './services/saveRepository';
 import { publishDomainEvent } from './services/gameNetworkBoundary';
-import type { GearSlot, GridItem, GridSize, PlayerProfile, RaidResult, RaidRunState, RaidTransition, TextGameState } from './types/game';
+import type { GearSlot, GridItem, GridSize, PlayerProfile, RaidContractId, RaidResult, RaidRunState, RaidTransition, TextGameState } from './types/game';
 
 type AppMode = 'base' | 'raid' | 'ending';
 
@@ -400,8 +406,9 @@ export function App() {
     }, `安全仓库升级至 Lv.${profile.warehouseLevel + 1}：容量扩展为 ${nextSize.width}×${nextSize.height}。`);
   }
 
-  function handleBeginRaid(mapId: string, entryId: string): void {
+  function handleBeginRaid(mapId: string, entryId: string, requestedContractId?: RaidContractId): void {
     const raidId = profile.raidsStarted + 1;
+    const contractId = requestedContractId ?? getDefaultContract(profile).id;
     const next = saveRepository.save({
       ...profile,
       raidsStarted: raidId,
@@ -412,6 +419,7 @@ export function App() {
         startedAt: new Date().toISOString(),
         backpack: cloneGridItems(profile.backpack.items),
         entryId,
+        contractId,
       },
     });
     setProfile(next);
@@ -424,6 +432,7 @@ export function App() {
       raidId,
       mapId,
       entryId,
+      contractId,
       at: new Date().toISOString(),
     });
     setMode('raid');
@@ -444,6 +453,15 @@ export function App() {
       result,
       at: new Date().toISOString(),
     });
+    const report = createRaidReport({
+      raidId: profile.raidsStarted,
+      mapId: result.mapId,
+      outcome: result.outcome,
+      contractId: result.contractId,
+      telemetry: result.telemetry,
+      backpack: result.backpack,
+      fieldXp: profile.fieldXp,
+    });
     if (result.outcome === 'extracted') {
       const nextMapUnlocked = profile.mapUnlocked || result.mapUnlocked;
       const extractedCore = result.backpack.some((stack) => stack.itemId === 'echo_core');
@@ -453,12 +471,19 @@ export function App() {
           ? { ...profile.lostEcho, items: result.remainingLostEchoItems.map((item) => ({ ...item })) }
           : null)
         : null;
+      const nextStreak = profile.extractionStreak + 1;
       const next = saveRepository.save({
         ...profile,
         backpack: { ...profile.backpack, items: cloneGridItems(result.backpack) },
         loadout: { ...result.loadout },
         armorCondition: result.armorCondition,
         successfulExtractions: profile.successfulExtractions + 1,
+        credits: profile.credits + report.creditsEarned,
+        fieldXp: profile.fieldXp + report.xpEarned,
+        extractionStreak: nextStreak,
+        bestExtractionStreak: Math.max(profile.bestExtractionStreak, nextStreak),
+        bestRaidGrade: getBetterGrade(profile.bestRaidGrade, report.grade),
+        lastRaidReport: report,
         mapUnlocked: nextMapUnlocked,
         shortcutUnlocked: profile.shortcutUnlocked || result.shortcutUnlocked,
         bossDefeated: nextBossDefeated,
@@ -483,7 +508,8 @@ export function App() {
         setMode('ending');
         return;
       }
-      setNotice(`安全撤离成功：${result.backpack.reduce((sum, stack) => sum + stack.quantity, 0)} 件物品仍在随身背包，请在整备页卸入基地仓库。`);
+      const contract = RAID_CONTRACTS[result.contractId];
+      setNotice(`安全撤离 · ${report.grade} 级：获得 ◈ ${report.creditsEarned} 与 ${report.xpEarned} 执照经验。${report.contractCompleted ? `契约「${contract.name}」已完成。` : `契约「${contract.name}」未达成。`}`);
       setMode('base');
       return;
     }
@@ -499,6 +525,10 @@ export function App() {
       backpack: { width: 0, height: 0, items: [] },
       armorCondition: 0,
       deaths: profile.deaths + 1,
+      fieldXp: profile.fieldXp + report.xpEarned,
+      extractionStreak: 0,
+      bestRaidGrade: getBetterGrade(profile.bestRaidGrade, report.grade),
+      lastRaidReport: report,
       discoveredItems: Array.from(new Set([...profile.discoveredItems, ...(result.discoveredItems ?? [])])),
       discoveredClues: Array.from(new Set([
         ...profile.discoveredClues,
@@ -516,7 +546,7 @@ export function App() {
     });
     setProfile(next);
     setRaidRunState(null);
-    setNotice('远征失败。装备与背包物品留在死亡地点的遗失遗体中；从安全仓库重新配装，或下一轮前去取回。');
+    setNotice(`远征失败：本轮获得 ${report.xpEarned} 执照经验。装备与背包物品已留在死亡地点，下一轮仍可找回一次。`);
     setMode('base');
   }, [profile]);
 

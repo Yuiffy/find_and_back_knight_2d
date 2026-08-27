@@ -51,6 +51,24 @@ async function hold(key, milliseconds) {
   await page.keyboard.up(key);
 }
 
+async function dragCanvas(from, to) {
+  const canvas = page.locator('canvas');
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('Canvas has no bounding box.');
+  const point = (position) => ({
+    x: box.x + (position.x / 1280) * box.width,
+    y: box.y + (position.y / 720) * box.height,
+  });
+  const start = point(from);
+  const end = point(to);
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.waitForTimeout(100);
+  await page.mouse.move(end.x, end.y, { steps: 16 });
+  await page.mouse.up();
+  await page.waitForTimeout(220);
+}
+
 async function moveX(targetX, tolerance = 35) {
   for (let attempt = 0; attempt < 28; attempt += 1) {
     const current = await state();
@@ -63,6 +81,10 @@ async function moveX(targetX, tolerance = 35) {
 
 async function jumpToward(takeoffX, targetX, targetY, directionHold = 1050) {
   await moveX(takeoffX, 24);
+  await page.waitForFunction(() => {
+    const current = JSON.parse(window.render_game_to_text?.() ?? '{}');
+    return current.mode === 'raid' && current.player?.grounded;
+  }, undefined, { timeout: 1600 });
   const before = await state();
   const direction = targetX >= before.player.x ? 'KeyD' : 'KeyA';
   await page.keyboard.down(direction);
@@ -79,7 +101,7 @@ async function jumpToward(takeoffX, targetX, targetY, directionHold = 1050) {
     current = await state();
   }
   assert(current.player.grounded, `Player never landed after the solid-terrain jump from (${before.player.x}, ${before.player.y}).`);
-  assert(current.player.y <= targetY + 55 && current.player.y < before.player.y - 70, `Solid-terrain route failed from (${before.player.x}, ${before.player.y}) to (${current.player.x}, ${current.player.y}); expected ledge near y=${targetY}.`);
+  assert(current.player.y <= targetY + 55 && current.player.y < before.player.y - 70, `Solid-terrain route failed: ${JSON.stringify({ before: before.player, after: current.player, enemies: current.visibleEnemies, targetY })}.`);
   return current;
 }
 
@@ -140,21 +162,23 @@ try {
   assert(sawBossWindup, 'Boss fight never exposed a telegraph or charge state to the player.');
   assert(capturedBossWindup, 'Boss telegraph was not visible long enough to capture before its charge.');
 
-  for (let pickup = 0; pickup < 12; pickup += 1) {
-    current = await state();
-    const nextLoot = current.visibleLoot.find((loot) => loot.itemId === 'echo_core') ?? current.visibleLoot[0];
-    if (!nextLoot) break;
-    await moveX(nextLoot.x, 24);
-    for (let press = 0; press < 3; press += 1) {
-      await page.keyboard.press('Enter');
-      await page.waitForTimeout(180);
-      current = await state();
-      if (current.backpack.some((item) => item.itemId === 'echo_core')) break;
-    }
-    if (current.backpack.some((item) => item.itemId === 'echo_core')) break;
-  }
+  current = await state();
+  const coreLoot = current.visibleLoot.find((loot) => loot.itemId === 'echo_core');
+  assert(coreLoot, `Boss did not drop the Echo Core: ${JSON.stringify(current.visibleLoot)}.`);
+  await moveX(coreLoot.x, 24);
+  await hold('Tab', 100);
+  await page.waitForFunction(() => JSON.parse(window.render_game_to_text?.() ?? '{}').flags?.inventoryOpen === true, undefined, { timeout: 800 });
+  current = await state();
+  const coreIndex = current.nearbyLoot.findIndex((loot) => loot.itemId === 'echo_core');
+  assert(coreIndex >= 0, `Echo Core was not listed in the nearby-loot panel: ${JSON.stringify(current.nearbyLoot)}.`);
+  await dragCanvas(
+    { x: 892 + (coreIndex % 4) * 72, y: 210 + Math.floor(coreIndex / 4) * 72 },
+    { x: 594, y: 264 },
+  );
   current = await state();
   assert(current.backpack.some((item) => item.itemId === 'echo_core'), `3x3 Echo Core was not placed in the 4x5 backpack: ${JSON.stringify({ player: current.player, nearby: current.nearbyInteraction, loot: current.visibleLoot, backpack: current.backpack })}.`);
+  await hold('Tab', 100);
+  await page.waitForFunction(() => JSON.parse(window.render_game_to_text?.() ?? '{}').flags?.inventoryOpen === false, undefined, { timeout: 800 });
   await page.locator('canvas').screenshot({ path: path.join(outputDir, '02-boss-loot-in-grid-pack.png') });
 
   if (current.player.y > 820) {

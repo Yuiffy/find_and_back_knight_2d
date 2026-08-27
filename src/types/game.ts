@@ -12,6 +12,42 @@ export type GearSlot = 'weapon' | 'armor' | 'head' | 'shoes' | 'backpack';
 // 白、绿、蓝、紫、金、红六级品阶；红色只留给极少数顶级藏品。
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'relic';
 export type CollectibleKind = 'food' | 'homeware' | 'electronics' | 'craft' | 'memory';
+export type RaidContractId = 'first_signal' | 'salvage' | 'hunter' | 'pathfinder';
+export type RaidGrade = 'S' | 'A' | 'B' | 'C' | 'D';
+
+export interface RaidTelemetry {
+  enemiesDefeated: number;
+  searchedContainerIds: string[];
+  itemsRecovered: number;
+  rareFinds: number;
+  zonesVisited: string[];
+  damageTaken: number;
+  surgesTriggered: number;
+  elapsedMs: number;
+}
+
+export interface RaidOnboardingProgress {
+  moved: boolean;
+  jumped: boolean;
+  attacked: boolean;
+  searched: boolean;
+  looted: boolean;
+}
+
+export interface RaidReport {
+  raidId: number;
+  mapId: string;
+  outcome: 'extracted' | 'died';
+  contractId: RaidContractId;
+  contractCompleted: boolean;
+  grade: RaidGrade;
+  creditsEarned: number;
+  xpEarned: number;
+  extractedItemCount: number;
+  extractedValue: number;
+  telemetry: RaidTelemetry;
+  completedAt: string;
+}
 
 export interface ItemStats {
   attack?: number;
@@ -80,6 +116,7 @@ export interface ActiveRaid {
   startedAt: string;
   backpack: GridItem[];
   entryId?: string;
+  contractId?: RaidContractId;
 }
 
 export interface RaidContainerState {
@@ -102,6 +139,11 @@ export interface RaidRunState {
   openedCrateIds: string[];
   containerStates?: Record<string, RaidContainerState>;
   defeatedEnemyIds: string[];
+  contractId: RaidContractId;
+  telemetry: RaidTelemetry;
+  onboarding: RaidOnboardingProgress;
+  resonance: number;
+  exposure: number;
 }
 
 export interface RaidTransition {
@@ -125,6 +167,12 @@ export interface PlayerProfile {
   deaths: number;
   /** Small-bird coins are the permanent currency earned from valuables. */
   credits: number;
+  /** Permanent expedition-license progress earned from every settled raid. */
+  fieldXp: number;
+  extractionStreak: number;
+  bestExtractionStreak: number;
+  bestRaidGrade: RaidGrade;
+  lastRaidReport: RaidReport | null;
   warehouseLevel: number;
   workshopLevel: number;
   /** Collectibles that were safely extracted and placed in the home display room. */
@@ -223,6 +271,22 @@ export interface TextGameState {
     revealed: Array<{ itemId: string | null; quantity?: number; rotated?: boolean; revealed: boolean; active: boolean }>;
   } | null;
   flags?: Record<string, boolean>;
+  contract?: {
+    id: RaidContractId;
+    name: string;
+    progress: number;
+    target: number;
+    complete: boolean;
+  };
+  expedition?: {
+    fieldLevel: number;
+    resonance: number;
+    surgeActive: boolean;
+    exposure: number;
+    exposureTier: number;
+    telemetry: RaidTelemetry;
+    onboarding: RaidOnboardingProgress;
+  };
 }
 
 export interface RaidResult {
@@ -241,4 +305,6 @@ export interface RaidResult {
   discoveredItems?: string[];
   discoveredClues?: string[];
   endingTriggered?: boolean;
+  contractId: RaidContractId;
+  telemetry: RaidTelemetry;
 }

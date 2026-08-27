@@ -65,14 +65,19 @@ try {
   await page.waitForTimeout(420);
 
   await moveX(390);
+  current = await state();
+  const downstrikeFloorY = current.player.y;
   await page.keyboard.down('KeyD');
   await page.keyboard.down('Space');
-  await page.waitForTimeout(160);
-  await page.keyboard.up('Space');
-  await page.waitForFunction(() => {
+  await page.waitForFunction((floorY) => {
     const current = JSON.parse(window.render_game_to_text?.() ?? '{}');
-    return current.mode === 'raid' && current.player && !current.player.grounded && current.player.velocityY > 0;
-  }, undefined, { timeout: 1200 });
+    return current.mode === 'raid'
+      && current.player
+      && !current.player.grounded
+      && current.player.velocityY < -100
+      && current.player.y < floorY - 32;
+  }, downstrikeFloorY, { timeout: 800 });
+  await page.keyboard.up('Space');
   await page.keyboard.down('KeyS');
   await page.keyboard.down('KeyJ');
   await page.waitForTimeout(80);

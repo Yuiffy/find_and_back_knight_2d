@@ -102,7 +102,7 @@ try {
   assert(current.flags.lostCorpseRemaining, 'Opened corpse unexpectedly had no remaining items.');
   await page.locator('canvas').screenshot({ path: path.join(outputDir, '02-corpse-open-immediate.png') });
 
-  await page.mouse.click(1010, 548);
+  await page.mouse.click(1010, 410);
   await page.waitForTimeout(260);
   current = await state();
   assert(current.backpack.some((item) => item.itemId === 'echo_lance'), `One-click corpse transfer did not place equipment in backpack: ${JSON.stringify(current)}.`);
@@ -111,15 +111,20 @@ try {
 
   await page.keyboard.press('Tab');
   await page.waitForTimeout(120);
-  await page.keyboard.press('Enter');
-  await page.waitForFunction(() => JSON.parse(window.render_game_to_text?.() ?? '{}').flags?.lostCorpseOpen === true, undefined, { timeout: 800 });
   current = await state();
-  assert(current.flags.lostCorpseRemaining, 'Closing and reopening erased the partial corpse contents.');
+  assert(!current.flags.inventoryOpen, 'Tab did not close the partially looted corpse.');
+  await page.keyboard.press('Tab');
+  await page.waitForFunction(() => JSON.parse(window.render_game_to_text?.() ?? '{}').flags?.inventoryOpen === true, undefined, { timeout: 800 });
+  current = await state();
+  assert(current.flags.lostCorpseOpen && current.flags.lostCorpseRemaining, 'Closing and reopening erased the partial corpse contents.');
 
   await page.keyboard.press('Tab');
+  await page.waitForFunction(() => JSON.parse(window.render_game_to_text?.() ?? '{}').flags?.inventoryOpen === false, undefined, { timeout: 800 });
   await moveNear(520);
+  current = await state();
+  assert(current.nearbyInteraction?.includes('安全撤离'), `Foyer extraction was not selected after closing the corpse: ${JSON.stringify({ player: current.player, nearbyInteraction: current.nearbyInteraction })}.`);
   await page.keyboard.press('Enter');
-  await page.waitForTimeout(3400);
+  await page.waitForFunction(() => JSON.parse(window.render_game_to_text?.() ?? '{}').mode === 'base', undefined, { timeout: 6000 });
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('sui-echoes-below.save.v1')));
   assert(saved.lostEcho?.items?.length > 0, 'Partial corpse should persist after extraction.');
   assert(saved.backpack.items.some((item) => item.itemId === 'echo_lance'), 'Looted corpse weapon did not persist in the raid backpack after extraction.');

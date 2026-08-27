@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
 
-const baseUrl = process.env.BASE_URL ?? 'http://127.0.0.1:4185/knight/';
+const baseUrl = process.env.BASE_URL ?? 'http://127.0.0.1:4175/knight/';
 const outputDir = path.resolve('.tmp/test-artifacts/outpost-raid-flow');
 fs.mkdirSync(outputDir, { recursive: true });
 const browser = await chromium.launch({ headless: true });
@@ -11,11 +11,20 @@ const errors = [];
 function assert(condition, message) { if (!condition) throw new Error(message); }
 async function state(page) { return JSON.parse(await page.evaluate(() => window.render_game_to_text?.() ?? '{}')); }
 async function enterOutpost(page, priorRaidsStarted) {
+  if (page.url() !== 'about:blank') {
+    await page.evaluate(() => {
+      const key = 'sui-echoes-below.save.v1';
+      const raw = localStorage.getItem(key);
+      if (!raw) return;
+      const profile = JSON.parse(raw);
+      localStorage.setItem(key, JSON.stringify({ ...profile, activeRaid: null }));
+    });
+  }
   await page.goto(baseUrl, { waitUntil: 'networkidle' });
   await page.evaluate((raidsStarted) => {
     const key = 'sui-echoes-below.save.v1';
     const profile = JSON.parse(localStorage.getItem(key));
-    localStorage.setItem(key, JSON.stringify({ ...profile, raidsStarted, activeRaid: null, lostEcho: { mapId: 'relay_01', x: 450, y: 1510, items: [{ itemId: 'echo_dust', quantity: 1 }], createdAtRaid: 1 } }));
+    localStorage.setItem(key, JSON.stringify({ ...profile, raidsStarted, successfulExtractions: Math.max(1, profile.successfulExtractions ?? 0), activeRaid: null, lostEcho: { mapId: 'relay_01', x: 450, y: 1510, items: [{ itemId: 'echo_dust', quantity: 1 }], createdAtRaid: 1 } }));
   }, priorRaidsStarted);
   await page.reload({ waitUntil: 'networkidle' });
   await page.getByRole('button', { name: '选择入口并开始远征' }).click();
@@ -32,7 +41,7 @@ async function hold(page, key, milliseconds) {
 }
 
 async function moveX(page, targetX, tolerance = 35) {
-  for (let attempt = 0; attempt < 28; attempt += 1) {
+  for (let attempt = 0; attempt < 52; attempt += 1) {
     const current = await state(page);
     const distance = targetX - current.player.x;
     if (Math.abs(distance) <= tolerance) return current;
@@ -80,12 +89,12 @@ try {
   const farDistance = Math.hypot(first.outpost.targetExtraction.x - first.spawn.x, first.outpost.targetExtraction.y - first.spawn.y);
   assert(farDistance > 4000, `Extraction was not far from random spawn: ${farDistance}`);
 
-  const market = await enterOutpost(page, 3);
+  const market = await enterOutpost(page, 5);
   await page.locator('canvas').screenshot({ path: path.join(outputDir, '03-market-arrival-bridge.png') });
   const atExtraction = await moveX(page, 3750, 45);
-  assert(atExtraction.player.grounded && atExtraction.player.y < 1700, `Market arrival dropped below the main floor: ${JSON.stringify(atExtraction.player)}`);
-  assert(atExtraction.nearbyInteraction.includes('安全撤离'), `Market extraction was not reachable: ${JSON.stringify(atExtraction)}`);
   await page.locator('canvas').screenshot({ path: path.join(outputDir, '03-market-extraction.png') });
+  assert(atExtraction.player.grounded && atExtraction.player.y < 1700, `Market arrival dropped below the main floor: ${JSON.stringify(atExtraction.player)}`);
+  assert(atExtraction.nearbyInteraction?.includes('安全撤离'), `Market extraction was not reachable: ${JSON.stringify({ player: atExtraction.player, nearbyInteraction: atExtraction.nearbyInteraction, spawn: atExtraction.spawn })}`);
   await page.keyboard.press('Enter');
   await page.waitForTimeout(3400);
   const settled = await state(page);

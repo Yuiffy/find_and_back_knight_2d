@@ -1,7 +1,7 @@
-import type { PlayerProfile, RaidResult } from '../types/game';
+import type { PlayerProfile, RaidContractId, RaidResult } from '../types/game';
 
 export type GameDomainEvent =
-  | { type: 'raid.started'; raidId: number; mapId: string; entryId: string; at: string }
+  | { type: 'raid.started'; raidId: number; mapId: string; entryId: string; contractId: RaidContractId; at: string }
   | { type: 'raid.settled'; raidId: number; mapId: string; result: RaidResult; at: string }
   | { type: 'profile.saved'; profileVersion: number; updatedAt: string };
 
