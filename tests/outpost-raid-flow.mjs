@@ -1,8 +1,9 @@
+import { legacyUrl } from './legacy-url.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
 
-const baseUrl = process.env.BASE_URL ?? 'http://127.0.0.1:4175/knight/';
+const baseUrl = legacyUrl;
 const outputDir = path.resolve('.tmp/test-artifacts/outpost-raid-flow');
 fs.mkdirSync(outputDir, { recursive: true });
 const browser = await chromium.launch({ headless: true });
@@ -95,8 +96,8 @@ try {
   await page.locator('canvas').screenshot({ path: path.join(outputDir, '03-market-extraction.png') });
   assert(atExtraction.player.grounded && atExtraction.player.y < 1700, `Market arrival dropped below the main floor: ${JSON.stringify(atExtraction.player)}`);
   assert(atExtraction.nearbyInteraction?.includes('安全撤离'), `Market extraction was not reachable: ${JSON.stringify({ player: atExtraction.player, nearbyInteraction: atExtraction.nearbyInteraction, spawn: atExtraction.spawn })}`);
-  await page.keyboard.press('Enter');
-  await page.waitForTimeout(3400);
+  await page.keyboard.press('Enter', { delay: 90 });
+  await page.waitForFunction(() => JSON.parse(window.render_game_to_text?.() ?? '{}').mode === 'base', undefined, { timeout: 6500 });
   const settled = await state(page);
   assert(settled.mode === 'base', `Market extraction did not settle the raid back at base: ${JSON.stringify(settled)}`);
 

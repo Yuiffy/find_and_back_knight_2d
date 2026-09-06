@@ -1,8 +1,9 @@
+import { legacyUrl } from './legacy-url.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
 
-const baseUrl = 'http://127.0.0.1:4175/knight/';
+const baseUrl = legacyUrl;
 const outputDir = path.resolve('.tmp/test-artifacts/container-auto-search');
 fs.mkdirSync(outputDir, { recursive: true });
 const browser = await chromium.launch({ headless: true });

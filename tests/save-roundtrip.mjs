@@ -1,3 +1,4 @@
+import { legacyUrl } from './legacy-url.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
@@ -19,7 +20,7 @@ function assert(condition, message) {
 }
 
 try {
-  await page.goto('http://127.0.0.1:4175', { waitUntil: 'networkidle' });
+  await page.goto(legacyUrl, { waitUntil: 'networkidle' });
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: '重置' }).click();
   await page.getByText('已创建新的本地存档。').waitFor();

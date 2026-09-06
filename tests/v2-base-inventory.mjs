@@ -1,9 +1,10 @@
+import { legacyUrl } from './legacy-url.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
 
 const outputDir = path.resolve('.tmp/test-artifacts/v2-base-inventory');
-const baseUrl = process.env.BASE_URL ?? 'http://127.0.0.1:4175';
+const baseUrl = legacyUrl;
 fs.mkdirSync(outputDir, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 2560, height: 1440 } });

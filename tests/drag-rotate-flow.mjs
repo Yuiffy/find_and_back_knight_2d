@@ -1,3 +1,4 @@
+import { legacyUrl } from './legacy-url.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,7 +13,7 @@ page.on('console', (message) => { if (message.type() === 'error') errors.push(me
 page.on('pageerror', (error) => errors.push(error.message));
 
 try {
-  await page.goto('http://127.0.0.1:4175', { waitUntil: 'networkidle' });
+  await page.goto(legacyUrl, { waitUntil: 'networkidle' });
   await page.evaluate(() => localStorage.clear());
   await page.reload({ waitUntil: 'networkidle' });
 

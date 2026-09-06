@@ -1,0 +1,268 @@
+.lantern-game {
+  --l-ink: #283e35;
+  --l-soft: #5a7164;
+  --l-paper: #f2f4e9;
+  --l-red: #bd6159;
+  --l-green: #345e49;
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  color: var(--l-ink);
+  background: #c7dacb;
+  font-family: "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  isolation: isolate;
+}
+.lantern-game *, .lantern-legacy-back { letter-spacing: 0; }
+.lantern-game button, .lantern-game a { -webkit-tap-highlight-color: transparent; }
+.lantern-game button { cursor: pointer; }
+.lantern-game button:disabled { cursor: default; }
+.lantern-game button:focus-visible, .lantern-game a:focus-visible { outline: 3px solid #c7735b; outline-offset: 5px; }
+.lantern-canvas { position: absolute; inset: 0; touch-action: none; }
+.lantern-canvas canvas { display: block; }
+.lantern-canvas:focus { outline: none; }
+.lantern-top { position: absolute; z-index: 4; top: 28px; left: 34px; right: 34px; display: flex; align-items: flex-start; justify-content: space-between; pointer-events: none; gap: 16px; }
+.lantern-game::after { content: ""; position: absolute; z-index: 1; left: 0; right: 0; top: 0; height: 150px; background: linear-gradient(#eaf0e7e8, #eaf0e7a6 63%, #eaf0e700); pointer-events: none; }
+.lantern-identity { min-width: 180px; text-shadow: 0 1px 15px #f0f2e8; }
+.lantern-kicker { display: block; color: #617268; font-size: 11px; font-weight: 600; }
+.lantern-identity h1 { font-family: "Noto Serif SC", "Songti SC", "SimSun", Georgia, serif; font-size: 30px; font-weight: 700; line-height: 1.15; margin: 4px 0 12px; }
+.lantern-vitals { display: flex; align-items: center; gap: 5px; height: 27px; }
+.lantern-vitals > svg { color: #778c7c; fill: #e0e7d6; stroke-width: 1.8; }
+.lantern-vitals > svg.is-full { color: #a8504b; fill: #c97367; }
+.lantern-weapon { display: inline-flex; align-items: center; justify-content: center; margin-left: 8px; padding-left: 12px; border-left: 1px solid #4c66573b; height: 20px; }
+.lantern-weapon.is-lit { color: #96702e; }
+.lantern-tools { display: flex; gap: 7px; pointer-events: auto; }
+.lantern-icon { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 38px; width: 38px; height: 38px; border: 1px solid #47625225; border-radius: 50%; background: #f4f5e8df; color: #3e594a; transition: background .15s, transform .15s; }
+.lantern-icon:hover { background: #fffdf3; transform: translateY(-1px); }
+.lantern-home-copy { position: absolute; z-index: 3; left: 5%; top: 23%; width: min(325px, calc(100% - 36px)); padding: 0; text-shadow: 0 1px 10px #eff1e5; }
+.lantern-home-line { width: 32px; height: 3px; background: #ad665b; margin-bottom: 20px; }
+.lantern-home-copy p { margin: 0 0 22px; font-family: "Noto Serif SC", "Songti SC", "SimSun", serif; font-size: 26px; font-weight: 600; line-height: 1.65; }
+.lantern-home-memory { display: block; margin: -6px 0 18px; color: #536c5e; font-size: 12px; }
+.lantern-primary, .lantern-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 12px; min-height: 46px; padding: 12px 22px; border: 1px solid transparent; border-radius: 5px; font-size: 14px; font-weight: 600; line-height: 1.4; text-shadow: none; transition: background .15s, transform .15s; }
+.lantern-primary { background: #315c47; color: #f3f4e8; box-shadow: 0 4px 0 #244635, 0 8px 20px #2e4d3920; }
+.lantern-primary:hover { background: #416e55; transform: translateY(-1px); }
+.lantern-primary:active { transform: translateY(2px); box-shadow: 0 2px 0 #244635; }
+.lantern-secondary { background: transparent; color: #586f60; border-color: #58705b36; }
+.lantern-secondary:hover { background: #e5eadc; }
+.lantern-weapons { display: inline-flex; gap: 3px; padding: 4px; margin-bottom: 18px; border: 1px solid #5a716441; background: #e9eddfd9; border-radius: 5px; }
+.lantern-weapons button { display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; border: 0; color: #586f60; background: transparent; border-radius: 3px; font-size: 12px; min-height: 34px; }
+.lantern-weapons button[aria-pressed=true] { background: #45604c; color: #f1f3e5; }
+.has-weapon-choice .lantern-weapons { margin-bottom: 10px; }
+.has-weapon-choice .lantern-home-memory { margin-top: 0; margin-bottom: 14px; }
+.lantern-weapon-detail { margin: 0 0 20px; width: min(290px, 100%); padding: 10px 12px; border-left: 2px solid #8a9e72; background: #f2f4e9eb; }
+.lantern-weapon-detail > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.lantern-weapon-detail strong { color: #3e5a3e; font-size: 13px; font-weight: 600; }
+.lantern-weapon-detail span { color: #546d54; font-size: 11px; }
+.lantern-weapon-detail b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.lantern-home-copy .lantern-weapon-detail p { font-family: inherit; color: #536c50; font-size: 12px; line-height: 1.5; font-weight: 400; margin: 7px 0 0; }
+.lantern-home-copy > .lantern-primary { display: flex; width: 182px; }
+.lantern-route-heading { position: absolute; z-index: 3; left: 50%; transform: translateX(-50%); top: 34px; display: flex; flex-direction: column; align-items: center; gap: 9px; color: #314d3c; font-family: "Noto Serif SC", "Songti SC", "SimSun", serif; font-size: 19px; text-shadow: 0 1px 8px #e7ecdb; pointer-events: none; }
+.lantern-path { display: flex; gap: 9px; align-items: center; }
+.lantern-path i { display: block; width: 5px; height: 5px; background: #7787776b; transform: rotate(45deg); }
+.lantern-path i.visited { background: #5d7b5e; }
+.lantern-path i.current { background: #c17659; box-shadow: 0 0 0 3px #f5efdb9c; }
+.lantern-objective { position: absolute; z-index: 3; right: 32px; top: 89px; display: flex; align-items: center; gap: 11px; padding: 12px 16px; color: #314a3b; background: #eef0e2ec; border-left: 3px solid #688964; max-width: min(360px, calc(100% - 30px)); box-shadow: 0 5px 22px #354e3e13; }
+.lantern-objective-icon { display: flex; color: #7a9063; }
+.lantern-objective strong { display: block; font-size: 13px; font-weight: 600; }
+.lantern-objective div > span { display: flex; align-items: center; gap: 5px; margin-top: 2px; font-size: 10px; color: #697e6c; }
+.lantern-objective time { font-variant-numeric: tabular-nums; font-size: 22px; font-weight: 650; padding-left: 8px; min-width: 61px; color: #a27436; }
+.lantern-objective.is-urgent { border-color: #bf6656; }
+.lantern-objective.is-urgent time { color: #b44b43; }
+.lantern-cargo { position: absolute; top: 166px; right: 33px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; font-size: 11px; max-width: 320px; }
+.lantern-cargo span { display: flex; gap: 6px; align-items: center; padding: 5px 9px; background: #fff3d2d9; color: #765d39; border-bottom: 1px solid #c1a966; }
+.lantern-route-choice { position: absolute; z-index: 4; bottom: 23%; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; width: min(420px, calc(100% - 36px)); }
+.lantern-route-choice button { display: flex; align-items: center; justify-content: space-between; gap: 13px; flex: 1; min-width: 0; padding: 13px 16px; background: #f0f1e4f5; color: #39553f; border: 1px solid #56704c69; border-radius: 5px; box-shadow: 0 5px 22px #2d463525; }
+.lantern-route-choice button:last-child { background: #eee5d0f5; border-color: #b28c5969; color: #826444; }
+.lantern-route-choice button:hover { background: #fffcef; }
+.lantern-route-choice strong { display: block; font-size: 13px; white-space: nowrap; }
+.lantern-route-choice small { display: block; font-size: 10px; margin-top: 4px; color: #72816b; }
+.lantern-boss { position: absolute; z-index: 3; top: 98px; left: 50%; transform: translateX(-50%); width: 240px; max-width: 30%; text-align: center; color: #344b3c; font-size: 12px; }
+.lantern-boss > div { height: 6px; background: #243f3654; margin-top: 8px; border: 1px solid #f4eed0; }
+.lantern-boss i { display: block; height: 100%; background: #ae6254; transition: width .1s; }
+.lantern-boss small { display: block; margin-top: 5px; color: #9b594b; font-size: 11px; }
+.lantern-interaction { position: absolute; z-index: 4; left: 50%; bottom: 15%; transform: translateX(-50%); max-width: calc(100% - 32px); }
+.lantern-context-button, .lantern-extracting { display: flex; align-items: center; justify-content: center; gap: 9px; min-height: 43px; padding: 11px 20px; border: 1px solid #eef2dfc9; border-radius: 5px; color: #eff0df; background: #2d4b3bf2; box-shadow: 0 4px 18px #1f392b30; font-size: 13px; white-space: nowrap; }
+.lantern-context-button:disabled { background: #657062e8; color: #e4e7d9; }
+.lantern-context-button:hover:not(:disabled) { background: #41624c; }
+.lantern-extracting { position: relative; overflow: hidden; min-width: 210px; color: #ffedba; }
+.lantern-extracting i { position: absolute; left: 0; bottom: 0; height: 3px; background: #efc774; }
+.lantern-message { position: absolute; z-index: 3; left: 50%; bottom: 6%; transform: translateX(-50%); padding: 8px 14px; color: #3c5341; background: #f3f3e4e8; border-radius: 3px; font-size: 12px; max-width: calc(100% - 32px); text-align: center; animation: lantern-message-in .25s ease both; }
+.lantern-archive { position: absolute; z-index: 5; bottom: 24px; right: 28px; display: inline-flex; align-items: center; gap: 7px; padding: 7px 10px; color: #dce5d3; text-decoration: none; background: #2f493ebd; border-radius: 3px; font-size: 11px; }
+.lantern-archive:hover { color: white; background: #345645; }
+.lantern-legacy-back { position: fixed; z-index: 999; left: 8px; top: 5px; display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border: 1px solid #d0e8d22f; border-radius: 3px; color: #d3e4d3; background: #1d332be8; font-size: 10px; text-decoration: none; }
+.lantern-scrim { position: absolute; z-index: 20; inset: 0; display: grid; place-items: center; padding: 20px; background: #172b256c; backdrop-filter: blur(3px); overflow-y: auto; }
+.lantern-dialog { position: relative; width: min(490px, 100%); max-height: calc(100dvh - 40px); overflow-y: auto; padding: 38px 38px 34px; background: #f2f3e8; border: 1px solid #d6dfc9; border-radius: 8px; box-shadow: 0 24px 80px #132a2740; text-align: center; animation: lantern-dialog-in .2s ease both; }
+.lantern-dialog-close { position: absolute; top: 10px; right: 10px; background: transparent; border-color: transparent; }
+.lantern-dialog-symbol { margin: 0 auto 17px; color: #9e7945; }
+.lantern-dialog h2 { font-family: "Noto Serif SC", "Songti SC", "SimSun", Georgia, serif; font-size: 25px; color: #2d4a39; line-height: 1.5; margin: 8px 0 13px; }
+.lantern-dialog p { font-size: 13px; color: #687b69; line-height: 1.8; margin: 0 0 22px; }
+.lantern-dialog-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 24px; }
+.lantern-dialog-actions .lantern-primary, .lantern-dialog-actions .lantern-secondary { flex: 1 1 155px; }
+.lantern-result-art { position: relative; width: 150px; height: 100px; margin: 2px auto 15px; }
+.lantern-result-art img { position: absolute; width: 114px; left: 2px; bottom: 3px; transform: scaleX(-1); }
+.lantern-result-art > svg { position: absolute; bottom: 15px; right: 5px; color: #bc9250; fill: #efcc81; }
+.lantern-result-art.lost img { transform: rotate(-9deg); opacity: .85; }
+.lantern-result-art.lost > svg { color: #8d9a84; fill: none; }
+.lantern-result-facts { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 20px; padding: 14px 0; border-top: 1px solid #60745624; border-bottom: 1px solid #60745624; font-size: 11px; color: #6b7b69; }
+.lantern-result-facts span { display: inline-flex; align-items: center; gap: 6px; }
+.lantern-result-facts strong { color: #344f3c; font-weight: 600; }
+.lantern-unlock, .lantern-relic-found { display: flex; justify-content: center; align-items: center; gap: 8px; color: #65815b; font-size: 12px; margin-top: 16px; }
+.lantern-relic-found { color: #a58147; }
+.lantern-collection { display: grid; margin-top: 25px; text-align: left; }
+.lantern-collection article { display: flex; align-items: center; gap: 20px; padding: 18px 0; border-top: 1px solid #71826930; }
+.lantern-collection article > span { flex: 0 0 34px; }
+.lantern-collection h3 { font-size: 14px; margin: 0 0 6px; }
+.lantern-collection p { font-size: 12px; margin: 0; }
+.lantern-loading { position: absolute; z-index: 30; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 18px; background: #c7dacb; color: #3a5a47; }
+.lantern-storage-error { position: absolute; z-index: 40; bottom: 12px; left: 16px; font-size: 11px; padding: 6px 10px; color: #ffe3ca; background: #954c41; border-radius: 3px; }
+.lantern-touch { position: absolute; z-index: 6; inset: auto 18px 18px; display: flex; align-items: flex-end; justify-content: space-between; pointer-events: none; }
+.lantern-touch-move, .lantern-touch-actions { display: flex; align-items: center; gap: 9px; }
+.lantern-touch-button { display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 56px; flex-shrink: 0; border-radius: 50%; border: 1px solid #e2ecc693; color: #eff4e6; background: #365c47c9; touch-action: none; pointer-events: auto; user-select: none; }
+.lantern-touch-button:active { background: #6b8460; }
+.lantern-touch-button.lantern-touch-attack { background: #af6456d6; width: 65px; height: 65px; }
+.lantern-touch-button.lantern-touch-aim { width: 37px; height: 37px; }
+.lantern-hints-toggle[aria-pressed=true] { border-color: #7d9868; background: #f3f0d9; }
+.lantern-control-strip { position: absolute; z-index: 5; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; padding: 8px 14px 6px; max-width: calc(100% - 28px); border: 1px solid #cfdbc68c; border-radius: 6px; background: #edf1e5ed; box-shadow: 0 5px 24px #29423426; }
+.lantern-control-group { display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 0 0 auto; }
+.lantern-control-group > span { color: #586c58; font-size: 10px; line-height: 1.3; }
+.lantern-control-group button { display: inline-flex; justify-content: center; align-items: center; gap: 8px; width: 61px; height: 32px; padding: 3px 5px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: #39543e; touch-action: none; user-select: none; }
+.lantern-control-group button:hover:not(:disabled) { background: #dce5d2; }
+.lantern-control-group button:disabled { opacity: .42; }
+.lantern-control-directions { display: flex; gap: 4px; }
+.lantern-control-directions button { width: 32px; border-color: #71876a3b; background: #f9faef; }
+.lantern-game kbd { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; width: 27px; height: 24px; border: 1px solid #9aaa86; border-bottom-width: 3px; border-radius: 4px; background: #fcfbef; color: #405c44; }
+.lantern-game kbd svg { width: 17px; height: 17px; }
+.lantern-control-group kbd { width: 24px; }
+.lantern-control-group .lantern-control-action { width: 16px; height: 16px; }
+.lantern-key-pair { display: inline-flex; gap: 5px; }
+.lantern-mouse-key { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 27px; flex-shrink: 0; }
+.lantern-mouse-key svg { width: 22px; height: 26px; }
+.lantern-mouse-key i { position: absolute; width: 5px; height: 8px; top: 5px; left: 6px; background: #b8814e; border-radius: 3px 0 0 0; }
+.lantern-control-action { opacity: .7; flex-shrink: 0; }
+.lantern-control-coach { position: absolute; z-index: 4; left: 50%; bottom: 100px; transform: translateX(-50%); display: flex; align-items: center; justify-content: center; gap: 12px; min-width: 172px; min-height: 50px; padding: 10px 16px; background: #f9f2dfeF; border: 1px solid #c6a269; border-radius: 5px; box-shadow: 0 4px 20px #52633d2b; color: #53603e; pointer-events: none; }
+.lantern-control-coach strong { font-size: 13px; font-weight: 600; }
+.lantern-coach-input { display: flex; align-items: center; }
+.lantern-coach-connector { color: #b58d50; }
+.lantern-control-coach kbd, .lantern-control-coach .lantern-mouse-key { animation: lantern-input-pulse 1.7s ease-in-out infinite; }
+.lantern-control-group button.is-guided, .lantern-touch-button.is-guided, .lantern-context-button.is-guided { outline: 2px solid #efd393; outline-offset: 3px; box-shadow: 0 0 0 5px #e7b76624; }
+.lantern-control-group button.is-guided { background: #e7d7ae; border-color: #bba168; color: #465636; }
+.has-control-hints:not(.is-touch) .lantern-message { bottom: 98px; }
+.has-control-hints:not(.is-touch) .lantern-interaction { bottom: max(15%, 145px); }
+.lantern-context-button kbd { width: 26px; height: 23px; margin-right: 1px; }
+.lantern-hint-settings { margin-top: 20px; padding: 12px 0; border-top: 1px solid #6579592c; border-bottom: 1px solid #6579592c; }
+.lantern-hint-settings label { display: flex; align-items: center; gap: 10px; color: #486044; font-size: 13px; min-height: 30px; cursor: pointer; }
+.lantern-hint-settings label input { width: 18px; height: 18px; accent-color: #466c4d; margin-left: auto; cursor: pointer; }
+.lantern-hint-settings > button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; margin-top: 7px; border: 0; background: transparent; color: #687c59; font-size: 12px; padding: 5px 8px; }
+.lantern-hint-settings > button:hover { color: #355a3b; }
+@keyframes lantern-input-pulse { 0%, 65%, 100% { transform: translateY(0); } 25%, 45% { transform: translateY(3px); } }
+.is-touch .lantern-interaction { bottom: 115px; }
+.is-touch .lantern-message { bottom: 88px; }
+@keyframes lantern-dialog-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes lantern-message-in { from { opacity: 0; margin-bottom: -5px; } to { opacity: 1; margin-bottom: 0; } }
+@media (max-width: 700px) {
+  .has-weapon-choice .lantern-home-copy { top: 20%; }
+  .lantern-weapon-detail { margin-bottom: 16px; }
+  .lantern-control-strip { gap: 5px; padding: 7px 10px 5px; }
+  .lantern-control-group button { width: 56px; gap: 5px; padding: 3px 4px; }
+  .lantern-control-directions button > svg { width: 18px; height: 18px; }
+  .lantern-control-directions button { width: 29px; }
+  .lantern-control-coach { min-height: 43px; min-width: 154px; gap: 9px; bottom: 97px; padding: 8px 12px; }
+  .lantern-top { top: 18px; left: 18px; right: 18px; }
+  .lantern-identity { min-width: 135px; }
+  .lantern-identity h1 { font-size: 25px; }
+  .lantern-kicker { font-size: 10px; }
+  .lantern-vitals { gap: 3px; }
+  .lantern-vitals > svg { width: 16px; height: 16px; }
+  .lantern-weapon { padding-left: 7px; margin-left: 5px; }
+  .lantern-icon { width: 34px; height: 34px; flex-basis: 34px; }
+  .lantern-tools { gap: 5px; }
+  .lantern-fullscreen { display: none; }
+  .lantern-route-heading { top: 117px; left: 18px; transform: none; flex-direction: row; gap: 12px; font-size: 15px; }
+  .lantern-objective { top: 153px; left: 18px; right: auto; padding: 8px 11px; max-width: calc(100% - 36px); }
+  .lantern-objective strong { font-size: 12px; }
+  .lantern-objective time { font-size: 19px; }
+  .lantern-cargo { top: 220px; left: 18px; right: auto; justify-content: flex-start; max-width: calc(100% - 36px); }
+  .lantern-home-copy { left: 23px; top: 24%; width: 270px; }
+  .lantern-home-copy p { font-size: 24px; }
+  .lantern-home-copy .lantern-primary { width: 163px; }
+  .lantern-home-line { margin-bottom: 15px; }
+  .lantern-boss { top: 272px; max-width: calc(100% - 50px); width: 215px; }
+  .lantern-route-choice { bottom: 25%; gap: 8px; }
+  .lantern-route-choice button { padding: 11px 10px; gap: 6px; }
+  .lantern-route-choice strong { font-size: 12px; }
+  .lantern-route-choice small { font-size: 9px; }
+  .lantern-archive { bottom: 94px; right: 16px; }
+  .lantern-touch { left: 12px; right: 12px; bottom: 16px; }
+  .lantern-touch-move, .lantern-touch-actions { gap: 5px; }
+  .lantern-touch-button { width: 47px; height: 47px; }
+  .lantern-touch-button.lantern-touch-attack { width: 56px; height: 56px; }
+  .lantern-touch-button.lantern-touch-aim { width: 31px; height: 31px; }
+  .lantern-dialog { padding: 32px 23px 26px; }
+  .lantern-dialog h2 { font-size: 22px; }
+  .lantern-message { font-size: 11px; min-width: 225px; }
+}
+@media (max-height: 520px) and (orientation: landscape) {
+  .has-weapon-choice .lantern-home-copy { top: 25%; }
+  .lantern-weapon-detail { padding: 7px 10px; margin-bottom: 13px; }
+  .lantern-home-copy .lantern-weapon-detail p { font-size: 11px; margin-top: 4px; }
+  .lantern-control-coach { top: 93px; left: 19px; bottom: auto; transform: none; }
+  .lantern-game[data-phase=home] .lantern-control-coach { left: auto; top: auto; right: 19px; bottom: 100px; }
+  .lantern-control-strip { bottom: 10px; padding: 5px 9px 4px; gap: 10px; }
+  .lantern-control-group button { height: 28px; }
+  .has-control-hints:not(.is-touch) .lantern-interaction { bottom: 109px; }
+  .has-control-hints:not(.is-touch) .lantern-message { bottom: 70px; }
+  .lantern-hint-settings { margin-top: 10px; padding: 7px 0; }
+  .lantern-top { top: 12px; left: 19px; right: 18px; }
+  .lantern-identity h1 { font-size: 21px; margin-bottom: 7px; }
+  .lantern-vitals > svg { width: 15px; height: 15px; }
+  .lantern-identity .lantern-kicker { display: none; }
+  .lantern-route-heading { top: 15px; font-size: 15px; }
+  .lantern-objective { top: 60px; right: 18px; padding: 6px 9px; }
+  .lantern-objective strong { font-size: 11px; }
+  .lantern-objective div > span { font-size: 9px; }
+  .lantern-cargo { top: 118px; right: 18px; }
+  .lantern-home-copy { top: 25%; left: 5%; width: 255px; }
+  .lantern-home-copy p { font-size: 21px; margin-bottom: 15px; }
+  .lantern-home-line { margin-bottom: 10px; }
+  .lantern-home-memory { margin-bottom: 10px; }
+  .lantern-weapons { margin-bottom: 10px; }
+  .lantern-home-copy .lantern-primary { min-height: 37px; padding: 9px 15px; font-size: 12px; }
+  .lantern-dialog { padding: 22px 30px; }
+  .lantern-result-art { width: 110px; height: 60px; margin-bottom: 6px; }
+  .lantern-result-art img { width: 80px; }
+  .lantern-result-art > svg { width: 27px; }
+  .lantern-dialog h2 { margin: 3px 0 7px; font-size: 22px; }
+  .lantern-dialog p { margin-bottom: 11px; }
+  .lantern-dialog-actions { margin-top: 13px; }
+  .lantern-unlock, .lantern-relic-found { margin-top: 9px; }
+  .lantern-result-facts { padding: 10px 0; }
+  .lantern-boss { top: 65px; }
+  .is-touch .lantern-interaction { bottom: 70px; }
+  .is-touch .lantern-message { bottom: 8px; }
+  .lantern-archive { top: 62px; bottom: auto; right: 18px; }
+}
+@media (max-width: 380px) {
+  .lantern-top { gap: 8px; }
+  .lantern-identity { min-width: 120px; }
+  .lantern-icon { width: 32px; height: 32px; flex-basis: 32px; }
+  .lantern-tools { gap: 3px; }
+  .lantern-control-strip { gap: 5px; }
+  .lantern-control-group button { width: 44px; }
+  .lantern-control-directions button { width: 28px; }
+  .lantern-control-action { display: none; }
+}
+@media (max-width: 350px) {
+  .lantern-tools { gap: 2px; }
+  .lantern-top { gap: 5px; }
+  .lantern-icon { width: 30px; height: 30px; flex-basis: 30px; }
+  .has-weapon-choice .lantern-home-memory { margin-bottom: 10px; }
+  .has-weapon-choice .lantern-weapons { margin-bottom: 6px; }
+  .lantern-weapon-detail { padding: 7px 10px; margin-bottom: 10px; }
+}
+@media (max-width: 450px) and (orientation: portrait) {
+  .lantern-game[data-phase=home]:has(.lantern-control-coach) .lantern-archive { bottom: 160px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lantern-game * { animation: none !important; transition: none !important; }
+}

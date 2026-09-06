@@ -1,3 +1,4 @@
+import { legacyUrl } from './legacy-url.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
@@ -83,7 +84,7 @@ async function seed(profile) {
 }
 
 try {
-  await page.goto('http://127.0.0.1:4175', { waitUntil: 'networkidle' });
+  await page.goto(legacyUrl, { waitUntil: 'networkidle' });
 
   await seed(profileWithLostEcho());
   await page.locator('.deploy-button').click();

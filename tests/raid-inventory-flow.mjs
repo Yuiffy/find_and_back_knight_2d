@@ -1,3 +1,4 @@
+import { legacyUrl } from './legacy-url.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
@@ -48,7 +49,7 @@ async function makePage() {
     if (message.type() === 'error') errors.push(message.text());
   });
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto('http://127.0.0.1:4175', { waitUntil: 'networkidle' });
+  await page.goto(legacyUrl, { waitUntil: 'networkidle' });
   return page;
 }
 

@@ -1,3 +1,4 @@
+import { legacyUrl } from './legacy-url.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
@@ -16,7 +17,7 @@ async function readState(page) {
 }
 
 async function seedRaid(page, raidsStarted, shortcutUnlocked = false) {
-  await page.goto('http://127.0.0.1:4175/knight/', { waitUntil: 'networkidle' });
+  await page.goto(legacyUrl, { waitUntil: 'networkidle' });
   await page.evaluate(({ raidsStarted: raidCount, shortcut }) => {
     const key = 'sui-echoes-below.save.v1';
     const profile = JSON.parse(localStorage.getItem(key));

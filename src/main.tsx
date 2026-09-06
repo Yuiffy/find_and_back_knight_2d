@@ -1,7 +1,8 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { App } from './App';
+import { Experience } from './Experience';
 import './styles.css';
+import './lantern/lantern.css';
 
 const root = document.getElementById('root');
 
@@ -11,6 +12,6 @@ if (!root) {
 
 createRoot(root).render(
   <StrictMode>
-    <App />
+    <Experience />
   </StrictMode>,
 );
