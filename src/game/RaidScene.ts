@@ -39,6 +39,12 @@ const VIEW_HEIGHT = 720;
 const ZONE_HYSTERESIS = 40;
 const ZONE_CANDIDATE_DWELL = 600;
 const DOWNSTRIKE_BOUNCE_VELOCITY = -760;
+const MAX_VISIBLE_INTERACTION_OPTIONS = 7;
+const INTERACTION_SELECTOR_PANEL_WIDTH = 460;
+const INTERACTION_SELECTOR_ROW_HEIGHT = 34;
+const INTERACTION_SELECTOR_HEADER_HEIGHT = 34;
+const INTERACTION_SELECTOR_FOOTER_HEIGHT = 30;
+const INTERACTION_SELECTOR_PADDING = 10;
 const UNARMED_ATTACK = {
   attack: 1,
   range: 56,
@@ -194,6 +200,12 @@ interface InteractionCandidate {
   interact: () => void;
 }
 
+interface InteractionSelectorRow {
+  background: Phaser.GameObjects.Rectangle;
+  badge: Phaser.GameObjects.Text;
+  label: Phaser.GameObjects.Text;
+}
+
 const RAID_EQUIPMENT_SLOTS: GearSlot[] = ['weapon', 'armor', 'head', 'shoes'];
 const NEARBY_LOOT_RADIUS = 240;
 
@@ -266,6 +278,14 @@ export class RaidScene extends Phaser.Scene {
   private extractionDuration = 2500;
   private extractionPoint: { x: number; y: number } | null = null;
   private nearbyInteraction: string | null = null;
+  private interactionCandidates: InteractionCandidate[] = [];
+  private interactionSelectionIndex = 0;
+  private interactionSelectionUserChanged = false;
+  private interactionSelector: Phaser.GameObjects.Container | null = null;
+  private interactionSelectorRows: InteractionSelectorRow[] = [];
+  private interactionSelectorSignature = '';
+  private interactionSelectorBounds: { left: number; top: number; right: number; bottom: number } | null = null;
+  private interactionPointerConsumed = false;
   private currentZone: MapZoneDefinition | null = null;
   private zoneCandidate: MapZoneDefinition | null = null;
   private previousInvulnerableUntil = 0;
@@ -413,15 +433,16 @@ export class RaidScene extends Phaser.Scene {
     if (Phaser.Input.Keyboard.JustDown(this.keys.abort) && this.overlayMode !== 'pause') {
       this.toggleOverlay('pause');
     }
+    const interactionSelectionInputHandled = !this.overlayMode && this.handleInteractionSelectionInput();
     if (!this.overlayMode && (Phaser.Input.Keyboard.JustDown(this.keys.usePatch) || this.consumeVirtualPress('patch'))) this.useRepairPatch();
     if (!this.overlayMode && (Phaser.Input.Keyboard.JustDown(this.keys.useTonic) || this.consumeVirtualPress('tonic'))) this.useEchoTonic();
     // Arrow keys remain available for directional attacks. Dedicated M / Tab
     // shortcuts avoid opening an overlay while the player is trying to strike.
-    if (Phaser.Input.Keyboard.JustDown(this.keys.map) || this.consumeVirtualPress('map')) {
+    if (!interactionSelectionInputHandled && (Phaser.Input.Keyboard.JustDown(this.keys.map) || this.consumeVirtualPress('map'))) {
       this.toggleOverlay('map');
       return;
     }
-    if (Phaser.Input.Keyboard.JustDown(this.keys.backpack) || this.consumeVirtualPress('backpack')) {
+    if (!interactionSelectionInputHandled && (Phaser.Input.Keyboard.JustDown(this.keys.backpack) || this.consumeVirtualPress('backpack'))) {
       this.toggleOverlay('backpack');
       return;
     }
@@ -441,7 +462,7 @@ export class RaidScene extends Phaser.Scene {
     this.updateMovement(time);
     if (this.tryBoundaryPassage()) return;
     this.updateSafePosition(time);
-    this.updateAttack(time);
+    if (!interactionSelectionInputHandled) this.updateAttack(time);
     this.updateEnemies();
     this.updateSentryBolts(time);
     this.updateInteractions(time);
@@ -1545,7 +1566,30 @@ export class RaidScene extends Phaser.Scene {
       Phaser.Input.Keyboard.KeyCodes.RIGHT,
       Phaser.Input.Keyboard.KeyCodes.ESC,
     ]);
+    this.input.keyboard.on('keydown', (event: KeyboardEvent) => {
+      if (this.overlayMode || this.extractingUntil > 0 || this.interactionCandidates.length < 2) return;
+      const digit = Number(event.key);
+      if (!Number.isInteger(digit) || digit < 1 || digit > 9) return;
+      if (digit > this.interactionCandidates.length) return;
+      this.setInteractionSelection(digit - 1);
+      event.preventDefault();
+    });
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (this.interactionPointerConsumed) {
+        this.interactionPointerConsumed = false;
+        return;
+      }
+      if (!this.overlayMode && this.interactionSelectorBounds) {
+        const rowIndex = this.getInteractionSelectorRowIndex(pointer);
+        if (rowIndex >= 0) {
+          this.interactionPointerConsumed = true;
+          this.setInteractionSelection(rowIndex);
+          this.confirmInteractionSelection();
+          window.setTimeout(() => { this.interactionPointerConsumed = false; }, 0);
+          return;
+        }
+        if (this.isPointerOverInteractionSelector(pointer)) return;
+      }
       if (this.overlayMode === 'backpack' && this.activeContainerSearch?.crate.kind === 'lost_corpse'
         && pointer.x >= 915 && pointer.x <= 1105 && pointer.y >= 393 && pointer.y <= 427) {
         this.takeAllFromCorpse();
@@ -1555,7 +1599,7 @@ export class RaidScene extends Phaser.Scene {
         this.rotateRaidItemAt(pointer);
         return;
       }
-      if (!this.overlayMode) {
+      if (!this.overlayMode && !this.isPointerOverInteractionSelector(pointer)) {
         const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
         const dx = worldPoint.x - this.player.x;
         const dy = worldPoint.y - this.player.y;
@@ -1566,6 +1610,10 @@ export class RaidScene extends Phaser.Scene {
       }
     });
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+      if (!this.overlayMode && this.interactionSelectorBounds) {
+        const rowIndex = this.getInteractionSelectorRowIndex(pointer);
+        if (rowIndex >= 0) this.setInteractionSelection(rowIndex);
+      }
       if (this.activeInventoryDrag && this.inventoryDragGhost) {
         this.inventoryDragGhost.setPosition(pointer.x + 18, pointer.y + 18);
         this.updateRaidInventoryDragPreview(pointer);
@@ -2762,6 +2810,187 @@ export class RaidScene extends Phaser.Scene {
     };
   }
 
+  private handleInteractionSelectionInput(): boolean {
+    if (this.interactionCandidates.length < 2 || this.extractingUntil > 0) return false;
+    const previousKey = Phaser.Input.Keyboard.JustDown(this.keys.aimUp)
+      || Phaser.Input.Keyboard.JustDown(this.keys.mapAlt);
+    const nextKey = Phaser.Input.Keyboard.JustDown(this.keys.aimDown)
+      || Phaser.Input.Keyboard.JustDown(this.keys.backpackAlt);
+    const previousVirtual = this.consumeVirtualPress('aimUp');
+    const nextVirtual = this.consumeVirtualPress('aimDown');
+    if (!previousKey && !nextKey && !previousVirtual && !nextVirtual) return false;
+    this.setInteractionSelection(this.interactionSelectionIndex + ((nextKey || nextVirtual) ? 1 : -1));
+    return true;
+  }
+
+  private setInteractionSelection(index: number, userInitiated = true): void {
+    const count = this.interactionCandidates.length;
+    if (count < 2) return;
+    const nextIndex = ((index % count) + count) % count;
+    const changed = nextIndex !== this.interactionSelectionIndex;
+    this.interactionSelectionIndex = nextIndex;
+    if (userInitiated) this.interactionSelectionUserChanged = true;
+    this.updateInteractionSelectorVisuals();
+    if (changed && this.player?.active) this.publishTextState(true);
+  }
+
+  private getInteractionLabel(prompt: string): string {
+    return prompt
+      .replace(/^E\s*·\s*/, '')
+      .replace(/\s*·\s*Tab 背包可处理附近掉落物$/, '');
+  }
+
+  private getInteractionIcon(stableId: string): string {
+    if (stableId === 'lost-corpse' || stableId.startsWith('container-')) return '▣';
+    if (stableId.startsWith('extraction-')) return '◇';
+    if (stableId.startsWith('echo-') || stableId === 'home-terminal') return '⌁';
+    if (stableId.startsWith('relay-')) return '⌘';
+    if (stableId.startsWith('gate-')) return '⇢';
+    if (stableId === 'maintenance-elevator') return '⇵';
+    if (stableId.startsWith('loot-')) return '✦';
+    return '◆';
+  }
+
+  private syncInteractionSelector(candidates: InteractionCandidate[]): void {
+    const previousCount = this.interactionCandidates.length;
+    const previousId = previousCount > 1
+      ? this.interactionCandidates[this.interactionSelectionIndex]?.stableId ?? null
+      : null;
+    this.interactionCandidates = candidates;
+    if (candidates.length < 2) {
+      this.interactionSelectionIndex = 0;
+      this.interactionSelectionUserChanged = false;
+      this.destroyInteractionSelector();
+      return;
+    }
+
+    if (previousId) {
+      const preservedIndex = candidates.findIndex((candidate) => candidate.stableId === previousId);
+      if (preservedIndex >= 0) this.interactionSelectionIndex = preservedIndex;
+      else {
+        this.interactionSelectionIndex = 0;
+        this.interactionSelectionUserChanged = false;
+      }
+    }
+    this.interactionSelectionIndex = Phaser.Math.Clamp(this.interactionSelectionIndex, 0, candidates.length - 1);
+    const visibleCount = Math.min(candidates.length, MAX_VISIBLE_INTERACTION_OPTIONS);
+    const signature = `${candidates.length}|${candidates.slice(0, visibleCount)
+      .map((candidate) => `${candidate.stableId}:${candidate.prompt}`)
+      .join('|')}`;
+    if (signature !== this.interactionSelectorSignature && !this.interactionSelectionUserChanged) {
+      this.interactionSelectionIndex = 0;
+    }
+    if (!this.interactionSelector || signature !== this.interactionSelectorSignature) {
+      this.createInteractionSelector(candidates);
+      this.interactionSelectorSignature = signature;
+    }
+    this.updateInteractionSelectorVisuals();
+  }
+
+  private createInteractionSelector(candidates: InteractionCandidate[]): void {
+    this.destroyInteractionSelector();
+    const visibleCandidates = candidates.slice(0, MAX_VISIBLE_INTERACTION_OPTIONS);
+    const panelWidth = INTERACTION_SELECTOR_PANEL_WIDTH;
+    const rowHeight = INTERACTION_SELECTOR_ROW_HEIGHT;
+    const headerHeight = INTERACTION_SELECTOR_HEADER_HEIGHT;
+    const footerHeight = INTERACTION_SELECTOR_FOOTER_HEIGHT;
+    const panelPadding = INTERACTION_SELECTOR_PADDING;
+    const panelHeight = panelPadding * 2 + headerHeight + visibleCandidates.length * rowHeight + footerHeight;
+    const left = VIEW_WIDTH - panelWidth - 24;
+    const top = 112;
+    this.interactionSelectorBounds = { left, top, right: left + panelWidth, bottom: top + panelHeight };
+
+    const container = this.add.container(0, 0).setScrollFactor(0).setDepth(130);
+    const panel = this.add.rectangle(left + panelWidth / 2, top + panelHeight / 2, panelWidth, panelHeight, 0x06161d, 0.94)
+      .setStrokeStyle(2, 0x75d7c2, 0.58);
+    const accent = this.add.rectangle(left + 4, top + 10, 4, panelHeight - 20, 0x75d7c2, 0.82);
+    const title = this.add.text(left + 22, top + 12, `附近互动  ·  ${candidates.length} 个目标`, {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: '14px',
+      color: '#d8eee8',
+      fontStyle: 'bold',
+    });
+    container.add([panel, accent, title]);
+
+    this.interactionSelectorRows = visibleCandidates.map((candidate, index) => {
+      const rowY = top + panelPadding + headerHeight + index * rowHeight + rowHeight / 2;
+      const background = this.add.rectangle(left + panelWidth / 2, rowY, panelWidth - 20, rowHeight - 4, 0x12313a, 0.86)
+        .setStrokeStyle(1, 0x3e6d6b, 0.54);
+      const badge = this.add.text(left + 29, rowY, `[${index + 1}]`, {
+        fontFamily: 'Arial, sans-serif',
+        fontSize: '11px',
+        color: '#7fa7a1',
+      }).setOrigin(0, 0.5);
+      const label = this.add.text(left + 73, rowY, `${this.getInteractionIcon(candidate.stableId)}  ${this.getInteractionLabel(candidate.prompt)}`, {
+        fontFamily: 'Arial, sans-serif',
+        fontSize: '12px',
+        color: '#c7ddda',
+        maxLines: 1,
+      }).setOrigin(0, 0.5).setFixedSize(panelWidth - 92, rowHeight - 4);
+      container.add([background, badge, label]);
+      return { background, badge, label };
+    });
+
+    const footer = candidates.length > visibleCandidates.length
+      ? `W/S 或 ↑/↓ 选择 · E 确认 · 数字键定位 · 另有 ${candidates.length - visibleCandidates.length} 项`
+      : 'W/S 或 ↑/↓ 选择 · E 确认 · 数字键定位';
+    container.add(this.add.text(left + 22, top + panelHeight - 22, footer, {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: '10px',
+      color: '#789793',
+    }).setOrigin(0, 0.5));
+    this.interactionSelector = container;
+  }
+
+  private updateInteractionSelectorVisuals(): void {
+    if (!this.interactionSelector) return;
+    this.interactionSelectorRows.forEach((row, index) => {
+      const selected = index === this.interactionSelectionIndex;
+      row.background
+        .setFillStyle(selected ? 0x2b7168 : 0x12313a, selected ? 0.98 : 0.86)
+        .setStrokeStyle(selected ? 2 : 1, selected ? 0xa8eed9 : 0x3e6d6b, selected ? 0.92 : 0.54);
+      row.badge.setColor(selected ? '#e6fff7' : '#7fa7a1');
+      row.label.setColor(selected ? '#f1fff9' : '#c7ddda');
+    });
+  }
+
+  private destroyInteractionSelector(): void {
+    this.interactionSelector?.destroy(true);
+    this.interactionSelector = null;
+    this.interactionSelectorRows = [];
+    this.interactionSelectorSignature = '';
+    this.interactionSelectorBounds = null;
+  }
+
+  private isPointerOverInteractionSelector(pointer: Phaser.Input.Pointer): boolean {
+    const bounds = this.interactionSelectorBounds;
+    return Boolean(bounds
+      && pointer.x >= bounds.left
+      && pointer.x <= bounds.right
+      && pointer.y >= bounds.top
+      && pointer.y <= bounds.bottom);
+  }
+
+  private getInteractionSelectorRowIndex(pointer: Phaser.Input.Pointer): number {
+    const bounds = this.interactionSelectorBounds;
+    if (!bounds || pointer.x < bounds.left + 10 || pointer.x > bounds.right - 10) return -1;
+    const rowTop = bounds.top + INTERACTION_SELECTOR_PADDING + INTERACTION_SELECTOR_HEADER_HEIGHT;
+    const rowIndex = Math.floor((pointer.y - rowTop) / INTERACTION_SELECTOR_ROW_HEIGHT);
+    const visibleCount = Math.min(this.interactionCandidates.length, MAX_VISIBLE_INTERACTION_OPTIONS);
+    return rowIndex >= 0 && rowIndex < visibleCount ? rowIndex : -1;
+  }
+
+  private confirmInteractionSelection(): void {
+    if (this.overlayMode || this.extractingUntil > 0 || this.runEnded) return;
+    const candidate = this.interactionCandidates[this.interactionSelectionIndex];
+    if (!candidate) return;
+    this.interactionCandidates = [];
+    this.interactionSelectionIndex = 0;
+    this.interactionSelectionUserChanged = false;
+    this.destroyInteractionSelector();
+    candidate.interact();
+  }
+
   private updateInteractions(time: number): void {
     if (this.extractingUntil > 0) {
       const distance = this.extractionPoint
@@ -2787,15 +3016,31 @@ export class RaidScene extends Phaser.Scene {
       }
     }
 
-    const candidate = this.resolveNearbyInteraction(time);
+    let candidates = this.extractingUntil > 0 ? [] : this.resolveNearbyInteractions(time);
+    this.syncInteractionSelector(candidates);
+    let candidate = candidates[this.interactionSelectionIndex] ?? candidates[0] ?? null;
     const nearbyLoot = this.getNearbyLoot(88);
-    const prompt = candidate && candidate.priority < 7 && nearbyLoot.length > 0
-      ? `${candidate.prompt} · Tab 背包可处理附近掉落物`
-      : candidate?.prompt ?? null;
     const interactPressed = Phaser.Input.Keyboard.JustDown(this.keys.interact)
       || Phaser.Input.Keyboard.JustDown(this.keys.interactAlt)
       || this.consumeVirtualPress('interact');
-    if (interactPressed && candidate) candidate.interact();
+    if (interactPressed && candidate) {
+      this.confirmInteractionSelection();
+      if (this.overlayMode || this.extractingUntil > 0 || this.runEnded) {
+        this.nearbyInteraction = null;
+        this.promptText.setText('').setVisible(false);
+        return;
+      }
+      candidates = this.resolveNearbyInteractions(time);
+      this.syncInteractionSelector(candidates);
+      candidate = candidates[this.interactionSelectionIndex] ?? candidates[0] ?? null;
+    }
+
+    const selectedPrompt = candidate && candidate.priority < 7 && nearbyLoot.length > 0
+      ? `${candidate.prompt} · Tab 背包可处理附近掉落物`
+      : candidate?.prompt ?? null;
+    const prompt = selectedPrompt && candidates.length > 1
+      ? `${selectedPrompt} · 附近 ${candidates.length} 项，W/S/↑/↓ 选择`
+      : selectedPrompt;
 
     this.nearbyInteraction = prompt;
     this.promptText.setText(prompt ?? '').setVisible(Boolean(prompt) && this.extractingUntil === 0);
@@ -2833,7 +3078,7 @@ export class RaidScene extends Phaser.Scene {
     return true;
   }
 
-  private resolveNearbyInteraction(time: number): InteractionCandidate | null {
+  private resolveNearbyInteractions(time: number): InteractionCandidate[] {
     const candidates: InteractionCandidate[] = [];
     const nearbyLoot = this.getNearbyLoot(88);
     const addCandidate = (
@@ -2959,7 +3204,7 @@ export class RaidScene extends Phaser.Scene {
 
     return candidates.sort((left, right) => left.priority - right.priority
       || left.distance - right.distance
-      || left.stableId.localeCompare(right.stableId))[0] ?? null;
+      || left.stableId.localeCompare(right.stableId));
   }
 
   private collectLoot(entry: LootEntity): void {
@@ -2989,6 +3234,10 @@ export class RaidScene extends Phaser.Scene {
     if (this.runEnded) return;
     this.runEnded = true;
     this.extractingUntil = 0;
+    this.destroyInteractionSelector();
+    this.interactionCandidates = [];
+    this.interactionSelectionIndex = 0;
+    this.interactionSelectionUserChanged = false;
     this.promptText?.setVisible(false);
     this.extractionText?.setVisible(false);
     this.physics.pause();
@@ -3123,6 +3372,10 @@ export class RaidScene extends Phaser.Scene {
   private closeOverlay(): void {
     // A searched container remains openable beside the field bag; closing Tab
     // must not erase revealed items or restart their discovery sequence.
+    this.destroyInteractionSelector();
+    this.interactionCandidates = [];
+    this.interactionSelectionIndex = 0;
+    this.interactionSelectionUserChanged = false;
     this.activeInventoryDrag = null;
     this.inventoryDragGhost?.destroy();
     this.inventoryDragGhost = null;
@@ -4416,6 +4669,30 @@ export class RaidScene extends Phaser.Scene {
         .filter((echo) => Phaser.Math.Distance.Between(echo.x, echo.y, this.player.x, this.player.y) < 850)
         .map((echo) => ({ id: echo.id, x: echo.x, y: echo.y, heard: echo.heard, pulsing: Boolean(echo.pulseTween?.isPlaying()) })),
       nearbyInteraction: this.nearbyInteraction,
+      nearbyInteractions: this.interactionCandidates.map((candidate, index) => ({
+        id: candidate.stableId,
+        label: this.getInteractionLabel(candidate.prompt),
+        prompt: candidate.prompt,
+        distance: Math.round(candidate.distance),
+        priority: candidate.priority,
+        selected: index === this.interactionSelectionIndex,
+      })),
+      interactionSelector: {
+        open: this.interactionCandidates.length > 1 && Boolean(this.interactionSelector),
+        selectedIndex: this.interactionCandidates.length > 1 ? this.interactionSelectionIndex : -1,
+        selectedId: this.interactionCandidates.length > 1
+          ? this.interactionCandidates[this.interactionSelectionIndex]?.stableId ?? null
+          : null,
+        count: this.interactionCandidates.length,
+        bounds: this.interactionSelectorBounds
+          ? {
+            left: this.interactionSelectorBounds.left,
+            top: this.interactionSelectorBounds.top,
+            width: this.interactionSelectorBounds.right - this.interactionSelectorBounds.left,
+            height: this.interactionSelectorBounds.bottom - this.interactionSelectorBounds.top,
+          }
+          : null,
+      },
       containerSearch: this.activeContainerSearch ? {
         crateId: this.activeContainerSearch.crate.id,
         label: this.activeContainerSearch.crate.label,
@@ -4452,6 +4729,7 @@ export class RaidScene extends Phaser.Scene {
         lostCorpseRemaining: Boolean(this.remainingLostEchoItems?.length),
         extracting: this.extractingUntil > 0,
         inventoryOpen: this.overlayMode === 'backpack',
+        interactionSelectorOpen: this.interactionCandidates.length > 1 && Boolean(this.interactionSelector),
         draggingInventoryItem: Boolean(this.activeInventoryDrag),
         paused: this.overlayMode === 'pause',
         abandonHoldActive: this.overlayMode === 'pause' && this.keys.abort.isDown,

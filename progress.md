@@ -212,3 +212,10 @@ ok，你来创作这个理想的游戏！当然我们可以分批次，你可以
 ### 后续可选（不阻塞本轮）
 
 - 增加原创环境音、战斗音效与手柄震动；继续扩展 Boss 招式、每日契约轮换和第二张地图。
+
+## 2026-08-28 · 重叠互动选择器（已完成）
+
+- 远征候选解析改为保留完整附近互动列表；单候选仍沿用原来的 `E/Enter` 直接互动。
+- 多候选时在右上 HUD 下方显示紧凑选择器，默认高亮原优先级目标；`W/S`、方向键或触控摇杆上下切换，数字键定位，点击行确认。
+- `render_game_to_text()` 新增 `nearbyInteractions`、`interactionSelector` 与 `flags.interactionSelectorOpen`，便于自动化验证当前选中对象。
+- 已通过 `npm run typecheck`、`npm run build`、专门的 `interaction-selector-flow`（连续两次）以及 `engagement-loop-flow`；截图检查确认选择器不会遮挡关键场景。按本轮范围未继续执行整套长回归。

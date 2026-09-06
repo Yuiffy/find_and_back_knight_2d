@@ -263,6 +263,21 @@ export interface TextGameState {
     scavengersAlive: number;
   };
   nearbyInteraction?: string | null;
+  nearbyInteractions?: Array<{
+    id: string;
+    label: string;
+    prompt: string;
+    distance: number;
+    priority: number;
+    selected: boolean;
+  }>;
+  interactionSelector?: {
+    open: boolean;
+    selectedIndex: number;
+    selectedId: string | null;
+    count: number;
+    bounds?: { left: number; top: number; width: number; height: number } | null;
+  };
   containerSearch?: {
     crateId: string;
     label: string;
