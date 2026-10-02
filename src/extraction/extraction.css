@@ -1,0 +1,2005 @@
+.ex-app {
+  --ex-ink: #e8eddc;
+  --ex-muted: #a6b2a5;
+  --ex-lime: #dae995;
+  --ex-line: #c7d4b42b;
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  color: var(--ex-ink);
+  background: #172b27;
+  font-family: 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.ex-app * {
+  box-sizing: border-box;
+}
+.ex-app h1,
+.ex-app h2,
+.ex-app h3,
+.ex-app p {
+  margin: 0;
+}
+.ex-app button,
+.ex-file {
+  border: 1px solid var(--ex-line);
+  background: #182d29;
+  color: var(--ex-ink);
+  padding: 10px 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  cursor: pointer;
+  border-radius: 2px;
+  transition:
+    background 0.18s,
+    border-color 0.18s;
+}
+.ex-app button:hover {
+  background: #33473a;
+  border-color: #d4e0ad88;
+}
+.ex-app button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.ex-app button:focus-visible,
+.ex-app a:focus-visible {
+  outline: 2px solid var(--ex-lime);
+  outline-offset: 4px;
+}
+.ex-app a {
+  color: inherit;
+  text-decoration: none;
+}
+.ex-app h3 {
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ex-app h3 small {
+  font-size: 11px;
+  color: var(--ex-muted);
+  font-weight: 400;
+}
+.ex-app small {
+  font-size: 11px;
+}
+.ex-app select {
+  background: #21382d;
+  color: #e5edda;
+  border: 1px solid var(--ex-line);
+  padding: 7px;
+}
+.ex-app input {
+  accent-color: #d8e991;
+}
+.ex-world {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+}
+.ex-world canvas {
+  display: block;
+  outline: 0;
+}
+.ex-base-shade {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      90deg,
+      #0a201aef 0%,
+      #102a23d9 25%,
+      #102a2377 50%,
+      transparent 76%
+    ),
+    linear-gradient(0deg, #102820c9, transparent 27%);
+}
+.ex-header {
+  position: absolute;
+  top: 30px;
+  left: 3.5%;
+  right: 3.5%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.ex-brand {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  font-size: 20px;
+  font-weight: 750;
+  letter-spacing: 3px;
+}
+.ex-brand small {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: #b5c3a9;
+  margin-top: 3px;
+}
+.ex-brand-mark {
+  border: 1px solid #b5c996;
+  transform: rotate(-6deg);
+  font-size: 25px;
+  padding: 0 8px;
+  color: #e0e7b2;
+}
+.ex-header-right {
+  display: flex;
+  align-items: center;
+  gap: 23px;
+}
+.ex-header-right strong {
+  font-family: monospace;
+  font-size: 18px;
+}
+.ex-header-right button {
+  background: #1a342477;
+  padding: 10px;
+}
+.ex-online {
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #c8dab6;
+}
+.ex-tabs {
+  position: absolute;
+  top: 111px;
+  left: 3.5%;
+  display: flex;
+  gap: 34px;
+}
+.ex-tabs button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  padding: 12px 0;
+  color: #a9b9a5;
+  gap: 9px;
+}
+.ex-tabs button:hover {
+  background: none;
+}
+.ex-tabs button.selected {
+  color: #e8eccd;
+  border-bottom-color: #dce8a6;
+}
+.ex-tabs small {
+  font-family: monospace;
+  opacity: 0.6;
+  font-size: 10px;
+}
+.ex-briefing {
+  position: absolute;
+  top: 23%;
+  left: 7%;
+  width: 420px;
+  max-height: calc(77% - 65px);
+  overflow: auto;
+  scrollbar-width: thin;
+}
+.ex-kicker {
+  font: 10px/1.4 monospace;
+  letter-spacing: 2px;
+  color: #bdcd9c;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ex-briefing h1 {
+  font-size: clamp(42px, 4.2vw, 76px);
+  line-height: 1.17;
+  font-weight: 500;
+  letter-spacing: -3px;
+  margin: 22px 0;
+}
+.ex-briefing h1 em {
+  font-style: normal;
+  color: #dce8a6;
+}
+.ex-intro {
+  color: #abbba6;
+  font-size: 13px;
+  line-height: 1.9;
+}
+.ex-mission {
+  border-left: 2px solid #c3d099;
+  padding: 0 0 0 19px;
+  margin: 28px 0 22px;
+  max-width: 370px;
+}
+.ex-mission h2 {
+  font-size: 17px;
+  font-weight: 500;
+  margin: 9px 0;
+}
+.ex-mission p {
+  font-size: 12px;
+  color: #c0ccb7;
+  margin-bottom: 7px;
+}
+.ex-mission small {
+  color: #a6bc8c;
+  font-size: 10px;
+}
+.ex-brief-stats {
+  display: flex;
+  gap: 35px;
+  margin: 20px 0 26px;
+}
+.ex-brief-stats span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 10px;
+  color: #b5c2aa;
+}
+.ex-brief-stats b {
+  font-family: monospace;
+  font-size: 23px;
+  letter-spacing: 1px;
+  font-weight: 400;
+  color: #dfe6c8;
+}
+.ex-app .ex-primary {
+  background: var(--ex-lime);
+  color: #203020;
+  border-color: var(--ex-lime);
+  font-weight: 700;
+  min-height: 47px;
+  justify-content: space-between;
+  padding: 12px 20px;
+  gap: 26px;
+}
+.ex-app .ex-primary:hover {
+  background: #eff7bf;
+  color: #172918;
+}
+.ex-deploy {
+  width: 310px;
+}
+.ex-app .ex-link {
+  background: none;
+  border: 0;
+  font-size: 11px;
+  color: #a6b99d;
+  padding-left: 0;
+  margin-top: 7px;
+}
+.ex-location {
+  position: absolute;
+  right: 7%;
+  bottom: 14%;
+  width: 290px;
+  padding: 18px 0;
+  border-top: 1px solid #e0ecc18c;
+  text-shadow: 0 1px 5px #102219;
+}
+.ex-location > span {
+  font: 10px monospace;
+  letter-spacing: 2px;
+}
+.ex-location h2 {
+  font-size: 31px;
+  letter-spacing: 4px;
+  font-weight: 400;
+  margin: 14px 0 6px;
+}
+.ex-location p {
+  font-size: 12px;
+}
+.ex-location > div {
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  margin-top: 16px;
+}
+.ex-location i {
+  width: 6px;
+  height: 6px;
+  background: #e0ebbc;
+  border-radius: 50%;
+  margin-top: 5px;
+}
+.ex-location div span {
+  margin-left: auto;
+  border: 1px solid #d6e0c36a;
+  padding: 1px 5px;
+}
+.ex-base-footer {
+  position: absolute;
+  bottom: 24px;
+  left: 3.5%;
+  right: 3.5%;
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #b5c4aa;
+  gap: 10px;
+}
+.ex-base-footer div {
+  display: flex;
+  gap: 23px;
+}
+.ex-base-footer b {
+  padding: 0 12px;
+}
+.ex-base-footer a {
+  border-bottom: 1px solid #b7c3a444;
+}
+.ex-base-panel {
+  position: absolute;
+  top: 180px;
+  left: 3.5%;
+  right: 3.5%;
+  bottom: 75px;
+  background: #122820ed;
+  border: 1px solid var(--ex-line);
+  padding: 28px;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+.ex-panel-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 22px;
+}
+.ex-panel-heading h1 {
+  font-size: 25px;
+  font-weight: 500;
+  margin-top: 6px;
+}
+.ex-loadout-grid {
+  display: grid;
+  grid-template-columns: 1fr 290px;
+  gap: 30px;
+}
+.ex-weapons {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin: 16px 0 22px;
+}
+.ex-app .ex-weapon {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  padding: 18px;
+  text-align: left;
+  min-width: 0;
+  background: linear-gradient(145deg, #30433688, #152a22);
+}
+.ex-app .ex-weapon.selected {
+  border-color: #d3e496;
+  background: linear-gradient(145deg, #4c5b3288, #1f3428);
+}
+.ex-weapon-top {
+  display: flex;
+  justify-content: space-between;
+  color: #bdccab;
+  font-size: 10px;
+}
+.ex-weapon strong {
+  font-size: 17px;
+  font-weight: 500;
+}
+.ex-weapon small {
+  color: #b1c1a6;
+  font-size: 10px;
+}
+.ex-weapon-stats {
+  display: flex;
+  justify-content: space-between;
+  border-top: 1px solid var(--ex-line);
+  padding-top: 12px;
+  font: 11px monospace;
+}
+.ex-gun-shape {
+  height: 70px;
+  display: block;
+  position: relative;
+  margin: 10px 0;
+  filter: drop-shadow(3px 7px 3px #0006);
+}
+.ex-gun-shape:before {
+  content: '';
+  position: absolute;
+  width: 85%;
+  height: 38%;
+  left: 7%;
+  top: 28%;
+  background: linear-gradient(0deg, #596458, #b1b69b);
+  clip-path: polygon(
+    0 30%,
+    20% 30%,
+    23% 14%,
+    65% 14%,
+    65% 33%,
+    100% 33%,
+    100% 48%,
+    65% 48%,
+    60% 66%,
+    39% 66%,
+    35% 100%,
+    29% 100%,
+    29% 61%,
+    19% 63%,
+    2% 89%
+  );
+}
+.ex-gun-shape:after {
+  content: '';
+  position: absolute;
+  left: 48%;
+  top: 55%;
+  height: 25%;
+  width: 8%;
+  background: #8d987d;
+  transform: rotate(-15deg);
+}
+.gun-shrike:before {
+  width: 73%;
+  left: 12%;
+  transform: scaleY(1.3);
+}
+.gun-heron:before {
+  transform: scaleX(1.08);
+}
+.gun-heron:after {
+  left: 47%;
+  top: 24%;
+  width: 18%;
+  height: 6%;
+  background: #c0c7ac;
+  transform: none;
+  box-shadow: 0 3px #27382b;
+}
+.ex-kit-options {
+  display: grid;
+  gap: 10px;
+}
+.ex-kit-options label {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid var(--ex-line);
+  padding: 12px 15px;
+  background: #20352a66;
+}
+.ex-kit-options label span {
+  flex: 1;
+}
+.ex-kit-options label small {
+  display: block;
+  color: #9dad95;
+  font-size: 10px;
+  margin-top: 4px;
+}
+.ex-deploy-brief {
+  border-left: 1px solid var(--ex-line);
+  padding-left: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.ex-deploy-brief h2 {
+  font-size: 20px;
+  font-weight: 500;
+}
+.ex-deploy-brief p {
+  color: #b4c2a9;
+  font-size: 12px;
+  line-height: 1.9;
+}
+.ex-deploy-brief div {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12px;
+  color: #d2dbba;
+}
+.ex-deploy-brief > small {
+  color: #94a68e;
+}
+.ex-deploy-brief .ex-primary {
+  margin-top: auto;
+}
+.ex-danger-text {
+  color: #f1a384 !important;
+}
+.ex-stash-layout {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 35px;
+}
+.ex-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 9px;
+  margin-top: 14px;
+}
+.ex-item {
+  border: 1px solid var(--ex-line);
+  border-left: 2px solid var(--item-color, #acbf94);
+  background: #20362b;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  min-height: 70px;
+}
+.ex-item-code {
+  font: 11px monospace;
+  color: var(--item-color);
+  border: 1px solid currentColor;
+  padding: 9px 5px;
+}
+.ex-item > div {
+  flex: 1;
+  min-width: 0;
+}
+.ex-item strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+.ex-item small {
+  display: block;
+  color: #97ad94;
+  margin-top: 4px;
+  font: 10px monospace;
+}
+.ex-item button {
+  padding: 6px;
+  font-size: 11px;
+}
+.ex-empty {
+  padding: 45px 12px;
+  color: #9caf96;
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 14px;
+}
+.ex-empty p {
+  font-size: 12px;
+}
+.ex-shop {
+  border-left: 1px solid var(--ex-line);
+  padding-left: 24px;
+}
+.ex-shop h3 {
+  margin: 5px 0 15px;
+}
+.ex-shop > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 9px 0;
+  border-bottom: 1px solid var(--ex-line);
+  padding-bottom: 9px;
+  gap: 10px;
+  font-size: 12px;
+}
+.ex-shop small {
+  display: block;
+  color: #91a88e;
+  font-size: 10px;
+}
+.ex-shop button {
+  padding: 6px 12px;
+  font: 11px monospace;
+  white-space: nowrap;
+}
+.ex-service-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 22px;
+}
+.ex-file {
+  font-size: 12px;
+}
+.ex-file input {
+  display: none;
+}
+.ex-notice {
+  position: absolute;
+  bottom: 68px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #dce8ae;
+  color: #253923;
+  padding: 12px 20px;
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  z-index: 20;
+  cursor: pointer;
+}
+.ex-warning {
+  position: absolute;
+  top: 160px;
+  left: 4%;
+  right: 4%;
+  z-index: 20;
+  background: #5f3226;
+  padding: 15px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.ex-warning button {
+  white-space: nowrap;
+}
+.ex-raid-top {
+  position: absolute;
+  top: 25px;
+  left: 28px;
+  right: 28px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  pointer-events: none;
+}
+.ex-raid-objective {
+  background: linear-gradient(90deg, #102921e8, #10292199);
+  border-left: 2px solid #d7e6ac;
+  padding: 12px 18px;
+  max-width: 340px;
+}
+.ex-raid-objective strong {
+  display: block;
+  font-size: 14px;
+  margin: 7px 0 4px;
+}
+.ex-raid-objective small {
+  font-size: 10px;
+  color: #bed0b9;
+}
+.ex-raid-clock {
+  display: flex;
+  gap: 13px;
+  align-items: center;
+  background: #11281feb;
+  padding: 10px 12px;
+  pointer-events: auto;
+}
+.ex-raid-clock > span {
+  font-size: 10px;
+  color: #bbccac;
+}
+.ex-raid-clock strong {
+  font: 25px monospace;
+  letter-spacing: 2px;
+}
+.ex-raid-clock button {
+  padding: 6px;
+  background: none;
+  border: 0;
+}
+.ex-app .ex-map-button {
+  position: absolute;
+  right: 28px;
+  top: 105px;
+  padding: 0;
+  border: 1px solid #b2c69766;
+  display: block;
+  background: #152c23;
+}
+.ex-minimap {
+  width: 145px;
+  height: 145px;
+  display: block;
+  opacity: 0.92;
+}
+.ex-map-button span {
+  font: 9px monospace;
+  padding: 5px 0;
+  display: block;
+  color: #bcceaf;
+}
+.ex-status {
+  position: absolute;
+  left: 28px;
+  bottom: 27px;
+  width: 305px;
+  padding: 15px;
+  background: linear-gradient(90deg, #10251ef2, #10251ed9);
+  border-left: 2px solid #c6d6a0;
+}
+.ex-health {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  position: relative;
+}
+.ex-health > b {
+  font: 22px monospace;
+  min-width: 32px;
+}
+.ex-health > span {
+  height: 4px;
+  flex: 1;
+  background: #597058;
+}
+.ex-health > span i {
+  display: block;
+  background: #d4e5a4;
+  height: 100%;
+}
+.ex-health em {
+  position: absolute;
+  top: -38px;
+  left: 0;
+  background: #7e3025;
+  color: #ffe0b5;
+  padding: 4px 8px;
+  font: 11px sans-serif;
+}
+.ex-substatus {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 11px 0;
+  color: #b1c3a1;
+  font-size: 10px;
+}
+.ex-substatus > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.ex-stamina {
+  width: 106px;
+}
+.ex-stamina i {
+  height: 3px;
+  background: #aac5a0;
+  display: block;
+}
+.ex-quick {
+  display: flex;
+  gap: 7px;
+}
+.ex-quick button {
+  font-size: 10px;
+  padding: 5px 8px;
+  background: #ffffff08;
+}
+.ex-ammo {
+  position: absolute;
+  right: 28px;
+  bottom: 27px;
+  background: linear-gradient(270deg, #10251ef2, #10251ebb);
+  padding: 13px 20px;
+  text-align: right;
+  min-width: 185px;
+  border-right: 2px solid #d6dfb1;
+}
+.ex-ammo > span {
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #cad4b6;
+}
+.ex-ammo strong {
+  font: 45px monospace;
+}
+.ex-ammo i {
+  font: 17px monospace;
+  color: #a7bb9c;
+  padding-left: 10px;
+}
+.ex-ammo button {
+  padding: 3px 0;
+  border: 0;
+  background: none;
+  color: #bbcfa7;
+  font-size: 10px;
+}
+.ex-context {
+  position: absolute;
+  bottom: 20%;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 260px;
+}
+.ex-app .ex-interact {
+  width: 100%;
+  background: #10261fea;
+  color: #eef2d2;
+  border-color: #d4e7af88;
+  padding: 10px 15px;
+  font-size: 12px;
+}
+.ex-interact kbd {
+  background: #d8e7ae;
+  color: #223423;
+  padding: 4px 8px;
+  margin-right: 7px;
+}
+.ex-action-progress,
+.ex-extract-progress {
+  background: #163c2bed;
+  border: 1px solid #bcdf9666;
+  padding: 17px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+.ex-extract-progress span {
+  display: block;
+  font-size: 10px;
+  width: 100%;
+  color: #b4c6a5;
+}
+.ex-app progress {
+  height: 4px;
+  width: 100%;
+  accent-color: #dcebab;
+  display: block;
+  border: 0;
+}
+.ex-raid-toast {
+  position: absolute;
+  left: 50%;
+  top: 18%;
+  transform: translateX(-50%);
+  font-size: 12px;
+  padding: 9px 18px;
+  background: #142d24df;
+  border-top: 1px solid #a7c28d88;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.ex-initial-hint {
+  position: absolute;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  color: #e3edcd;
+  text-shadow: 0 1px 4px #18391a;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.ex-overlay {
+  position: absolute;
+  inset: 0;
+  background: #081b16b8;
+  backdrop-filter: blur(6px);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.ex-live-overlay {
+  background: #0a211753;
+  backdrop-filter: none;
+}
+.ex-modal {
+  width: min(770px, 96%);
+  max-height: 90%;
+  overflow: auto;
+  scrollbar-width: thin;
+  background: #132a22f7;
+  border: 1px solid #a9be8455;
+  padding: 35px;
+  position: relative;
+  box-shadow: 0 20px 90px #051d1655;
+}
+.ex-modal > h1 {
+  font-size: 27px;
+  font-weight: 500;
+  margin: 13px 0 25px;
+  letter-spacing: -0.5px;
+}
+.ex-app .ex-close {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  border: 0;
+  background: none;
+  padding: 5px;
+}
+.ex-help {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 26px;
+}
+.ex-help h3 {
+  font-size: 20px;
+  color: #d8e8a6;
+  margin-bottom: 10px;
+}
+.ex-help p {
+  font-size: 12px;
+  line-height: 1.9;
+  color: #bdcbb0;
+}
+.ex-muted {
+  font-size: 12px;
+  color: #9bb28f;
+  line-height: 1.9;
+  margin: 18px 0 !important;
+}
+.ex-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ex-settings button {
+  justify-content: flex-start;
+  padding: 18px;
+}
+.ex-settings b {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 500;
+  color: #d2e4a4;
+}
+.ex-pause-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 25px;
+}
+.ex-modal-pause,
+.ex-modal-settings {
+  max-width: 430px;
+}
+.ex-modal-map {
+  max-width: 610px;
+  padding: 26px;
+}
+.ex-map-svg {
+  display: block;
+  width: min(100%, 470px);
+  max-height: 55vh;
+  margin: auto;
+  border: 1px solid var(--ex-line);
+}
+.ex-map-legend {
+  display: flex;
+  justify-content: space-between;
+  gap: 9px;
+  margin-top: 15px;
+  font-size: 10px;
+  color: #c7d4ae;
+}
+.ex-modal-map h1 {
+  margin-bottom: 15px;
+}
+.ex-search {
+  border-bottom: 1px solid var(--ex-line);
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+}
+.ex-search .ex-panel-heading {
+  margin: 0;
+  font-size: 12px;
+}
+.ex-search button {
+  padding: 8px 10px;
+  font-size: 11px;
+}
+.ex-search p {
+  font-size: 12px;
+  margin-top: 15px;
+}
+.ex-unknown {
+  font-size: 12px;
+  color: #94aa87;
+  flex-wrap: wrap;
+}
+.ex-modal > h3 {
+  margin-top: 24px;
+}
+.ex-secure-empty {
+  padding: 20px;
+  border: 1px dashed #9fbb7855;
+  margin-top: 12px;
+  font-size: 12px;
+  color: #8fa57d;
+}
+.ex-result-overlay {
+  position: absolute;
+  inset: 0;
+  background: #10271de8;
+  backdrop-filter: blur(9px);
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.ex-result {
+  width: min(800px, 96%);
+  max-height: 95%;
+  overflow: auto;
+  text-align: center;
+  padding: 35px 20px;
+}
+.ex-result > .ex-kicker {
+  justify-content: center;
+}
+.ex-result-icon {
+  width: 70px;
+  height: 70px;
+  margin: 25px auto;
+  border: 1px solid #cfdfa788;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #d5e6ae;
+}
+.ex-result h1 {
+  font-size: clamp(24px, 3vw, 43px);
+  font-weight: 400;
+  letter-spacing: 1px;
+  margin: 20px 0 10px;
+}
+.ex-result > p {
+  color: #a8bd9b;
+  font-size: 12px;
+}
+.ex-contract-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #d9e9a6;
+  border: 1px solid #ccdf8e55;
+  padding: 9px 16px;
+  margin: 20px 0;
+  font-size: 12px;
+}
+.ex-result-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-top: 1px solid var(--ex-line);
+  border-bottom: 1px solid var(--ex-line);
+  padding: 25px 0;
+  gap: 10px;
+  margin: 25px 0;
+}
+.ex-result-stats span {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #9fb58d;
+  font-size: 11px;
+}
+.ex-result-stats b {
+  font: 30px monospace;
+  color: #e0e9be;
+}
+.ex-result-loot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 30px;
+  font-size: 12px;
+}
+.ex-result-loot span {
+  padding: 7px 12px;
+  background: #78916322;
+  border: 1px solid #c2d69b33;
+}
+.ex-ending {
+  padding: 23px;
+  border: 1px solid #d2de9877;
+  margin: 15px 0;
+  background: linear-gradient(135deg, #4c5d2e55, transparent);
+}
+.ex-ending .ex-kicker {
+  justify-content: center;
+}
+.ex-ending h2 {
+  font-size: 24px;
+  font-weight: 400;
+  margin: 13px 0;
+}
+.ex-ending p {
+  font-size: 13px;
+  color: #c4d2af;
+  line-height: 1.9;
+}
+.ex-ending strong {
+  display: block;
+  margin-top: 13px;
+  font-size: 11px;
+  color: #d8eaa8;
+}
+.ex-touch-controls {
+  display: none;
+}
+.ex-gpu-error {
+  padding: 30px;
+  color: #fff;
+  position: absolute;
+  right: 0;
+  bottom: 60px;
+  background: #663b2b;
+  z-index: 50;
+}
+.ex-gpu-error a {
+  display: block;
+  text-decoration: underline;
+}
+.reduce-motion * {
+  animation: none !important;
+  transition: none !important;
+}
+@media (min-width: 1800px) {
+  .ex-briefing {
+    width: 580px;
+  }
+  .ex-briefing h1 {
+    font-size: 85px;
+  }
+  .ex-mission {
+    max-width: 440px;
+    margin-top: 38px;
+  }
+  .ex-mission h2 {
+    font-size: 21px;
+  }
+  .ex-intro,
+  .ex-mission p {
+    font-size: 15px;
+  }
+  .ex-brief-stats {
+    margin: 32px 0;
+  }
+  .ex-base-panel {
+    top: 195px;
+    bottom: 85px;
+    padding: 40px;
+  }
+  .ex-weapons {
+    gap: 20px;
+  }
+  .ex-weapon {
+    min-height: 300px;
+  }
+  .ex-gun-shape {
+    height: 130px;
+  }
+  .ex-loadout-grid {
+    grid-template-columns: 1fr 370px;
+    gap: 50px;
+  }
+  .ex-kit-options {
+    margin-top: 30px;
+  }
+  .ex-kit-options label {
+    padding: 19px;
+  }
+  .ex-raid-objective {
+    max-width: 390px;
+  }
+  .ex-minimap {
+    width: 180px;
+    height: 180px;
+  }
+}
+@media (max-height: 780px) and (min-width: 901px) {
+  .ex-header {
+    top: 20px;
+  }
+  .ex-tabs {
+    top: 90px;
+  }
+  .ex-briefing {
+    top: 24%;
+    max-height: calc(76% - 50px);
+  }
+  .ex-briefing h1 {
+    font-size: 43px;
+    margin: 13px 0;
+  }
+  .ex-intro {
+    font-size: 11px;
+  }
+  .ex-mission {
+    margin: 16px 0;
+  }
+  .ex-brief-stats {
+    margin: 15px 0;
+  }
+  .ex-base-panel {
+    top: 148px;
+    bottom: 55px;
+    padding: 22px;
+  }
+  .ex-base-footer {
+    bottom: 16px;
+  }
+}
+@media (max-width: 900px) {
+  .ex-header {
+    left: 24px;
+    right: 24px;
+    top: 22px;
+  }
+  .ex-online {
+    display: none;
+  }
+  .ex-tabs {
+    left: 24px;
+    top: 95px;
+  }
+  .ex-briefing {
+    left: 6%;
+    top: 23%;
+    width: 390px;
+  }
+  .ex-location {
+    right: 5%;
+    width: 210px;
+    bottom: 15%;
+  }
+  .ex-location h2 {
+    font-size: 25px;
+  }
+  .ex-loadout-grid {
+    grid-template-columns: 1fr;
+  }
+  .ex-deploy-brief {
+    border-left: 0;
+    border-top: 1px solid var(--ex-line);
+    padding: 20px 0 0;
+  }
+  .ex-deploy-brief p {
+    display: none;
+  }
+  .ex-base-panel {
+    top: 155px;
+    bottom: 64px;
+    padding: 22px;
+  }
+  .ex-stash-layout {
+    grid-template-columns: 1fr;
+  }
+  .ex-shop {
+    padding: 20px 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--ex-line);
+  }
+  .ex-base-footer {
+    left: 24px;
+    right: 24px;
+    bottom: 20px;
+  }
+  .ex-base-footer div > span {
+    display: none;
+  }
+  .ex-base-footer div {
+    gap: 15px;
+  }
+  .ex-base-footer > span {
+    font-size: 9px;
+  }
+  .ex-weapons {
+    gap: 8px;
+  }
+  .ex-app .ex-weapon {
+    padding: 12px;
+  }
+  .ex-weapon-stats {
+    font-size: 10px;
+  }
+  .ex-weapon strong {
+    font-size: 14px;
+  }
+  .ex-raid-objective {
+    max-width: 265px;
+  }
+  .ex-raid-objective small {
+    display: none;
+  }
+  .ex-minimap {
+    width: 105px;
+    height: 105px;
+  }
+  .ex-raid-clock > span {
+    display: none;
+  }
+  .ex-initial-hint {
+    bottom: 170px;
+    font-size: 9px;
+  }
+  .ex-status {
+    width: 265px;
+  }
+  .ex-context {
+    bottom: 31%;
+  }
+}
+@media (pointer: coarse) {
+  .ex-touch-controls {
+    display: flex;
+    position: absolute;
+    left: 24px;
+    right: 24px;
+    bottom: 160px;
+    justify-content: space-between;
+    pointer-events: none;
+  }
+  .ex-touch-stick {
+    width: 102px;
+    height: 102px;
+    border-radius: 50%;
+    border: 2px solid #d0dfb756;
+    background: radial-gradient(circle, #d6e5b426 0 25%, #172c2733 27%);
+    touch-action: none;
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #e0edc677;
+    flex-direction: column;
+    font-size: 10px;
+    user-select: none;
+  }
+  .ex-touch-aim {
+    border-color: #e8cc8855;
+  }
+  .ex-initial-hint {
+    display: none;
+  }
+  .ex-context {
+    bottom: 32%;
+  }
+}
+@media (max-width: 600px) {
+  .ex-header {
+    top: 19px;
+    left: 20px;
+    right: 20px;
+  }
+  .ex-brand {
+    font-size: 17px;
+    gap: 10px;
+  }
+  .ex-brand small {
+    font-size: 7px;
+    letter-spacing: 1px;
+  }
+  .ex-brand-mark {
+    font-size: 21px;
+  }
+  .ex-header-right {
+    gap: 9px;
+  }
+  .ex-header-right strong {
+    font-size: 13px;
+  }
+  .ex-header-right button {
+    padding: 7px;
+  }
+  .ex-tabs {
+    top: 82px;
+    left: 20px;
+    right: 20px;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .ex-tabs button {
+    font-size: 12px;
+  }
+  .ex-base-shade {
+    background:
+      linear-gradient(90deg, #0c241ded, #10291fc2 55%, #10291f22),
+      linear-gradient(0deg, #0c251dd9, transparent 75%);
+  }
+  .ex-briefing {
+    left: 26px;
+    right: 26px;
+    top: 155px;
+    width: auto;
+    max-height: calc(100% - 212px);
+  }
+  .ex-briefing h1 {
+    font-size: 49px;
+    margin: 20px 0;
+    letter-spacing: -2px;
+  }
+  .ex-briefing > .ex-kicker {
+    font-size: 8px;
+    letter-spacing: 1px;
+  }
+  .ex-intro {
+    font-size: 12px;
+  }
+  .ex-mission {
+    margin: 25px 0 20px;
+    max-width: 310px;
+  }
+  .ex-mission h2 {
+    font-size: 16px;
+  }
+  .ex-mission p {
+    font-size: 11px;
+  }
+  .ex-brief-stats {
+    gap: 35px;
+    margin: 22px 0;
+  }
+  .ex-brief-stats b {
+    font-size: 21px;
+  }
+  .ex-deploy {
+    width: 100%;
+  }
+  .ex-location {
+    display: none;
+  }
+  .ex-base-footer {
+    left: 20px;
+    right: 20px;
+    bottom: 16px;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 9px;
+  }
+  .ex-base-footer > span {
+    display: none;
+  }
+  .ex-base-footer div {
+    justify-content: space-between;
+    width: 100%;
+  }
+  .ex-base-panel {
+    top: 139px;
+    left: 14px;
+    right: 14px;
+    bottom: 50px;
+    padding: 18px;
+  }
+  .ex-panel-heading {
+    margin-bottom: 17px;
+  }
+  .ex-panel-heading h1 {
+    font-size: 20px;
+    line-height: 1.45;
+  }
+  .ex-panel-heading .ex-kicker {
+    font-size: 8px;
+  }
+  .ex-weapons {
+    grid-template-columns: 1fr;
+  }
+  .ex-app .ex-weapon {
+    position: relative;
+    gap: 5px;
+    min-height: 105px;
+    padding: 12px 14px;
+  }
+  .ex-weapon-top {
+    width: 100%;
+  }
+  .ex-gun-shape {
+    position: absolute;
+    right: 5px;
+    top: 29px;
+    width: 100px;
+    height: 40px;
+    margin: 0;
+  }
+  .ex-weapon > small {
+    max-width: 70%;
+    font-size: 9px;
+  }
+  .ex-weapon-stats {
+    border: 0;
+    padding-top: 2px;
+    justify-content: flex-start;
+    gap: 16px;
+  }
+  .ex-kit-options label {
+    font-size: 12px;
+    padding: 10px;
+  }
+  .ex-kit-options label small {
+    font-size: 9px;
+  }
+  .ex-deploy-brief h2 {
+    font-size: 18px;
+  }
+  .ex-stash-layout {
+    gap: 15px;
+  }
+  .ex-shop {
+    font-size: 12px;
+  }
+  .ex-items {
+    grid-template-columns: 1fr;
+  }
+  .ex-empty {
+    padding: 25px 0;
+  }
+  .ex-service-row {
+    gap: 7px;
+  }
+  .ex-service-row button,
+  .ex-file {
+    font-size: 11px;
+    padding: 9px;
+  }
+  .ex-warning {
+    font-size: 11px;
+    flex-direction: column;
+  }
+  .ex-raid-top {
+    top: 15px;
+    left: 12px;
+    right: 12px;
+    gap: 7px;
+  }
+  .ex-raid-objective {
+    padding: 8px 10px;
+    max-width: 205px;
+    flex: 1;
+  }
+  .ex-raid-objective .ex-kicker {
+    font-size: 8px;
+    letter-spacing: 1px;
+  }
+  .ex-raid-objective strong {
+    font-size: 11px;
+    margin: 4px 0 0;
+  }
+  .ex-raid-clock {
+    padding: 7px;
+    gap: 5px;
+  }
+  .ex-raid-clock strong {
+    font-size: 19px;
+    letter-spacing: 0;
+  }
+  .ex-raid-clock button {
+    padding: 2px;
+  }
+  .ex-app .ex-map-button {
+    right: 12px;
+    top: 83px;
+  }
+  .ex-minimap {
+    width: 85px;
+    height: 85px;
+  }
+  .ex-map-button span {
+    font-size: 8px;
+  }
+  .ex-status {
+    left: 12px;
+    bottom: 17px;
+    padding: 10px;
+    width: 220px;
+  }
+  .ex-health > b {
+    font-size: 20px;
+  }
+  .ex-substatus {
+    font-size: 9px;
+  }
+  .ex-stamina {
+    width: 90px;
+  }
+  .ex-quick {
+    gap: 4px;
+  }
+  .ex-quick button {
+    padding: 4px 6px;
+    font-size: 9px;
+  }
+  .ex-ammo {
+    right: 12px;
+    bottom: 17px;
+    min-width: 105px;
+    padding: 10px;
+  }
+  .ex-ammo > span {
+    font-size: 8px;
+    letter-spacing: 0;
+  }
+  .ex-ammo strong {
+    font-size: 34px;
+  }
+  .ex-ammo i {
+    font-size: 12px;
+    padding-left: 4px;
+  }
+  .ex-ammo button {
+    font-size: 9px;
+  }
+  .ex-raid-toast {
+    top: 26%;
+    font-size: 10px;
+    width: max-content;
+    max-width: 90%;
+    white-space: normal;
+    text-align: center;
+  }
+  .ex-context {
+    bottom: 34%;
+    width: max-content;
+    max-width: 94%;
+    min-width: 240px;
+  }
+  .ex-interact {
+    font-size: 11px !important;
+  }
+  .ex-overlay {
+    padding: 12px;
+  }
+  .ex-modal {
+    width: 100%;
+    max-height: 92%;
+    padding: 25px 18px;
+  }
+  .ex-modal > h1 {
+    font-size: 23px;
+    padding-right: 15px;
+    margin: 14px 0 20px;
+  }
+  .ex-modal > .ex-kicker {
+    font-size: 8px;
+    letter-spacing: 1px;
+    padding-right: 15px;
+  }
+  .ex-help {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+  .ex-help h3 {
+    font-size: 17px;
+  }
+  .ex-help p {
+    font-size: 12px;
+  }
+  .ex-map-legend {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    font-size: 10px;
+  }
+  .ex-modal-map h1 {
+    margin-bottom: 15px;
+  }
+  .ex-modal .ex-panel-heading {
+    font-size: 11px;
+  }
+  .ex-search button {
+    font-size: 10px;
+    padding: 6px;
+  }
+  .ex-notice {
+    width: 90%;
+    bottom: 57px;
+    font-size: 12px;
+  }
+  .ex-result {
+    padding: 15px 0;
+  }
+  .ex-result-stats b {
+    font-size: 22px;
+  }
+  .ex-result-stats span {
+    font-size: 9px;
+  }
+  .ex-result-stats {
+    margin: 20px 0;
+  }
+  .ex-ending {
+    padding: 17px;
+  }
+  .ex-ending h2 {
+    font-size: 20px;
+  }
+  .ex-ending p {
+    font-size: 12px;
+  }
+  .ex-touch-controls {
+    left: 20px;
+    right: 20px;
+    bottom: 152px;
+  }
+  .ex-touch-stick {
+    width: 95px;
+    height: 95px;
+  }
+}
+@media (max-height: 500px) and (orientation: landscape) {
+  .ex-header {
+    top: 12px;
+  }
+  .ex-brand {
+    font-size: 15px;
+  }
+  .ex-brand small {
+    font-size: 7px;
+  }
+  .ex-tabs {
+    top: 62px;
+  }
+  .ex-tabs button {
+    padding: 6px 0;
+    font-size: 11px;
+  }
+  .ex-briefing {
+    top: 112px;
+    left: 5%;
+    width: 52%;
+    max-height: calc(100% - 144px);
+  }
+  .ex-briefing h1 {
+    font-size: 34px;
+    margin: 8px 0;
+  }
+  .ex-briefing .ex-intro,
+  .ex-brief-stats {
+    display: none;
+  }
+  .ex-mission {
+    margin: 12px 0;
+  }
+  .ex-mission h2 {
+    font-size: 14px;
+    margin: 4px 0;
+  }
+  .ex-mission p {
+    font-size: 11px;
+  }
+  .ex-mission small {
+    display: none;
+  }
+  .ex-location {
+    bottom: 20%;
+    right: 5%;
+    width: 220px;
+  }
+  .ex-base-panel {
+    top: 105px;
+    bottom: 36px;
+    padding: 18px;
+  }
+  .ex-base-footer {
+    bottom: 10px;
+  }
+  .ex-raid-top {
+    top: 10px;
+    left: 13px;
+    right: 13px;
+  }
+  .ex-raid-objective {
+    padding: 7px 10px;
+  }
+  .ex-raid-objective strong {
+    font-size: 11px;
+  }
+  .ex-raid-objective .ex-kicker {
+    font-size: 8px;
+  }
+  .ex-raid-clock {
+    padding: 5px 9px;
+  }
+  .ex-raid-clock strong {
+    font-size: 20px;
+  }
+  .ex-map-button {
+    top: 62px !important;
+    right: 14px !important;
+  }
+  .ex-minimap {
+    width: 77px;
+    height: 77px;
+  }
+  .ex-status {
+    bottom: 10px;
+    left: 13px;
+    padding: 8px;
+    width: 232px;
+  }
+  .ex-health > b {
+    font-size: 17px;
+  }
+  .ex-substatus {
+    margin: 4px 0;
+  }
+  .ex-ammo {
+    right: 13px;
+    bottom: 10px;
+    min-width: 140px;
+    padding: 8px 13px;
+  }
+  .ex-ammo strong {
+    font-size: 30px;
+  }
+  .ex-ammo > span {
+    font-size: 9px;
+  }
+  .ex-context {
+    bottom: 20%;
+    min-width: 230px;
+  }
+  .ex-touch-controls {
+    bottom: 115px;
+    left: 25px;
+    right: 25px;
+  }
+  .ex-touch-stick {
+    width: 80px;
+    height: 80px;
+  }
+  .ex-raid-toast {
+    top: 22%;
+    font-size: 10px;
+  }
+  .ex-initial-hint {
+    display: none;
+  }
+  .ex-modal {
+    max-height: 96%;
+    padding: 23px;
+  }
+  .ex-map-svg {
+    max-height: 45vh;
+  }
+  .ex-overlay {
+    padding: 8px;
+  }
+  .ex-result {
+    padding: 8px;
+    max-height: 100%;
+  }
+  .ex-result-icon {
+    margin: 10px auto;
+    width: 42px;
+    height: 42px;
+  }
+  .ex-result h1 {
+    font-size: 25px;
+    margin: 10px 0;
+  }
+  .ex-result-stats {
+    padding: 10px 0;
+    margin: 15px 0;
+  }
+  .ex-contract-done {
+    margin: 10px 0;
+  }
+  .ex-result-loot {
+    margin-bottom: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ex-app * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+.is-raid .ex-world {
+  cursor: crosshair;
+}
+@media (max-height: 780px) and (min-width: 901px) {
+  .ex-app .ex-weapon {
+    padding: 12px;
+    gap: 6px;
+  }
+  .ex-gun-shape {
+    height: 38px;
+    margin: 2px 0;
+  }
+  .ex-weapons {
+    margin: 12px 0 15px;
+  }
+  .ex-kit-options {
+    gap: 7px;
+  }
+  .ex-kit-options label {
+    padding: 8px 12px;
+  }
+  .ex-kit-options label small {
+    margin-top: 2px;
+  }
+  .ex-panel-heading {
+    margin-bottom: 15px;
+  }
+  .ex-deploy-brief {
+    gap: 12px;
+  }
+}
+@media (max-width: 600px) and (max-height: 700px) {
+  .ex-briefing {
+    top: 141px;
+    max-height: calc(100% - 189px);
+  }
+  .ex-briefing h1 {
+    font-size: 37px;
+    margin: 12px 0;
+  }
+  .ex-intro {
+    display: none;
+  }
+  .ex-mission {
+    margin: 16px 0;
+  }
+  .ex-mission h2 {
+    font-size: 14px;
+    margin: 6px 0;
+  }
+  .ex-brief-stats {
+    margin: 13px 0;
+    gap: 29px;
+  }
+  .ex-brief-stats b {
+    font-size: 18px;
+  }
+  .ex-brief-stats span {
+    font-size: 9px;
+  }
+  .ex-briefing .ex-link {
+    font-size: 10px;
+  }
+  .ex-briefing .ex-primary {
+    min-height: 42px;
+  }
+}
+@media (min-width: 1800px) {
+  .ex-raid-objective {
+    transform: scale(1.2);
+    transform-origin: top left;
+  }
+  .ex-raid-clock {
+    transform: scale(1.2);
+    transform-origin: top right;
+  }
+  .ex-status {
+    transform: scale(1.2);
+    transform-origin: bottom left;
+  }
+  .ex-ammo {
+    transform: scale(1.2);
+    transform-origin: bottom right;
+  }
+  .ex-initial-hint {
+    font-size: 13px;
+  }
+  .ex-raid-toast {
+    font-size: 15px;
+  }
+}
+.ex-ending {
+  animation: ex-signal-arrive 1s ease-out;
+}
+.ex-ending p {
+  animation: ex-signal-arrive 1.8s ease-out;
+}
+.ex-ending strong {
+  animation: ex-signal-arrive 2.5s ease-out;
+}
+@keyframes ex-signal-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

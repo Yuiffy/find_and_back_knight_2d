@@ -8,18 +8,22 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "test:extraction": "node tests/extraction-rules.mjs && node tests/extraction-flow.mjs && node tests/extraction-aim.mjs && node tests/extraction-campaign.mjs && node tests/extraction-persistence.mjs && node tests/extraction-responsive.mjs",
     "test:lantern": "node tests/lantern-rules.mjs && node tests/lantern-guidance-flow.mjs && node tests/lantern-comfort-flow.mjs && node tests/lantern-flow.mjs && node tests/lantern-flow.mjs --optional && node tests/lantern-responsive.mjs",
     "test:flows": "node tests/engagement-loop-flow.mjs && node tests/interaction-selector-flow.mjs && node tests/v2-base-inventory.mjs && node tests/progression-pass-flow.mjs && node tests/directional-combat-flow.mjs && node tests/combat-polish-flow.mjs && node tests/raid-inventory-flow.mjs && node tests/pause-guard-flow.mjs && node tests/gate-transition-flow.mjs && node tests/extraction-settlement-flow.mjs && node tests/deep-flow.mjs && node tests/gameplay-overhaul-flow.mjs && node tests/outpost-raid-flow.mjs && node tests/lost-echo-flow.mjs && node tests/save-roundtrip.mjs && node tests/quick-buy-flow.mjs && node tests/collection-withdrawal-flow.mjs && node tests/responsive-visual-flow.mjs"
   },
   "dependencies": {
+    "@react-three/fiber": "^9.8.1",
     "lucide-react": "^1.34.0",
     "phaser": "4.2.1",
     "react": "19.2.7",
-    "react-dom": "19.2.7"
+    "react-dom": "19.2.7",
+    "three": "^0.186.1"
   },
   "devDependencies": {
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
+    "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "6.0.3",
     "playwright": "^1.61.1",
     "typescript": "7.0.2",

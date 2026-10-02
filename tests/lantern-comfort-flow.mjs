@@ -3,7 +3,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 
-const url = process.env.BASE_URL ?? 'http://127.0.0.1:4175/knight/';
+import { lanternUrl as url } from './lantern-url.mjs';
 const output = path.resolve('.tmp/test-artifacts/lantern-comfort');
 fs.mkdirSync(output, { recursive: true });
 const browser = await chromium.launch({ headless: true });

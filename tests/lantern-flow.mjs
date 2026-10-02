@@ -3,7 +3,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 
-const baseUrl = process.env.BASE_URL ?? 'http://127.0.0.1:4175/knight/';
+import { lanternUrl as baseUrl } from './lantern-url.mjs';
 const optional = process.env.OPTIONAL_ROUTE === '1' || process.argv.includes('--optional');
 const output = path.resolve(optional ? '.tmp/test-artifacts/lantern-flow-optional' : '.tmp/test-artifacts/lantern-flow');
 fs.mkdirSync(output, { recursive: true });
