@@ -4,11 +4,10 @@ import assert from 'node:assert/strict';
 import { stripTypeScriptTypes } from 'node:module';
 const dir = path.resolve('.tmp/extraction-rules');
 fs.mkdirSync(dir, { recursive: true });
-for (const name of ['model', 'map', 'simulation']) {
+for (const name of ['items', 'inventory', 'model', 'map', 'simulation']) {
   const source = fs.readFileSync(`src/extraction/${name}.ts`, 'utf8');
   const code = stripTypeScriptTypes(source)
-    .replaceAll("'./model'", "'./model.mjs'")
-    .replaceAll("'./map'", "'./map.mjs'");
+    .replace(/'\.\/(items|inventory|model|map)(?:\.ts)?'/g, "'./$1.mjs'");
   fs.writeFileSync(path.join(dir, `${name}.mjs`), code);
 }
 const {
@@ -21,6 +20,8 @@ const {
   WEAPONS,
 } = await import('../.tmp/extraction-rules/model.mjs');
 const { Raid } = await import('../.tmp/extraction-rules/simulation.mjs');
+const { ITEMS } = await import('../.tmp/extraction-rules/items.mjs');
+const { emptyInventory, normalizeInventory, fits, findSpace, planTransfer, arrange, occupiedCells, itemSize, bagGrid, stashGrid } = await import('../.tmp/extraction-rules/inventory.mjs');
 const { blocked, collides, OBSTACLES, POWER, RADAR } =
   await import('../.tmp/extraction-rules/map.mjs');
 const kit = { weapon: 'kestrel', armor: true, meds: 2, suppressor: false };
@@ -277,6 +278,88 @@ assert.equal(fullResult.credits, full.credits + 120 + 650);
 const endgame = freshProfile();
 endgame.contract = 3;
 assert.equal(new Raid(endgame, kit).enemies.length, 12);
+
+// True grid occupancy, rotation, partial search and lossless transfers.
+const validateGrid = (inventory) => {
+  assert.equal(inventory.slots.length, inventory.items.length);
+  assert.equal(inventory.known.length, inventory.items.length);
+  for (let index = 0; index < inventory.items.length; index++)
+    assert(fits(inventory, inventory.items[index], inventory.slots[index], index), JSON.stringify(inventory));
+};
+const room = emptyInventory({ columns: 2, rows: 1 });
+assert(!fits(room, 'medicine', { x: 0, y: 0, rotated: false }));
+assert(fits(room, 'medicine', { x: 0, y: 0, rotated: true }));
+assert(!fits(room, 'scrap', { x: 1, y: 0, rotated: false }));
+assert(!fits(room, 'gold', { x: .5, y: 0, rotated: false }));
+assert(!fits(room, 'gold', { x: -1, y: 0, rotated: false }));
+const unknown = normalizeInventory(['gold'], { columns: 2, rows: 2 }).inventory;
+unknown.known[0] = false;
+assert.equal(planTransfer(unknown, 0, room), null);
+const gridRaid = new Raid(freshProfile(), kit);
+gridRaid.enemies = []; gridRaid.player.x = -29; gridRaid.player.z = 34; gridRaid.interact();
+tick(gridRaid, .9);
+const source = gridRaid.crates.find(c => c.id === 'dock');
+assert.equal(source.revealed, 1);
+const partial = source.searched;
+assert(gridRaid.take(0));
+assert.equal(source.searched, partial, 'Taking one item must preserve the next scan progress');
+tick(gridRaid, .51);
+assert(source.identified[0]);
+assert.equal(source.loot[0], 'medicine');
+assert(gridRaid.transfer('bag', 0, 'crate'));
+assert.equal(source.identified.at(-1), true, 'Returning a known item must not conceal it again');
+tick(gridRaid, 1);
+gridRaid.takeAll();
+assert.equal(gridRaid.bag.length, 3);
+assert.equal(gridRaid.usedCells, 8, 'Capacity counts the actual item rectangles');
+validateGrid(gridRaid.inventories.bag);
+assert(gridRaid.insure(gridRaid.bag.indexOf('electronics')));
+assert(gridRaid.transfer('secure', 0, 'bag'));
+assert.equal(gridRaid.secure, null);
+validateGrid(gridRaid.inventories.bag);
+gridRaid.bag = Array(20).fill('gold'); gridRaid.bagLayout = [];
+gridRaid.secure = 'electronics'; gridRaid.secureLayout = { x: 0, y: 0, rotated: false };
+void gridRaid.inventories;
+const occupiedBeforeSwap = JSON.stringify({ bag: gridRaid.bag, slots: gridRaid.bagLayout, secure: gridRaid.secure });
+assert(!gridRaid.insure(0), 'A secure replacement must fit back into its source');
+assert.equal(JSON.stringify({ bag: gridRaid.bag, slots: gridRaid.bagLayout, secure: gridRaid.secure }), occupiedBeforeSwap);
+// Six fragmented free cells are insufficient; sorting should create a full 2x3 rectangle.
+const holes = normalizeInventory(Array(20).fill('gold'), bagGrid(freshProfile())).inventory;
+for (const i of [10, 8, 6, 4, 2, 0]) { holes.items.splice(i, 1); holes.slots.splice(i, 1); holes.known.splice(i, 1); }
+assert.equal(20 - occupiedCells(holes.items), 6);
+assert.equal(findSpace(holes, 'core'), null);
+const packed = arrange(holes);
+assert(packed); validateGrid(packed); assert(findSpace(packed, 'core'));
+const coreSource = normalizeInventory(['core'], { columns: 5, rows: 4 }).inventory;
+const takenCore = planTransfer(coreSource, 0, packed);
+assert(takenCore); assert.equal(takenCore.source.items.length, 0); validateGrid(takenCore.target);
+const safeBox = { ...emptyInventory({ columns: 2, rows: 2 }), single: true };
+assert.equal(planTransfer(coreSource, 0, safeBox), null);
+
+// Invalid and older stash layouts preserve total owned value and normalize once.
+const legacyGridSave = freshProfile(); legacyGridSave.stash = Array(24).fill('core'); delete legacyGridSave.stashLayout;
+const migratedGrid = normalizeProfile(legacyGridSave);
+assert.equal(migratedGrid.credits + migratedGrid.stash.reduce((n, id) => n + ITEMS[id].value, 0), legacyGridSave.credits + 24 * ITEMS.core.value);
+assert.deepEqual(normalizeProfile(JSON.parse(JSON.stringify(migratedGrid))), migratedGrid);
+const invalidLayout = freshProfile(); invalidLayout.stash = ['medicine', 'electronics', 'gold'];
+invalidLayout.stashLayout = [{ x: -1, y: 0, rotated: false }, { x: 0, y: 0, rotated: false }, { x: 0, y: 0, rotated: false }];
+const repaired = normalizeProfile(invalidLayout);
+assert.deepEqual(repaired.stash, invalidLayout.stash);
+validateGrid({ grid: stashGrid(repaired), items: repaired.stash, slots: repaired.stashLayout, known: repaired.stash.map(() => true) });
+
+// Repeated moves of identical instances remain bounded, non-overlapping and lossless.
+let first = normalizeInventory(['scrap', 'gold', 'medicine', 'sample', 'electronics'], { columns: 5, rows: 4 }).inventory;
+let second = emptyInventory({ columns: 5, rows: 4 });
+const owned = [...first.items].sort();
+for (let n = 0; n < 120; n++) {
+  const from = n % 2 ? second : first, to = n % 2 ? first : second;
+  if (!from.items.length) continue;
+  const index = n % from.items.length, next = planTransfer(from, index, to, undefined, !!(n % 3));
+  if (next) { if (n % 2) { second = next.source; first = next.target; } else { first = next.source; second = next.target; } }
+  validateGrid(first); validateGrid(second);
+  assert.deepEqual([...first.items, ...second.items].sort(), owned);
+}
+console.log('Grid inventory: footprints, overlap, rotation, progressive search, reversible transfers, secure swap, sorting, legacy migration and conservation PASS');
 console.log(
   'Extraction rules: deployment, inventory, armour, healing, all weapons, cover, AI hearing, both exits, campaign ending, death recovery, persistence PASS',
 );

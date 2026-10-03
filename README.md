@@ -15,9 +15,11 @@
 
 触屏使用左摇杆移动、右摇杆瞄准射击，以及 HUD 按钮。设置中可以静音、降低画质和减少环境与界面动态；低画质使用简化材质并关闭阴影和后处理，减少动态会停止呼吸、发梢、羽翼和环境装饰运动。失焦自动暂停。
 
-出击扣除已部署装备，成功撤离返还剩余装备、药品与战利品。死亡仅保留保险格，普通背包和武器留在地图供下一轮回收；再次失败覆盖旧遗体。刷新、关闭页面视为行动中断。无枪时可领取免费救援套装。仓库支持出售、采购、背包与仓库扩建、存档导入导出；满仓溢出物资自动出售。
+搜索界面逐件揭晓物资，每种物资有独立 SVG 图像与真实占格：合金 2×1、电路 2×2、医疗物资和样本 1×2、信号核心 2×3、纪念章 1×1。单击查看用途与价值，双击 / Ctrl / Shift 单击快速转移，拖动或点选空格摆放，R 或按钮旋转；绿色/红色整件预览提示能否放下，整理可腾出连续空间。手机支持触摸拖放和点选放置。规格与验收见 [INVENTORY_UPGRADE.md](INVENTORY_UPGRADE.md)。
 
-独立存档键为 `sui-fogharbor.save.v1`，含 `version: 1`、`credits`、`stash`、`guns`、`armors`、`meds`、`suppressors`、`packLevel`、`stashLevel`、`contract`、`raids`、`wins`、`kills`、`lost`、`active`、`last`、`settings`。浏览器自动化只通过此存档键布置场景、重新加载后由应用归一化，不直接修改运行中规则。公开 `render_game_to_text()` 描述世界米制坐标、玩家、物资、敌人、撤离和持久状态；`advanceTime(ms)` 使用固定小步推进模拟。
+背包初始 5×4，可升级至 5×6 / 5×8；仓库初始 8×6，可升级至 8×10 / 8×14。安全箱为 2×2，只保管一件，信号核心无法放入。出击扣除已部署装备，成功撤离返还剩余装备、药品与战利品。死亡仅保留安全箱物资，普通背包和武器留在地图供下一轮回收；再次失败覆盖旧遗体。刷新、关闭页面视为行动中断。无枪时可领取免费救援套装。仓库支持移动、旋转、整理、出售、采购、扩建与存档导入导出；无法放入仓库的带回物资自动出售。
+
+独立存档键为 `sui-fogharbor.save.v1`，含 `version: 1`、`credits`、`stash`、`stashLayout`、`guns`、`armors`、`meds`、`suppressors`、`packLevel`、`stashLevel`、`contract`、`raids`、`wins`、`kills`、`lost`、`active`、`last`、`settings`。旧版一维物资数组自动摆入新格子，异常布局修复，放不下的旧物资按原价计入资金。浏览器自动化只通过此存档键布置场景、重新加载后由应用归一化，不直接修改运行中规则。公开 `render_game_to_text()` 描述世界米制坐标、玩家、物资占格/摆放、敌人、撤离和持久状态；`advanceTime(ms)` 使用固定小步推进模拟。
 
 ```powershell
 npm install
@@ -25,6 +27,7 @@ npm run build
 npm run preview -- --host 127.0.0.1 --port 4175
 # 另一终端，Node.js 24
 npm run test:extraction
+npm run test:inventory
 node tests/extraction-art.mjs
 ```
 

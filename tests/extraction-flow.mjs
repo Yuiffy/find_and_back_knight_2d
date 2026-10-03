@@ -63,6 +63,7 @@ try {
   assert.equal((await state()).search?.id, 'dock');
   await page.getByRole('button', { name: '收纳已识别物资' }).click();
   assert.equal((await state()).bag.length, 3);
+  await page.getByRole('gridcell', { name: /^背包 精密电路/ }).click();
   await page.getByRole('button', { name: '保护精密电路', exact: true }).click();
   assert.equal((await state()).secure, 'electronics');
   await page.screenshot({ path: `${output}/04-search.png` });

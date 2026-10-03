@@ -1,54 +1,8 @@
-export type ItemId =
-  'scrap' | 'electronics' | 'medicine' | 'sample' | 'core' | 'gold';
+import { ITEMS, type ItemId } from './items.ts';
+import { bagGrid, stashGrid, cellCapacity, normalizeInventory, findSpace, type ItemPlacement } from './inventory.ts';
+export { ITEMS, type ItemId } from './items.ts';
 export type WeaponId = 'kestrel' | 'shrike' | 'heron';
 export const SAVE_KEY = 'sui-fogharbor.save.v1';
-export const ITEMS: Record<
-  ItemId,
-  { name: string; value: number; weight: number; color: string; label: string }
-> = {
-  scrap: {
-    name: '工业合金',
-    value: 90,
-    weight: 1.8,
-    color: '#a4b3b0',
-    label: 'MAT',
-  },
-  electronics: {
-    name: '精密电路',
-    value: 240,
-    weight: 0.8,
-    color: '#69d8c1',
-    label: 'TEC',
-  },
-  medicine: {
-    name: '医用物资',
-    value: 180,
-    weight: 0.6,
-    color: '#9bdbcd',
-    label: 'MED',
-  },
-  sample: {
-    name: '密封样本',
-    value: 480,
-    weight: 1.2,
-    color: '#8babf4',
-    label: 'LAB',
-  },
-  core: {
-    name: '归航信号核心',
-    value: 1400,
-    weight: 2.5,
-    color: '#f4bc70',
-    label: 'SIG',
-  },
-  gold: {
-    name: '旧世纪念章',
-    value: 650,
-    weight: 0.4,
-    color: '#e4bc75',
-    label: 'VAL',
-  },
-};
 export const WEAPONS: Record<
   WeaponId,
   {
@@ -149,6 +103,7 @@ export interface Profile {
   version: 1;
   credits: number;
   stash: ItemId[];
+  stashLayout: ItemPlacement[];
   guns: Record<WeaponId, number>;
   armors: number;
   meds: number;
@@ -169,6 +124,7 @@ export function freshProfile(): Profile {
     version: 1,
     credits: 1200,
     stash: [],
+    stashLayout: [],
     guns: { kestrel: 1, shrike: 0, heron: 0 },
     armors: 1,
     meds: 3,
@@ -217,7 +173,10 @@ export function normalizeProfile(value: unknown): Profile {
   p.packLevel = count(v.packLevel, 2);
   p.stashLevel = count(v.stashLevel, 2);
   p.contract = count(v.contract, 3);
-  p.stash = validItems(v.stash).slice(0, stashCapacity(p));
+  const storage = normalizeInventory(validItems(v.stash), stashGrid(p), v.stashLayout);
+  p.stash = storage.inventory.items;
+  p.stashLayout = storage.inventory.slots;
+  p.credits += storage.overflow.reduce((sum, item) => sum + ITEMS[item].value, 0);
   if (
     v.lost &&
     Number.isFinite(v.lost.x) &&
@@ -282,8 +241,8 @@ export function writeProfile(p: Profile) {
     return false;
   }
 }
-export const stashCapacity = (p: Profile) => 24 + p.stashLevel * 16;
-export const packCapacity = (p: Profile) => 10 + p.packLevel * 5;
+export const stashCapacity = (p: Profile) => cellCapacity(stashGrid(p));
+export const packCapacity = (p: Profile) => cellCapacity(bagGrid(p));
 export const weight = (items: ItemId[]) =>
   items.reduce((sum, i) => sum + ITEMS[i].weight, 0);
 export function canDeploy(p: Profile, l: Loadout): boolean {
@@ -356,10 +315,16 @@ export function settle(p: Profile, r: Settlement): Profile {
       items: [...r.bag],
       weapon: active.loadout.weapon,
     };
+  const storage = normalizeInventory(n.stash, stashGrid(n), n.stashLayout);
+  reward += storage.overflow.reduce((sum, item) => sum + ITEMS[item].value, 0);
   for (const item of items) {
-    if (n.stash.length < stashCapacity(n)) n.stash.push(item);
-    else reward += ITEMS[item].value;
+    const slot = findSpace(storage.inventory, item);
+    if (slot) {
+      storage.inventory.items.push(item); storage.inventory.slots.push(slot); storage.inventory.known.push(true);
+    } else reward += ITEMS[item].value;
   }
+  n.stash = storage.inventory.items;
+  n.stashLayout = storage.inventory.slots;
   if (r.recovered) {
     const oldWeapon = p.lost?.weapon;
     if (r.success && oldWeapon) n.guns[oldWeapon]++;

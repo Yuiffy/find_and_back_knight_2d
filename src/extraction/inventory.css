@@ -1,0 +1,187 @@
+.ex-modal-search,.ex-modal-bag {
+  width:min(1140px,96vw); max-height:94vh; padding:26px 30px 18px;
+  background:#102238f5; border-color:#829fb34f;
+}
+.ex-field-inventory { --grid-line:#aac2d426; --inventory-muted:#a5bbce; }
+.ex-inventory-heading { display:flex; justify-content:space-between; align-items:center; padding-right:28px; margin-bottom:22px; gap:16px; }
+.ex-inventory-heading h1 { font-size:26px; font-weight:500; margin:8px 0 0; letter-spacing:1px; }
+.ex-inventory-heading .ex-kicker { font-size:9px; }
+.ex-carry-weight { font:22px/1.5 Georgia,serif; color:#e5ddca; white-space:nowrap; }
+.ex-carry-weight small { font:11px monospace; color:var(--inventory-muted); }
+.ex-carry-weight b { display:block; font:10px sans-serif; color:#f4a791; text-align:right; }
+.ex-carry-weight.is-heavy { color:#f4a791; }
+.ex-inventory-workspace { display:grid; grid-template-columns:190px minmax(0,1fr); gap:30px; align-items:start; }
+.has-container .ex-inventory-workspace { grid-template-columns:180px minmax(0,1fr) minmax(0,1fr); }
+.ex-field-inventory:not(.has-container) .ex-inventory-workspace { grid-template-columns:190px minmax(0,420px); justify-content:center; }
+.ex-personal-inventory,.ex-container-inventory { min-width:0; }
+.ex-field-grid-scroll { max-height:min(420px,45vh); overflow:auto; scrollbar-width:thin; }
+.ex-grid-heading { display:flex; align-items:center; justify-content:space-between; min-height:38px; gap:8px; margin-bottom:10px; }
+.ex-grid-heading h2 { display:flex; align-items:center; flex-wrap:wrap; gap:7px; font-size:13px; font-weight:500; margin:0; }
+.ex-grid-heading small { color:#a5bbce; font:10px monospace; }
+.ex-grid-heading > svg { color:#b6cbdc; }
+.ex-app .ex-grid-heading button { font-size:10px; padding:6px 9px; min-height:32px; background:#20384c; }
+.ex-inventory-grid {
+  display:grid; position:relative; width:100%; aspect-ratio:var(--grid-columns)/var(--grid-rows);
+  grid-template-columns:repeat(var(--grid-columns),minmax(0,1fr)); grid-template-rows:repeat(var(--grid-rows),minmax(0,1fr));
+  border:1px solid #9fbacd45; background-color:#0b1a2d; overflow:hidden; isolation:isolate;
+  background-image:linear-gradient(90deg,#b0c8dc26 1px,transparent 1px),linear-gradient(0deg,#b0c8dc26 1px,transparent 1px);
+  background-size:calc(100% / var(--grid-columns)) calc(100% / var(--grid-rows));
+}
+.ex-app .ex-grid-cell { background:transparent; border:0; padding:0; border-radius:0; min-width:0; min-height:0; touch-action:pan-y; }
+.ex-app .ex-grid-cell:hover { background:#81bba311; }
+.ex-app .ex-grid-item {
+  min-width:0; min-height:0; margin:2px; padding:7px 7px 19px; position:relative; z-index:2; display:flex;
+  border:1px solid color-mix(in srgb,var(--item-color) 48%,transparent); border-radius:1px;
+  background:linear-gradient(150deg,color-mix(in srgb,var(--item-color) 18%,#172a3c),#102236);
+  box-shadow:inset 0 -3px var(--item-color); cursor:grab; user-select:none; touch-action:none;
+  transition:background .15s,border-color .15s; animation:ex-loot-reveal .32s ease-out both;
+}
+.ex-app .ex-grid-item:hover { background:color-mix(in srgb,var(--item-color) 25%,#162a3d); border-color:var(--item-color); }
+.ex-app .ex-grid-item.is-selected { border-color:#e6d2b9; outline:1px solid #e6d2b9; outline-offset:-2px; background:color-mix(in srgb,var(--item-color) 23%,#203c50); }
+.ex-app .ex-grid-item.is-dragging { opacity:.3; cursor:grabbing; }
+.ex-item-art { display:block; width:100%; height:100%; max-height:100%; overflow:visible; filter:drop-shadow(1px 4px 3px #03132288); pointer-events:none; }
+.ex-grid-item-name { position:absolute; left:6px; right:6px; bottom:5px; text-overflow:ellipsis; white-space:nowrap; overflow:hidden; font-size:10px; line-height:1.3; color:#e4e7df; text-shadow:0 1px 2px #071526; text-align:left; }
+.ex-grid-item-size { position:absolute; top:4px; right:5px; font:8px monospace; color:#c5d6dfaa; }
+.ex-grid-quest { position:absolute; top:4px; left:5px; font-size:8px; color:#d3bfa2; }
+.ex-grid-unknown { position:relative; z-index:2; margin:2px; background:#192c3e; border:1px solid #8095a842; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:4px; color:#8099af; overflow:hidden; }
+.ex-grid-unknown > span { font:28px Georgia,serif; }
+.ex-grid-unknown small { font-size:9px; }
+.ex-grid-unknown.is-scanning { color:#d4c1a5; border-color:#c7a98188; }
+.ex-grid-unknown.is-scanning::after { content:''; position:absolute; inset:-100% 0 0; height:200%; pointer-events:none; background:linear-gradient(0deg,transparent 44%,#d7c29e30 50%,transparent 56%); animation:ex-item-scan 1.1s linear infinite; }
+.ex-grid-unknown progress { position:absolute; left:7%; right:7%; bottom:5px; width:86%; height:2px; background:#1c3043; accent-color:#dec7a6; }
+.ex-grid-preview { position:absolute; z-index:5; pointer-events:none; display:flex; align-items:center; justify-content:center; border:2px solid #91c8aa; background:#7aca9b35; color:#e5f8e8; }
+.ex-grid-preview.is-invalid { background:#d7767345; border-color:#e6a097; color:#f6d7d1; }
+.ex-grid-preview > span { font:28px sans-serif; }
+.ex-item-ghost { position:fixed; z-index:100; pointer-events:none; padding:7px; background:color-mix(in srgb,var(--item-color) 24%,#162c40e8); border:1px solid var(--item-color); box-shadow:0 8px 26px #03111a88; opacity:.9; }
+.ex-inventory-operator { display:flex; align-items:center; gap:11px; border-bottom:1px solid #829fb337; padding-bottom:14px; margin:5px 0 15px; }
+.ex-inventory-operator img { width:44px; height:50px; object-fit:cover; background:#718ea526; border:1px solid #d7c2b459; }
+.ex-inventory-operator strong { font-size:14px; font-weight:500; }
+.ex-inventory-operator small { display:block; color:#aabcc9; font-size:10px; margin-top:4px; }
+.ex-equipped-weapon { height:95px; padding:9px 6px; border-bottom:1px solid #829fb337; }
+.ex-equipped-weapon .ex-weapon-art { height:58px; margin:0; }
+.ex-equipped-weapon > span { display:block; font-size:10px; color:#c3d0d6; text-align:center; }
+.ex-equipped-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px; }
+.ex-equipped-grid > div { padding:3px; background:#24394b77; border:1px solid #829fb326; text-align:center; }
+.ex-gear-art { display:block; width:100%; height:58px; filter:drop-shadow(0 3px 3px #03132288); }
+.ex-equipped-grid span { font-size:9px; color:#bacbd6; }
+.ex-inventory-equipment > p { font-size:10px; color:#8ea8bd; line-height:1.8; margin:18px 0 0; }
+.ex-secure-row { display:flex; gap:17px; margin-top:17px; align-items:center; }
+.ex-secure-row > div { width:112px; flex-shrink:0; }
+.ex-secure-row .ex-grid-heading { min-height:22px; margin-bottom:8px; }
+.ex-secure-row h2 { font-size:11px; }
+.ex-secure-row p { color:#becad3; font-size:10px; line-height:1.8; margin:30px 0 0; }
+.ex-secure-row small { color:#8da4b8; font-size:9px; }
+.ex-container-status { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:17px; }
+.ex-container-status > span { font-size:11px; color:#d2bfa3; }
+.ex-container-status small { display:block; color:#8fa9bd; font:10px monospace; margin-top:5px; }
+.ex-app .ex-container-status button { padding:9px 13px; font-size:11px; }
+.ex-inventory-details { display:grid; grid-template-columns:62px minmax(0,1fr) auto; gap:18px; align-items:center; padding:17px 0 10px; margin-top:20px; border-top:1px solid #829fb33f; min-height:102px; }
+.ex-inspector-art { height:75px; padding:4px; background:color-mix(in srgb,var(--item-color) 10%,#102136); }
+.ex-inspector-copy > span { font:10px monospace; color:var(--item-color); }
+.ex-inspector-copy h3 { display:flex; gap:15px; align-items:baseline; justify-content:space-between; font-size:16px; font-weight:500; margin:6px 0; }
+.ex-inspector-copy b { color:#e4d6bd; font:13px Georgia,serif; white-space:nowrap; }
+.ex-inspector-copy p { margin:0; font-size:10px; line-height:1.7; color:#a9bfd0; }
+.ex-inspector-actions { display:flex; align-items:center; gap:7px; flex-wrap:wrap; max-width:300px; justify-content:flex-end; }
+.ex-app .ex-inspector-actions button { padding:8px 11px; font-size:10px; min-height:35px; }
+.ex-inventory-details.is-empty { display:flex; gap:16px; color:#9db6cc; padding:22px 5px; }
+.ex-inventory-details.is-empty strong { font-size:13px; font-weight:400; }
+.ex-inventory-details.is-empty p { font-size:10px; line-height:1.8; margin:6px 0 0; color:#829db4; }
+.ex-inventory-hint { display:flex; justify-content:space-between; gap:15px; color:#7996ad; font-size:9px; margin:8px 0 0; }
+.ex-stash-layout { grid-template-columns:minmax(0,1.5fr) minmax(240px,.9fr); }
+.ex-stash-grid-scroll { max-height:49vh; overflow:auto; scrollbar-width:thin; }
+.ex-stash-inventory .ex-inventory-details { grid-template-columns:52px minmax(0,1fr); margin-top:12px; background:#172d41; padding:12px; }
+.ex-stash-inventory .ex-inspector-actions { grid-column:2; justify-content:flex-start; max-width:none; }
+.ex-stash-inventory .ex-inspector-art { grid-row:span 2; }
+.ex-loot-summary { display:flex; align-items:center; gap:10px; padding:8px 12px; border-bottom:2px solid var(--item-color); background:color-mix(in srgb,var(--item-color) 12%,#152d41); }
+.ex-loot-summary .ex-item-art { width:46px; height:49px; }
+.ex-loot-summary strong { display:block; font-size:11px; font-weight:400; color:#e1e4df; }
+.ex-loot-summary small { display:block; font:9px monospace; color:#9fb6c8; margin-top:5px; }
+.ex-result-loot { flex-wrap:wrap; }
+@keyframes ex-loot-reveal { from { opacity:0; filter:brightness(1.6); } to { opacity:1; filter:brightness(1); } }
+@keyframes ex-item-scan { from { transform:translateY(-35%); } to { transform:translateY(35%); } }
+@media(min-width:1600px) { .ex-modal-search,.ex-modal-bag { width:1200px; padding:30px 38px 20px; } .ex-inventory-workspace { gap:36px; } }
+@media(max-height:780px) and (min-width:901px) {
+  .ex-modal-search,.ex-modal-bag { width:1040px; padding:20px 26px 14px; }
+  .ex-inventory-heading { margin-bottom:12px; }
+  .ex-inventory-heading h1 { font-size:22px; }
+  .ex-inventory-workspace { gap:25px; }
+  .has-container .ex-inventory-workspace { grid-template-columns:170px minmax(0,1fr) minmax(0,1fr); }
+  .ex-secure-row { margin-top:12px; }
+  .ex-secure-row > div { width:90px; }
+  .ex-inventory-details { margin-top:13px; min-height:88px; padding-top:12px; }
+  .ex-inspector-art { height:65px; }
+}
+@media(max-width:1000px) {
+  .ex-inventory-equipment { display:none; }
+  .ex-inventory-workspace,.has-container .ex-inventory-workspace { grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:25px; }
+  .ex-field-inventory:not(.has-container) .ex-inventory-workspace { grid-template-columns:minmax(0,370px); justify-content:center; }
+  .ex-inventory-details { grid-template-columns:56px minmax(0,1fr); }
+  .ex-inspector-actions { grid-column:2; justify-content:flex-start; max-width:none; }
+  .ex-inspector-art { grid-row:span 2; }
+}
+@media(max-width:900px) { .ex-stash-layout { grid-template-columns:1fr; } }
+@media(max-width:600px) {
+  .ex-modal-search,.ex-modal-bag { width:calc(100vw - 14px); max-height:96vh; padding:17px 13px 12px; }
+  .ex-inventory-heading { margin-bottom:13px; gap:7px; padding-right:23px; }
+  .ex-inventory-heading h1 { font-size:20px; margin-top:6px; }
+  .ex-inventory-heading .ex-kicker { font-size:7px; letter-spacing:.5px; }
+  .ex-carry-weight { font-size:18px; }
+  .ex-carry-weight small { font-size:8px; }
+  .ex-inventory-workspace,.has-container .ex-inventory-workspace { gap:12px; }
+  .ex-grid-heading { gap:5px; min-height:35px; margin-bottom:8px; align-items:flex-start; }
+  .ex-grid-heading h2 { font-size:11px; gap:4px; line-height:1.7; }
+  .ex-grid-heading small { font-size:8px; }
+  .ex-app .ex-grid-heading button { padding:5px; min-height:30px; }
+  .ex-grid-heading button span { display:none; }
+  .ex-grid-heading > svg { display:none; }
+  .ex-app .ex-grid-item { margin:1px; padding:5px 3px 14px; }
+  .ex-grid-item-name { font-size:8px; left:3px; right:3px; bottom:4px; }
+  .ex-grid-item[data-width="1"] .ex-grid-item-name { display:none; }
+  .ex-grid-item-size { display:none; }
+  .ex-grid-quest { font-size:6px; top:2px; left:3px; }
+  .ex-grid-unknown { margin:1px; gap:2px; }
+  .ex-grid-unknown > span { font-size:21px; }
+  .ex-grid-unknown svg { width:16px; height:16px; }
+  .ex-grid-unknown small { font-size:7px; }
+  .ex-secure-row { gap:8px; margin-top:10px; }
+  .ex-secure-row > div { width:67px; }
+  .ex-secure-row h2 { font-size:9px; gap:3px; white-space:nowrap; }
+  .ex-secure-row p { font-size:8px; margin-top:24px; line-height:1.7; }
+  .ex-secure-row small { font-size:7px; }
+  .ex-container-status { flex-direction:column; align-items:stretch; gap:9px; margin-top:11px; }
+  .ex-container-status > span { font-size:9px; }
+  .ex-container-status small { font-size:8px; }
+  .ex-app .ex-container-status button { min-height:40px; padding:7px; font-size:10px; justify-content:center; }
+  .ex-inventory-details { grid-template-columns:42px minmax(0,1fr); gap:9px 12px; padding-top:12px; margin-top:13px; }
+  .ex-inspector-art { height:66px; }
+  .ex-inspector-copy > span { font-size:8px; }
+  .ex-inspector-copy h3 { font-size:12px; margin:5px 0; gap:8px; }
+  .ex-inspector-copy b { font-size:11px; }
+  .ex-inspector-copy p { font-size:9px; }
+  .ex-app .ex-inspector-actions button { min-height:40px; padding:7px 9px; font-size:9px; }
+  .ex-inspector-actions { gap:6px; }
+  .ex-inventory-details.is-empty { padding:14px 0; min-height:85px; }
+  .ex-inventory-details.is-empty strong { font-size:11px; }
+  .ex-inventory-details.is-empty p { font-size:8px; }
+  .ex-inventory-hint { font-size:8px; line-height:1.8; }
+  .ex-inventory-hint span:first-child { max-width:230px; }
+  .ex-stash-inventory .ex-grid-heading h2 { font-size:12px; }
+  .ex-stash-inventory .ex-inventory-details { grid-template-columns:42px minmax(0,1fr); padding:9px; }
+  .ex-stash-grid-scroll { max-height:40vh; }
+}
+@media(max-height:500px) and (orientation:landscape) {
+  .ex-modal-search,.ex-modal-bag { padding:16px 20px 12px; }
+  .ex-inventory-heading { margin-bottom:8px; }
+  .ex-inventory-heading h1 { font-size:19px; }
+  .ex-inventory-workspace,.has-container .ex-inventory-workspace { grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:22px; }
+  .ex-personal-inventory,.ex-container-inventory { max-width:265px; justify-self:center; width:100%; }
+  .ex-grid-heading { min-height:29px; margin-bottom:5px; }
+  .ex-secure-row > div { width:68px; }
+  .ex-secure-row p { margin-top:15px; font-size:8px; }
+  .ex-inventory-details { grid-template-columns:45px minmax(0,1fr) auto; gap:13px; margin-top:10px; }
+  .ex-inspector-art { grid-row:auto; height:50px; }
+  .ex-inspector-actions { grid-column:auto; }
+  .ex-inventory-hint { font-size:8px; }
+}
+.reduce-motion .ex-grid-item,.reduce-motion .ex-grid-unknown::after { animation:none; transition:none; }
+@media(prefers-reduced-motion:reduce) { .ex-grid-item,.ex-grid-unknown::after { animation:none !important; transition:none !important; } }

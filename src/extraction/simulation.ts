@@ -17,6 +17,8 @@ import {
   collides,
   distance,
 } from './map';
+import { bagGrid, SECURE_GRID, normalizeInventory, containerInventory, planTransfer, arrange, occupiedCells, emptyInventory, findSpace, type GridInventory, type GridSize, type ItemPlacement } from './inventory';
+export type InventoryZone = 'bag' | 'secure' | 'crate';
 
 export interface Input {
   x: number;
@@ -53,6 +55,13 @@ export interface Crate {
   loot: ItemId[];
   revealed: number;
   searched: number;
+  grid: GridSize;
+  lootLayout: ItemPlacement[];
+  identified: boolean[];
+}
+function makeCrate(c: Pick<Crate, 'id' | 'name' | 'x' | 'z' | 'loot'>, known = false): Crate {
+  const inventory = containerInventory(c.loot, known);
+  return { ...c, loot: inventory.items, grid: inventory.grid, lootLayout: inventory.slots, identified: inventory.known, revealed: known ? c.loot.length : 0, searched: 0 };
 }
 export interface Trace {
   x: number;
@@ -96,7 +105,10 @@ export class Raid {
   healing = 0;
   cooldown = 0;
   bag: ItemId[] = [];
+  bagLayout: ItemPlacement[] = [];
   secure: ItemId | null = null;
+  secureLayout: ItemPlacement | null = null;
+  grid: GridSize;
   capacity: number;
   kills = 0;
   powered = false;
@@ -137,16 +149,15 @@ export class Raid {
     this.meds = loadout.meds;
     this.player.armor = loadout.armor ? 75 : 0;
     this.capacity = packCapacity(profile);
+    this.grid = bagGrid(profile);
     this.lost = profile.lost ? structuredClone(profile.lost) : null;
     this.seed = (profile.raids + 1) * 739 + 13;
-    this.crates = CRATES.map((c) => ({
-      ...c,
-      loot: [...c.loot],
-      revealed: 0,
-      searched: 0,
-    }));
-    if (profile.raids % 2 === 0)
-      this.crates.find((c) => c.id === 'freight')!.loot[0] = 'gold';
+    this.crates = CRATES.map(c => makeCrate({ ...c, loot: [...c.loot] }));
+    if (profile.raids % 2 === 0) {
+      const index = this.crates.findIndex(c => c.id === 'freight');
+      const c = this.crates[index];
+      this.crates[index] = makeCrate({ ...c, loot: ['gold', ...c.loot.slice(1)] });
+    }
     const points = [
       [-32, 14],
       [-13, 4],
@@ -189,7 +200,60 @@ export class Raid {
     return weight(this.bag);
   }
   get maxWeight() {
-    return 14 + (this.capacity - 10) * 0.8;
+    return 14 + (this.capacity - 20) * 0.4;
+  }
+  get usedCells() { return occupiedCells(this.bag); }
+  get inventories(): Record<InventoryZone, GridInventory | null> {
+    this.bagLayout = normalizeInventory(this.bag, this.grid, this.bagLayout).inventory.slots;
+    const bag: GridInventory = { grid: this.grid, items: this.bag, slots: this.bagLayout, known: this.bag.map(() => true) };
+    const secure = emptyInventory(SECURE_GRID, true);
+    if (this.secure) {
+      const slot = this.secureLayout ?? findSpace(secure, this.secure);
+      if (slot) { secure.items = [this.secure]; secure.slots = [slot]; secure.known = [true]; }
+    }
+    const c = this.crates.find(c => c.id === this.search);
+    const crate = c ? { grid: c.grid, items: c.loot, slots: c.lootLayout, known: c.identified } : null;
+    return { bag, secure, crate };
+  }
+  private transferPlan(from: InventoryZone, index: number, to: InventoryZone, slot?: ItemPlacement, rotated = false) {
+    if (this.paused || this.phase !== 'raid') return null;
+    if (from === 'crate' || to === 'crate') {
+      const c = this.crates.find(c => c.id === this.search);
+      if (!c || distance(c, this.player) > 3) return null;
+    }
+    const views = this.inventories, source = views[from], target = views[to];
+    return source && target ? planTransfer(source, index, target, slot, rotated) : null;
+  }
+  canTransfer(from: InventoryZone, index: number, to: InventoryZone, slot: ItemPlacement) {
+    return !!this.transferPlan(from, index, to, slot);
+  }
+  transfer(from: InventoryZone, index: number, to: InventoryZone, slot?: ItemPlacement, rotated = false): boolean {
+    const before = this.inventories[from]?.items[index];
+    const plan = this.transferPlan(from, index, to, slot, rotated);
+    if (!plan) {
+      this.notify(to === 'secure' ? '安全箱最多放一件 2×2 物资，替换物也需有空间放回' : '这里放不下 · 试试旋转、整理或腾出完整空间');
+      return false;
+    }
+    const commit = (zone: InventoryZone, inventory: GridInventory) => {
+      if (zone === 'bag') { this.bag = inventory.items; this.bagLayout = inventory.slots; }
+      else if (zone === 'secure') { this.secure = inventory.items[0] ?? null; this.secureLayout = inventory.slots[0] ?? null; }
+      else {
+        const c = this.crates.find(c => c.id === this.search)!;
+        c.loot = inventory.items; c.lootLayout = inventory.slots; c.identified = inventory.known; c.revealed = inventory.known.filter(Boolean).length;
+      }
+    };
+    commit(from, plan.source);
+    if (to !== from) commit(to, plan.target);
+    if (from === 'crate' && to !== 'crate') this.events.push('loot');
+    this.notify(from === to ? '已调整摆放' : to === 'secure' ? '已放入安全箱 · 失败仍保留（页面中断除外）' : to === 'crate' ? '已放回容器' : `已收纳 ${before ? ITEMS[before].name : '物资'}`);
+    return true;
+  }
+  organize() {
+    if (this.paused || this.phase !== 'raid') return;
+    const next = arrange(this.inventories.bag!);
+    if (!next) { this.notify('暂时无法整理 · 请先腾出空间'); return; }
+    this.bagLayout = next.slots;
+    this.notify('背包已整理');
   }
   get nearby(): {
     kind: 'crate' | 'power' | 'radar' | 'lost';
@@ -232,70 +296,45 @@ export class Raid {
     }
     if (n.kind === 'lost' && this.lost) {
       this.recovered = true;
-      this.crates.push({
+      this.crates.push(makeCrate({
         id: 'recovery',
         name: '上轮遗留背包',
         x: this.lost.x,
         z: this.lost.z,
         loot: [...this.lost.items],
-        revealed: this.lost.items.length,
-        searched: 99,
-      });
+      }, true));
       this.search = 'recovery';
       this.notify('已携带遗留武器 · 撤离后放回仓库');
     }
   }
-  take(index: number) {
-    const c = this.crates.find((c) => c.id === this.search);
-    if (
-      !c ||
-      this.paused ||
-      this.phase !== 'raid' ||
-      index >= c.revealed ||
-      !c.loot[index] ||
-      distance(c, this.player) > 3
-    )
-      return;
-    if (this.bag.length >= this.capacity) {
-      this.notify('背包已满 · 丢弃低价值物资后再取');
-      return;
-    }
-    const [item] = c.loot.splice(index, 1);
-    c.revealed--;
-    c.searched = c.revealed * 0.7;
-    this.bag.push(item);
-    this.events.push('loot');
-    this.notify(`已收纳 ${ITEMS[item].name}`);
-  }
+  take(index: number, slot?: ItemPlacement, rotated = false) { return this.transfer('crate', index, 'bag', slot, rotated); }
   takeAll() {
     const c = this.crates.find((c) => c.id === this.search);
     if (!c) return;
-    const n = Math.min(c.revealed, this.capacity - this.bag.length);
-    for (let i = 0; i < n; i++) this.take(0);
+    let taken = 0;
+    for (let i = 0; i < c.loot.length;) {
+      if (c.identified[i] && this.take(i)) taken++;
+      else i++;
+    }
+    this.notify(taken ? `收纳了 ${taken} 件物资${c.revealed ? ' · 剩余物资需要更完整的空间' : ''}` : '没有可收纳的物资 · 等待识别或整理背包');
   }
   insure(index: number) {
-    if (this.paused || this.phase !== 'raid') return;
-    const item = this.bag[index];
-    if (!item) return;
-    this.bag.splice(index, 1);
-    if (this.secure) this.bag.push(this.secure);
-    this.secure = item;
-    this.notify('已放入保险格 · 失败仍可带回（中断不保留）');
+    return this.transfer('bag', index, 'secure');
   }
   drop(index: number) {
-    if (this.paused || this.phase !== 'raid') return;
+    if (this.paused || this.phase !== 'raid' || !Number.isInteger(index) || index < 0 || !this.bag[index]) return;
+    void this.inventories;
     const [item] = this.bag.splice(index, 1);
+    this.bagLayout.splice(index, 1);
     if (!item) return;
     const id = `drop-${++this.dropSerial}`;
-    this.crates.push({
+    this.crates.push(makeCrate({
       id,
       name: '地面物资',
       x: this.player.x + 0.8,
       z: this.player.z,
       loot: [item],
-      revealed: 1,
-      searched: 1,
-    });
+    }, true));
   }
   startReload() {
     if (
@@ -389,15 +428,13 @@ export class Raid {
       if (hit.hp <= 0) {
         this.kills++;
         this.ammo += hit.elite ? 24 : 12;
-        this.crates.push({
+        this.crates.push(makeCrate({
           id: `enemy-${hit.id}`,
           name: hit.elite ? '守望者装备箱' : '巡逻兵物资',
           x: hit.x,
           z: hit.z,
           loot: hit.elite ? ['gold', 'electronics'] : ['scrap', 'medicine'],
-          revealed: 0,
-          searched: 0,
-        });
+        }));
         this.notify(
           hit.elite
             ? '守望者已击破 · 雷达通路安全'
@@ -519,8 +556,14 @@ export class Raid {
       const c = this.crates.find((c) => c.id === this.search);
       if (!c || distance(c, p) > 3) this.search = null;
       else {
-        c.searched += dt;
-        c.revealed = Math.min(c.loot.length, Math.floor(c.searched / 0.7));
+        if (c.revealed < c.loot.length) {
+          c.searched += dt;
+          while (c.searched >= .7 && c.revealed < c.loot.length) {
+            const index = c.identified.indexOf(false);
+            if (index < 0) break;
+            c.identified[index] = true; c.revealed++; c.searched -= .7;
+          }
+        } else c.searched = 0;
       }
     }
     if (this.powerProgress > 0) {
@@ -543,15 +586,13 @@ export class Raid {
         if (this.radarProgress >= 4) {
           this.radar = true;
           this.radarProgress = 0;
-          this.crates.push({
+          this.crates.push(makeCrate({
             id: 'signal-core',
             name: '归航信号核心',
             x: RADAR.x + 1.5,
             z: RADAR.z + 1,
             loot: ['core'],
-            searched: 1,
-            revealed: 1,
-          });
+          }, true));
           this.notify('信号恢复 · 取走核心并安全撤离');
         }
       }
@@ -659,7 +700,11 @@ export class Raid {
         healing: this.healing,
       },
       bag: this.bag,
+      bagLayout: this.inventories.bag!.slots,
+      bagGrid: this.grid,
+      usedCells: this.usedCells,
       secure: this.secure,
+      secureLayout: this.secureLayout,
       weight: this.bagWeight,
       capacity: this.capacity,
       kills: this.kills,

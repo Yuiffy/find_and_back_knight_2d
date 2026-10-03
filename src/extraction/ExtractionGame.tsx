@@ -9,7 +9,6 @@ import {
   Volume2,
   VolumeX,
   Settings2,
-  Package,
   Radio,
   ChevronRight,
   X,
@@ -38,7 +37,6 @@ import {
   settle,
   stashCapacity,
   writeProfile,
-  type ItemId,
   type Loadout,
   type Profile,
   type WeaponId,
@@ -48,8 +46,11 @@ import { EXITS, OBSTACLES, POWER, RADAR, SECTORS } from './map';
 import World, { type ViewBridge } from './World';
 import { FieldAudio } from './audio';
 import { WeaponArtwork } from './WeaponArtwork';
+import { FieldInventory, StashInventory, LootSummary } from './InventoryUI';
+import { occupiedCells } from './inventory';
 import './extraction.css';
 import './visual.css';
+import './inventory.css';
 
 const time = (seconds: number) =>
   `${Math.floor(Math.max(0, seconds) / 60)
@@ -59,29 +60,6 @@ const time = (seconds: number) =>
     .padStart(2, '0')}`;
 const money = (value: number) => value.toLocaleString('zh-CN');
 type Panel = '' | 'bag' | 'map' | 'pause' | 'help' | 'settings';
-function ItemTile({
-  item,
-  children,
-}: {
-  item: ItemId;
-  children?: React.ReactNode;
-}) {
-  return (
-    <div
-      className="ex-item"
-      style={{ '--item-color': ITEMS[item].color } as React.CSSProperties}
-    >
-      <span className="ex-item-code">{ITEMS[item].label}</span>
-      <div>
-        <strong>{ITEMS[item].name}</strong>
-        <small>
-          {ITEMS[item].weight} kg · ₭ {money(ITEMS[item].value)}
-        </small>
-      </div>
-      {children}
-    </div>
-  );
-}
 function TacticalMap({ raid, small = false }: { raid: Raid; small?: boolean }) {
   return (
     <svg
@@ -309,7 +287,7 @@ export default function ExtractionGame() {
         if (raid.search) raid.search = null;
         else raid.interact();
       }
-      if (event.code === 'KeyR' && !panelRef.current) raid.startReload();
+      if (event.code === 'KeyR' && !panelRef.current && !raid.search) raid.startReload();
       if (event.code === 'KeyH' && !panelRef.current) raid.heal();
       updateUI();
     };
@@ -482,9 +460,11 @@ export default function ExtractionGame() {
     setNotice('已加入仓库');
   }
   function sell(index: number) {
+    if (!Number.isInteger(index) || index < 0 || !profile.stash[index]) return;
     const n = structuredClone(profile),
       [item] = n.stash.splice(index, 1);
     if (item) {
+      n.stashLayout.splice(index, 1);
       n.credits += ITEMS[item].value;
       commit(n);
     }
@@ -798,11 +778,11 @@ export default function ExtractionGame() {
                     医疗站位于东侧；雷达位于最北端。更深处意味着更高收益，也有更强守卫。
                   </p>
                   <div>
-                    <Backpack size={16} /> {packCapacity(profile)} 格背包 + 1
-                    格保险箱
+                    <Backpack size={16} /> {packCapacity(profile)} 格背包 + 2×2
+                    安全箱（保管一件）
                   </div>
                   <div>
-                    <LockKeyhole size={16} /> 死亡后仅保留保险格
+                    <LockKeyhole size={16} /> 死亡后仅保留安全箱物资
                   </div>
                   <small>
                     刷新 / 关闭页面视作行动中断。请从暂停菜单离开或完成撤离。
@@ -835,28 +815,12 @@ export default function ExtractionGame() {
                   <h1>每次归来，都留下积累</h1>
                 </div>
                 <strong>
-                  {profile.stash.length} / {stashCapacity(profile)} 格
+                  {occupiedCells(profile.stash)} / {stashCapacity(profile)} 格
                 </strong>
               </div>
               <div className="ex-stash-layout">
                 <div>
-                  <h3>
-                    已带回物资 <small>出售换取装备与升级资金</small>
-                  </h3>
-                  <div className="ex-items">
-                    {profile.stash.map((item, index) => (
-                      <ItemTile key={`${index}-${item}`} item={item}>
-                        <button onClick={() => sell(index)}>出售</button>
-                      </ItemTile>
-                    ))}
-                  </div>
-                  {!profile.stash.length && (
-                    <div className="ex-empty">
-                      <Package size={36} />
-                      <h3>仓库正等着你回来</h3>
-                      <p>撤离成功后，现场物资会自动存入这里。</p>
-                    </div>
-                  )}
+                  <StashInventory profile={profile} onCommit={commit} onSell={sell}/>
                   <div className="ex-service-row">
                     <button onClick={exportSave}>
                       <Download size={15} /> 导出存档
@@ -906,7 +870,7 @@ export default function ExtractionGame() {
                   <div>
                     <span>
                       战术背包 Lv.{profile.packLevel + 1}
-                      <small>增加 5 格 / 提高负重阈值</small>
+                      <small>增加 10 格 / 提高负重阈值</small>
                     </span>
                     <button
                       disabled={profile.packLevel >= 2}
@@ -920,7 +884,7 @@ export default function ExtractionGame() {
                   <div>
                     <span>
                       仓库扩建 Lv.{profile.stashLevel + 1}
-                      <small>增加 16 格 · 满仓时自动出售溢出物资</small>
+                      <small>增加 32 格 · 放不下的带回物资自动出售</small>
                     </span>
                     <button
                       disabled={profile.stashLevel >= 2}
@@ -1030,8 +994,8 @@ export default function ExtractionGame() {
               >
                 H 医疗 <b>{raid.meds}</b>
               </button>
-              <button onClick={() => setPanel('bag')}>
-                <Backpack size={14} /> {raid.bag.length}/{raid.capacity}
+              <button aria-label="打开战术背包" onClick={() => setPanel('bag')}>
+                <Backpack size={14} /> {raid.usedCells}/{raid.capacity}
               </button>
               <button onClick={() => setPanel('help')}>?</button>
             </div>
@@ -1200,8 +1164,8 @@ export default function ExtractionGame() {
                   <div>
                     <h3>01 / 搜</h3>
                     <p>
-                      靠近绿色物资箱，按 E 搜索。逐件识别后点击收纳。背包按 Tab
-                      打开，保险格只保留一件物资；超过负重阈值会减速。
+                      靠近物资箱，按 E 逐件搜索。双击或 Ctrl 单击快速收纳，也可拖动或点选空格摆放，R
+                      旋转。Tab 打开背包；2×2 安全箱只保管一件，核心放不下。超过负重阈值会减速。
                     </p>
                   </div>
                   <div>
@@ -1354,120 +1318,7 @@ export default function ExtractionGame() {
               </>
             )}
             {(modal === 'bag' || modal === 'search') && raid && (
-              <>
-                <span className="ex-kicker">
-                  {modal === 'search' ? 'SEARCH & SECURE' : 'FIELD INVENTORY'} /
-                  行动仍在继续
-                </span>
-                <h1>{modal === 'search' ? selectedCrate?.name : '战术背包'}</h1>
-                {selectedCrate && modal === 'search' && (
-                  <div className="ex-search">
-                    <div className="ex-panel-heading">
-                      <span>
-                        识别 {selectedCrate.revealed} /{' '}
-                        {selectedCrate.loot.length}
-                      </span>
-                      <button
-                        onClick={() => {
-                          raid.takeAll();
-                          updateUI();
-                        }}
-                        disabled={
-                          !selectedCrate.revealed ||
-                          raid.bag.length >= raid.capacity
-                        }
-                      >
-                        收纳已识别物资
-                      </button>
-                    </div>
-                    <div className="ex-items">
-                      {selectedCrate.loot.map((item, index) =>
-                        index < selectedCrate.revealed ? (
-                          <ItemTile key={`${item}-${index}`} item={item}>
-                            <button
-                              onClick={() => {
-                                raid.take(index);
-                                updateUI();
-                              }}
-                            >
-                              收纳
-                            </button>
-                          </ItemTile>
-                        ) : (
-                          <div className="ex-item ex-unknown" key={index}>
-                            <Package size={20} />
-                            正在搜索{' '}
-                            <progress
-                              max=".7"
-                              value={
-                                selectedCrate.searched -
-                                selectedCrate.revealed * 0.7
-                              }
-                            />
-                          </div>
-                        ),
-                      )}
-                    </div>
-                    {!selectedCrate.loot.length && (
-                      <p>容器已清空。按 E 或 ESC 关闭。</p>
-                    )}
-                  </div>
-                )}
-                <div className="ex-panel-heading">
-                  <h3>
-                    背包 {raid.bag.length} / {raid.capacity}
-                  </h3>
-                  <span
-                    className={
-                      raid.bagWeight > raid.maxWeight ? 'ex-danger-text' : ''
-                    }
-                  >
-                    {raid.bagWeight.toFixed(1)} / {raid.maxWeight} kg{' '}
-                    {raid.bagWeight > raid.maxWeight ? '· 超重减速' : ''}
-                  </span>
-                </div>
-                <div className="ex-items">
-                  {raid.bag.map((item, index) => (
-                    <ItemTile key={`${item}-${index}`} item={item}>
-                      <button
-                        aria-label={`保护${ITEMS[item].name}`}
-                        title="移入保险格"
-                        onClick={() => {
-                          raid.insure(index);
-                          updateUI();
-                        }}
-                      >
-                        <LockKeyhole size={15} />
-                      </button>
-                      <button
-                        aria-label={`丢弃${ITEMS[item].name}`}
-                        onClick={() => {
-                          raid.drop(index);
-                          updateUI();
-                        }}
-                      >
-                        <X size={15} />
-                      </button>
-                    </ItemTile>
-                  ))}
-                </div>
-                {!raid.bag.length && (
-                  <p className="ex-muted">
-                    背包为空 · 搜索物资箱并收纳战利品。
-                  </p>
-                )}
-                <h3>
-                  <LockKeyhole size={15} /> 保险格{' '}
-                  <small>失败仍保留 1 件 · 页面中断除外</small>
-                </h3>
-                {raid.secure ? (
-                  <ItemTile item={raid.secure} />
-                ) : (
-                  <div className="ex-secure-empty">
-                    点击背包物品的锁形按钮，将高价值物资放入保险格。
-                  </div>
-                )}
-              </>
+              <FieldInventory key={raid.search ?? 'bag'} raid={raid} onChange={updateUI}/>
             )}
           </section>
         </div>
@@ -1520,15 +1371,11 @@ export default function ExtractionGame() {
               </span>
             </div>
             <div className="ex-result-loot">
-              {profile.last.items.map((item, i) => (
-                <span key={i} style={{ color: ITEMS[item].color }}>
-                  {ITEMS[item].name}
-                </span>
-              ))}
+              {profile.last.items.map((item, i) => <LootSummary key={`${item}-${i}`} item={item}/>)}
             </div>
             {raid.phase === 'lost' && (
               <p className="ex-muted">
-                下次行动可回收本轮遗留背包与武器；再次失败会覆盖旧遗体。保险格物资已存入仓库。
+                下次行动可回收本轮遗留背包与武器；再次失败会覆盖旧遗体。安全箱物资已存入仓库。
               </p>
             )}
             <button className="ex-primary" onClick={home}>

@@ -100,7 +100,7 @@ try {
   await page.getByRole('button', { name: '准备部署' }).click();
   await page.locator('#ex-deploy').click();
   await tick(0);
-  assert.equal((await state()).capacity, 15);
+  assert.equal((await state()).capacity, 30);
   // Tab and map shortcuts cannot resume a paused simulation.
   await page.keyboard.press('Escape');
   await tick(0);
