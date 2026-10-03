@@ -38,14 +38,14 @@ export const SECTORS = [
     tag: '01 / INFILTRATION',
     x: -29,
     z: 36,
-    danger: '低威胁',
+    danger: '零食 / 日常补给',
   },
   {
     name: '集装货场',
     tag: '02 / FREIGHT YARD',
     x: -28,
     z: -6,
-    danger: '中威胁',
+    danger: '数码快递 / 中威胁',
   },
   {
     name: '雨蚀医疗站',
@@ -74,63 +74,68 @@ export const CRATES: {
   x: number;
   z: number;
   loot: ItemId[];
+  bonus?: ItemId[];
 }[] = [
   {
     id: 'dock',
-    name: '码头补给箱',
+    name: '码头零食冷藏箱',
     x: -29,
     z: 34,
-    loot: ['scrap', 'medicine', 'electronics'],
+    loot: ['beef_jerky', 'dq_pistachio', 'sicily_lemon'],
   },
   {
     id: 'dock2',
-    name: '遗弃工具箱',
+    name: '养猫人的补货箱',
     x: -40,
     z: 30,
-    loot: ['scrap', 'electronics'],
+    loot: ['cat_food', 'cat_litter', 'biscuit_note'],
   },
   {
     id: 'freight',
-    name: '货运密封箱',
+    name: '二手数码快递',
     x: -29,
     z: 4,
-    loot: ['electronics', 'scrap', 'gold'],
+    loot: ['rtx_3050', 'cpu_12400f'],
+    bonus: ['tarnished_camera', 'sichuan_hotpot', 'biscuit_note'],
   },
   {
     id: 'freight2',
-    name: '工程物资',
+    name: '主机升级快递',
     x: -36,
     z: -17,
-    loot: ['electronics', 'medicine'],
+    loot: ['rtx_5070ti', 'cpu_9800x3d'],
+    bonus: ['rtx_3050', 'biscuit_note', 'tarnished_camera'],
   },
-  { id: 'road', name: '路障急救箱', x: 8, z: 24, loot: ['medicine', 'scrap'] },
+  { id: 'road', name: '下播宵夜袋', x: 8, z: 24, loot: ['sichuan_hotpot', 'beef_jerky', 'biscuit_note'] },
   {
     id: 'med',
     name: '医疗冷藏柜',
     x: 27,
     z: 14,
-    loot: ['sample', 'medicine', 'medicine'],
+    loot: ['sample', 'medicine', 'dq_pistachio'],
   },
   {
     id: 'med2',
-    name: '研究员保险箱',
+    name: '更衣室的卡包',
     x: 28,
     z: 2,
-    loot: ['gold', 'electronics'],
+    loot: ['swim_pass', 'gym_pass', 'tarnished_camera'],
   },
   {
     id: 'north',
-    name: '军用储备箱',
+    name: '雷达员的装机箱',
     x: 4,
     z: -35,
-    loot: ['electronics', 'gold', 'medicine'],
+    loot: ['cpu_9800x3d', 'rtx_3050', 'medicine'],
+    bonus: ['rtx_5070ti', 'gym_pass', 'sicily_lemon'],
   },
   {
     id: 'east',
-    name: '废弃运输箱',
+    name: '宠物用品快递',
     x: 42,
     z: -8,
-    loot: ['scrap', 'electronics'],
+    loot: ['cat_food', 'cat_litter'],
+    bonus: ['biscuit_note', 'swim_pass', 'beef_jerky'],
   },
 ];
 export const distance = (
@@ -156,24 +161,51 @@ export function blocked(
   bx: number,
   bz: number,
 ): boolean {
-  // Slab test: continuous line of sight, independent of frame rate or distance.
-  return OBSTACLES.some((o) => {
+  return obstacleHit(ax, az, bx, bz) !== null;
+}
+/** Earliest contact along a complete segment, including a shot starting in cover. */
+function obstacleHit(ax: number, az: number, bx: number, bz: number, radius = 0) {
+  let earliest: number | null = null;
+  for (const o of OBSTACLES) {
     let lo = 0,
-      hi = 1;
+      hi = 1, intersects = true;
     for (const [a, d, min, max] of [
-      [ax, bx - ax, o.x - o.w / 2, o.x + o.w / 2],
-      [az, bz - az, o.z - o.d / 2, o.z + o.d / 2],
+      [ax, bx - ax, o.x - o.w / 2 - radius, o.x + o.w / 2 + radius],
+      [az, bz - az, o.z - o.d / 2 - radius, o.z + o.d / 2 + radius],
     ]) {
       if (Math.abs(d) < 1e-8) {
-        if (a < min || a > max) return false;
+        if (a < min || a > max) { intersects = false; break; }
       } else {
         const t1 = (min - a) / d,
           t2 = (max - a) / d;
         lo = Math.max(lo, Math.min(t1, t2));
         hi = Math.min(hi, Math.max(t1, t2));
-        if (lo > hi) return false;
+        if (lo > hi) { intersects = false; break; }
       }
     }
-    return true;
-  });
+    if (intersects && (earliest === null || lo < earliest)) earliest = lo;
+  }
+  return earliest;
+}
+export function bulletWallHit(ax: number, az: number, bx: number, bz: number) {
+  let first = obstacleHit(ax, az, bx, bz, .035);
+  for (const [a, b] of [[ax, bx], [az, bz]]) {
+    if (Math.abs(a) >= 46) return 0;
+    if (Math.abs(b) > 46) {
+      const t = ((b > 0 ? 46 : -46) - a) / (b - a);
+      if (first === null || t < first) first = t;
+    }
+  }
+  return first;
+}
+/** Swept circle, used on relative segments to also account for moving targets. */
+export function segmentCircleHit(ax: number, az: number, bx: number, bz: number, cx: number, cz: number, radius: number) {
+  const x = ax - cx, z = az - cz, dx = bx - ax, dz = bz - az;
+  const c = x * x + z * z - radius * radius;
+  if (c <= 0) return 0;
+  const a = dx * dx + dz * dz, b = 2 * (x * dx + z * dz);
+  const discriminant = b * b - 4 * a * c;
+  if (a < 1e-12 || discriminant < 0) return null;
+  const t = (-b - Math.sqrt(discriminant)) / (2 * a);
+  return t >= 0 && t <= 1 ? t : null;
 }

@@ -11,52 +11,34 @@ import { SuiCharacter, BirdCompanion, EnemyOperator } from './Characters';
 import { HarborEnvironment, HarborMarkers, BaseStage, Atmosphere, PracticalLights } from './Harbor';
 import { ART_VERSION, SUI_IDENTITY } from './art';
 import { ArtQuality } from './ArtQuality';
+import { CombatEffects } from './CombatEffects';
 
 export interface ViewBridge {
   pointer: { x: number; y: number; active: boolean };
-  project: (x: number, z: number) => { x: number; y: number };
+  project: (x: number, z: number, height?: number) => { x: number; y: number };
   visual?: { version:string; protagonist:typeof SUI_IDENTITY; drawCalls:number; triangles:number; fps:number; quality:string; reducedMotion:boolean; scene:string };
 }
-function Effects({ raid }: { raid: Raid }) {
-  const group=useRef<THREE.Group>(null),sparks=useRef<THREE.InstancedMesh>(null),matrix=useMemo(()=>new THREE.Object3D(),[]);
+function Reticle({raid,bridge}:{raid:Raid;bridge:ViewBridge}) {
+  const group=useRef<THREE.Group>(null),hit=useRef<THREE.Group>(null);
   useFrame(()=>{
-    group.current?.children.forEach((obj,index)=>{
-      const mesh=obj as THREE.Mesh,trace=raid.traces[index];
-      if(index<20) {
-        mesh.visible=!!trace;
-        if(trace){mesh.position.set((trace.x+trace.tx)/2,1.35,(trace.z+trace.tz)/2);mesh.rotation.y=Math.atan2(trace.tx-trace.x,trace.tz-trace.z);mesh.scale.set(.021,.021,Math.hypot(trace.tx-trace.x,trace.tz-trace.z));}
-      } else if(index<40) {
-        const b=raid.bullets[index-20];mesh.visible=!!b;
-        if(b){mesh.position.set(b.x,1.25,b.z);mesh.rotation.y=Math.atan2(b.vx,b.vz);mesh.scale.set(.085,.085,.38);}
-      } else {
-        const e=raid.enemies[index-40];mesh.visible=!!e&&e.hp>0&&e.windup>0;
-        if(mesh.visible){mesh.position.set((e.x+e.targetX)/2,.08,(e.z+e.targetZ)/2);mesh.rotation.y=Math.atan2(e.targetX-e.x,e.targetZ-e.z);mesh.scale.set(.02,.02,Math.hypot(e.x-e.targetX,e.z-e.targetZ));}
-      }
-    });
-    if(sparks.current) {
-      for(let i=0;i<80;i++){
-        const trace=raid.traces[Math.floor(i/4)],k=i%4;
-        if(trace){const t=Math.max(0,.15-trace.life);matrix.position.set(trace.tx+Math.sin(k*2.4)*t*2,1.35+t*(k+1)*2,trace.tz+Math.cos(k*2.4)*t*2);matrix.scale.setScalar(Math.max(.006,trace.life*.22));}
-        else matrix.scale.setScalar(0);
-        matrix.updateMatrix();sparks.current.setMatrixAt(i,matrix.matrix);
-      }sparks.current.instanceMatrix.needsUpdate=true;
+    if(!group.current)return;
+    group.current.visible=!raid.paused&&!raid.search&&bridge.pointer.active;
+    group.current.position.set(raid.input.aimX,1,raid.input.aimZ);group.current.scale.setScalar((raid.input.ads?.65:1)+raid.recoil*.3);
+    if(hit.current){
+      hit.current.visible=!!raid.hitFeedback;
+      for(const m of hit.current.children)( (m as THREE.Mesh).material as THREE.MeshBasicMaterial).color.set(raid.hitFeedback?.kind==='kill'?'#f29aa6':raid.hitFeedback?.kind==='armor'?'#94cef5':'#fff1cc');
+      hit.current.scale.setScalar(raid.hitFeedback?.kind==='kill'?1.5:1);
     }
   });
-  return <>
-    <group ref={group}>{Array.from({length:54},(_,i)=><mesh key={i} visible={false}><boxGeometry args={[1,1,1]}/><meshBasicMaterial color={i<20?'#fff1ca':i<40?'#edba87':'#de8891'} transparent opacity={i<40?.92:.45}/></mesh>)}</group>
-    <instancedMesh ref={sparks} args={[undefined,undefined,80]} frustumCulled={false}><octahedronGeometry args={[1,0]}/><meshBasicMaterial color="#ffd8a9"/></instancedMesh>
-  </>;
+  return <group ref={group}><mesh rotation={[-Math.PI/2,0,0]}><ringGeometry args={[.22,.245,32]}/><meshBasicMaterial color="#fff2cf" depthTest={false} transparent opacity={.85}/></mesh>
+    <group ref={hit}>{[-1,1].map(x=>[-1,1].map(z=><mesh key={`${x}-${z}`} position={[x*.14,.035,z*.14]} rotation={[0,x*z*Math.PI/4,0]}><boxGeometry args={[.04,.04,.17]}/><meshBasicMaterial depthTest={false} toneMapped={false}/></mesh>))}</group>
+  </group>;
 }
-function Reticle({raid,bridge}:{raid:Raid;bridge:ViewBridge}) {
-  const group=useRef<THREE.Group>(null);
-  useFrame(()=>{if(!group.current)return;group.current.visible=!raid.paused&&!raid.search&&bridge.pointer.active;group.current.position.set(raid.input.aimX,1,raid.input.aimZ);group.current.scale.setScalar(raid.input.ads?.65:1);});
-  return <group ref={group}><mesh rotation={[-Math.PI/2,0,0]}><ringGeometry args={[.22,.245,32]}/><meshBasicMaterial color="#fff2cf" depthTest={false} transparent opacity={.85}/></mesh></group>;
-}
-function CameraRig({raid,base,bridge}:{raid:Raid;base:boolean;bridge:ViewBridge}) {
+function CameraRig({raid,base,bridge,reducedMotion}:{raid:Raid;base:boolean;bridge:ViewBridge;reducedMotion:boolean}) {
   const {camera,size,set}=useThree(),baseCamera=useRef(camera),raidCamera=useMemo(()=>new THREE.PerspectiveCamera(47,1,.1,250),[]),ray=useMemo(()=>new THREE.Raycaster(),[]),plane=useMemo(()=>new THREE.Plane(new THREE.Vector3(0,1,0),-1),[]),point=useMemo(()=>new THREE.Vector3(),[]);
   useEffect(()=>{set({camera:base?baseCamera.current:raidCamera});},[base,set,raidCamera]);
   useEffect(()=>{
-    bridge.project=(x,z)=>{const p=new THREE.Vector3(x,1,z).project(camera);return{x:(p.x+1)/2*size.width,y:(-p.y+1)/2*size.height};};
+    bridge.project=(x,z,height=1)=>{const p=new THREE.Vector3(x,height,z).project(camera);return{x:(p.x+1)/2*size.width,y:(-p.y+1)/2*size.height};};
   },[camera,size,bridge]);
   useFrame(()=>{
     const ratio=size.width/size.height;
@@ -68,7 +50,8 @@ function CameraRig({raid,base,bridge}:{raid:Raid;base:boolean;bridge:ViewBridge}
       if(camera instanceof THREE.OrthographicCamera)camera.zoom=size.height/viewHeight;
     } else {
       const p=raid.player;
-      camera.position.set(p.x,ratio<1?43:24,p.z+(ratio<1?42:23));camera.lookAt(p.x,0,p.z);
+      const age=raid.elapsed-raid.lastShot,kick=reducedMotion?0:Math.exp(-age*32)*Math.sin(age*65)*raid.recoil*.09;
+      camera.position.set(p.x+Math.cos(p.angle)*kick,ratio<1?43:24,p.z+(ratio<1?42:23)+Math.sin(p.angle)*kick);camera.lookAt(p.x,0,p.z);
       if(camera instanceof THREE.PerspectiveCamera)camera.aspect=ratio;
     }
     camera.updateProjectionMatrix();camera.updateMatrixWorld();
@@ -126,9 +109,9 @@ function Scene({raid,base,quality,bridge,loadout,reducedMotion,baseRotation}:{ra
     {base?<BaseStage/>:<><HarborEnvironment reducedMotion={reducedMotion}/><HarborMarkers raid={raid}/></>}
     <SuiCharacter raid={raid} base={base} loadout={loadout} reducedMotion={reducedMotion} baseRotation={baseRotation}/><BirdCompanion raid={raid} base={base} reducedMotion={reducedMotion}/>
     {!base&&raid.enemies.map(e=><EnemyOperator key={e.id} raid={raid} id={e.id}/>)}
-    {!base&&<><Effects raid={raid}/><Reticle raid={raid} bridge={bridge}/></>}
+    {!base&&<><CombatEffects raid={raid}/><Reticle raid={raid} bridge={bridge}/></>}
     <Atmosphere raid={raid} base={base} reducedMotion={reducedMotion} high={high}/>
-    <CameraRig raid={raid} base={base} bridge={bridge}/><Evidence bridge={bridge} base={base} quality={quality} reducedMotion={reducedMotion}/>
+    <CameraRig raid={raid} base={base} bridge={bridge} reducedMotion={reducedMotion}/><Evidence bridge={bridge} base={base} quality={quality} reducedMotion={reducedMotion}/>
     {high&&!base&&size.width>900&&<CinematicLight/>}
   </ArtQuality.Provider>;
 }

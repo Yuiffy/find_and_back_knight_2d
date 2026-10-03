@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { Raid } from './simulation';
-import type { Loadout, WeaponId } from './model';
+import { WEAPONS, type Loadout, type WeaponId } from './model';
 import { paint, strand, type Vec3 } from './art';
 import { StaticModel } from './StaticModel';
 
@@ -90,8 +90,9 @@ export function Rifle({ weapon='kestrel', suppressor=false, flashRef }: { weapon
     {suppressor&&<mesh position={[0,0,.89+length*.15]} rotation={[Math.PI/2,0,0]} castShadow><cylinderGeometry args={[.05,.05,.3,12]}/><SurfaceMaterial color="#283b4a" metalness={.7}/></mesh>}
     </StaticModel>
     <group ref={flashRef} visible={false} position={[0,0,suppressor?1.15:.85+length*.18]}>
-      <mesh rotation={[Math.PI/2,0,0]}><coneGeometry args={[.14,.36,7]}/><meshBasicMaterial color="#ffe0a2" transparent opacity={.92}/></mesh>
-      <mesh><sphereGeometry args={[.1,8,6]}/><meshBasicMaterial color="#fffbe7"/></mesh>
+      <mesh position={[0,0,.24]} rotation={[Math.PI/2,0,0]}><coneGeometry args={[.23,.48,7]}/><meshBasicMaterial color="#ffc880" toneMapped={false} transparent opacity={.85} depthWrite={false}/></mesh>
+      <mesh><sphereGeometry args={[.12,8,6]}/><meshBasicMaterial color="#fffbe7" toneMapped={false} depthWrite={false}/></mesh>
+      <pointLight color="#ffce8f" intensity={3} distance={3}/>
     </group>
   </group>;
 }
@@ -187,7 +188,7 @@ function SuiLeg({ side }: { side: number }) {
 export function SuiCharacter({ raid, base = false, loadout, reducedMotion = false, baseRotation=-.18 }: { raid: Raid; base?: boolean; loadout: Loadout; reducedMotion?: boolean; baseRotation?:number }) {
   const root=useRef<THREE.Group>(null), body=useRef<THREE.Group>(null), head=useRef<THREE.Group>(null), left=useRef<THREE.Group>(null), right=useRef<THREE.Group>(null),
     tails=useRef<THREE.Group>(null), wings=useRef<THREE.Group>(null), hands=useRef<THREE.Group>(null), gun=useRef<THREE.Group>(null), flash=useRef<THREE.Group>(null),
-    animation=useRef({ t:0, shot:0, mag:raid.mag, hp:raid.player.hp, crouch:0 });
+    animation=useRef({ t:0, crouch:0 });
   useFrame((_,dt)=>{
     if(!root.current||!body.current)return;
     const a=animation.current,p=raid.player;
@@ -203,10 +204,10 @@ export function SuiCharacter({ raid, base = false, loadout, reducedMotion = fals
     if(head.current)head.current.rotation.z=reducedMotion?0:Math.sin(a.t*.7)*.025;
     if(tails.current){tails.current.rotation.x=reducedMotion?0:Math.sin(a.t*speed-.8)*(moving?.12:.018);tails.current.rotation.z=reducedMotion?0:Math.sin(a.t*1.9)*.018;}
     if(wings.current)wings.current.rotation.x=reducedMotion?0:Math.sin(a.t*2)*.055+(raid.input.sprint&&moving?.12:0);
-    if(a.mag>raid.mag){a.shot=.085;} a.mag=raid.mag;
-    a.shot=Math.max(0,a.shot-dt);
-    if(flash.current)flash.current.visible=!base&&a.shot>0;
-    if(gun.current){gun.current.position.z=-a.shot*.9;gun.current.rotation.x=-a.shot*.7;}
+    const shotAge=raid.elapsed-raid.lastShot,kick=!base?Math.exp(-shotAge*24)*WEAPONS[loadout.weapon].kick:0;
+    if(flash.current){flash.current.visible=!base&&shotAge<.055;flash.current.scale.setScalar(loadout.suppressor?.35:loadout.weapon==='heron'?1.3:1);flash.current.rotation.z=raid.shotCount*2.4;}
+    if(gun.current){gun.current.position.z=-kick*.18;gun.current.rotation.x=-kick*.12;}
+    body.current.rotation.x=!base&&!reducedMotion?kick*.045:0;
     if(hands.current){hands.current.rotation.x=!base&&raid.reload?Math.sin(raid.reload*7)*.18+.28:0;hands.current.rotation.z=!base&&raid.healing?.22:0;}
   });
   return <group ref={root} name="sui-playable-character">
@@ -251,13 +252,14 @@ export function BirdCompanion({ raid, base=false, reducedMotion=false }: { raid:
 }
 
 export function EnemyOperator({ raid, id }: { raid: Raid; id: number }) {
-  const root=useRef<THREE.Group>(null),legs=useRef<THREE.Group>(null),flash=useRef<THREE.Group>(null),anim=useRef({t:0,x:0,z:0,windup:0});
+  const root=useRef<THREE.Group>(null),legs=useRef<THREE.Group>(null),flash=useRef<THREE.Group>(null),anim=useRef({t:0,x:0,z:0});
   const enemy=raid.enemies.find(e=>e.id===id)!,color=enemy.elite?'#694554':'#3b4d60';
   useFrame((_,dt)=>{
     if(!root.current)return;const a=anim.current;if(!raid.paused)a.t+=dt;
-    root.current.position.set(enemy.x,enemy.hp>0?0:.1,enemy.z);root.current.rotation.y=enemy.angle;root.current.rotation.x=enemy.hp>0?0:-Math.PI/2;
+    root.current.position.set(enemy.x,enemy.hp>0?0:.1,enemy.z);root.current.rotation.y=enemy.angle;
     if(legs.current)legs.current.rotation.x=enemy.hp>0&&Math.hypot(enemy.x-a.x,enemy.z-a.z)>.0001?Math.sin(a.t*11)*.18:0;
-    if(flash.current)flash.current.visible=a.windup>0&&enemy.windup===0&&enemy.hp>0;a.windup=enemy.windup;a.x=enemy.x;a.z=enemy.z;
+    root.current.rotation.x=enemy.hp>0?-enemy.hurt*.3:-Math.min(Math.PI/2,(raid.elapsed-enemy.killedAt)*5);
+    if(flash.current)flash.current.visible=raid.elapsed-enemy.lastShot<.06&&enemy.hp>0;a.x=enemy.x;a.z=enemy.z;
   });
   return <group ref={root} name={enemy.elite?'elite-guard':'harbor-guard'}>
     <group ref={legs}><StaticModel>{[-1,1].map(s=><group key={s}><Bone a={[s*.17,.83,0]} b={[s*.18,.2,0]} r={.14} color="#26384d"/><Ball at={[s*.18,.13,.08]} size={[.15,.14,.23]} color="#19283a"/></group>)}</StaticModel></group>

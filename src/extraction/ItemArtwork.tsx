@@ -1,11 +1,14 @@
 import { useId } from 'react';
 import { ITEMS, type ItemId } from './items';
+import { LifestyleArtwork } from './LifestyleArtwork';
 
 /** Original equipment illustrations. SVG bounds follow the item's physical footprint. */
 export function ItemArtwork({ item, rotated = false, className = '' }: { item: ItemId; rotated?: boolean; className?: string }) {
   const id = useId().replaceAll(':', ''), metal = `${id}-metal`, edge = `${id}-edge`, glass = `${id}-glass`, gold = `${id}-gold`, cloth = `${id}-cloth`;
-  const bounds: Record<ItemId, [number, number]> = { scrap: [180, 90], electronics: [160, 160], medicine: [90, 180], sample: [90, 180], core: [120, 180], gold: [100, 100] };
-  const [w, h] = bounds[item];
+  const bounds: Partial<Record<ItemId, [number, number]>> = { scrap: [180, 90], electronics: [160, 160], medicine: [90, 180], sample: [90, 180], core: [120, 180], gold: [100, 100] };
+  const size = bounds[item];
+  if (!size) return <LifestyleArtwork item={item} rotated={rotated} className={className}/>;
+  const [w, h] = size;
   return <svg className={`ex-item-art ${className}`} viewBox={`0 0 ${rotated ? h : w} ${rotated ? w : h}`} role="img" aria-label={`${ITEMS[item].name}图像`}>
     <defs>
       <linearGradient id={metal} x1="0" y1="0" x2="1" y2="1"><stop stopColor="#d5dede"/><stop offset=".35" stopColor="#8faaa9"/><stop offset=".65" stopColor="#4d6468"/><stop offset="1" stopColor="#263b46"/></linearGradient>

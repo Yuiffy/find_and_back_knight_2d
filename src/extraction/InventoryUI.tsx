@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
-import { ArrowRightLeft, Check, LockKeyhole, Package, RotateCw, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { ArrowRightLeft, Check, LockKeyhole, Package, RotateCw, Search, SlidersHorizontal, Trash2, Utensils } from 'lucide-react';
 import { ItemArtwork, GearArtwork } from './ItemArtwork';
 import { WeaponArtwork } from './WeaponArtwork';
 import { ITEMS, RARITIES, type ItemId } from './items';
@@ -21,6 +21,7 @@ interface ControlsConfig {
 }
 const labels: Record<Zone, string> = { bag: '背包', secure: '安全箱', crate: '容器', stash: '仓库' };
 const price = (value: number) => value.toLocaleString('zh-CN');
+const categoryLabels = { food: '零食与饮料', hardware: '装机硬件', pet: '养猫日常', life: '生活收藏', memory: '旧日回忆' };
 
 function useInventoryControls(config: ControlsConfig) {
   const [chosen, setChosen] = useState<Selection | null>(config.initial ?? null);
@@ -65,6 +66,7 @@ function useInventoryControls(config: ControlsConfig) {
       const active = d.active || Math.hypot(e.clientX - d.startX, e.clientY - d.startY) > 7;
       if (!active) return;
       e.preventDefault();
+      if (!d.active) setChosen(d.selection);
       const next = { ...d, x: e.clientX, y: e.clientY, active };
       dragRef.current = next; setDrag(next); setPreview(locate(next.x, next.y, next.selection, next.anchorX, next.anchorY));
     };
@@ -113,7 +115,6 @@ function useInventoryControls(config: ControlsConfig) {
       if (previous?.zone === s.zone && previous.index === s.index) s = { ...s, rotated: previous.rotated };
       const r = e.currentTarget.getBoundingClientRect(), size = itemSize(s.item, s.rotated), cell = r.width / size.width;
       e.currentTarget.setPointerCapture(e.pointerId);
-      setChosen(s);
       dragRef.current = { selection: s, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, x: e.clientX, y: e.clientY, cell,
         anchorX: Math.min(size.width - 1, Math.floor((e.clientX - r.left) / cell)), anchorY: Math.min(size.height - 1, Math.floor((e.clientY - r.top) / cell)), active: false };
     },
@@ -178,7 +179,7 @@ function ItemDetails({ selection, children }: { selection: Selection | null; chi
   const d = ITEMS[selection.item], size = itemSize(selection.item, selection.rotated);
   return <div className="ex-inventory-details" style={{ '--item-color': d.color } as CSSProperties} data-selected-item={selection.item}>
     <div className="ex-inspector-art"><ItemArtwork item={selection.item} rotated={selection.rotated}/></div>
-    <div className="ex-inspector-copy"><span>{RARITIES[d.rarity]} · {size.width}×{size.height} 格 · {d.weight} kg</span><h3>{d.name}<b>₭ {price(d.value)}</b></h3><p>{d.description}</p></div>
+    <div className="ex-inspector-copy"><span>{RARITIES[d.rarity]}{d.category ? ` / ${categoryLabels[d.category]}` : ''} · {size.width}×{size.height} 格 · {d.weight} kg</span><h3>{d.name}<b>₭ {price(d.value)}</b></h3><p>{d.description}</p></div>
     <div className="ex-inspector-actions">{children}</div>
   </div>;
 }
@@ -224,6 +225,8 @@ export function FieldInventory({ raid, onChange }: { raid: Raid; onChange: () =>
         <button aria-label={`丢弃${ITEMS[selected.item].name}`} onClick={() => { raid.drop(selected.index); controls.clear(); onChange(); }}><Trash2 size={14}/><span>丢弃</span></button>
       </>}
       {selected?.zone === 'secure' && <button className="ex-primary" onClick={() => controls.transfer('bag')}>取回背包</button>}
+      {selected && (selected.zone === 'bag' || selected.zone === 'secure') && ITEMS[selected.item].consume &&
+        <button aria-label={`使用${ITEMS[selected.item].name}`} onClick={() => { raid.consume(selected.zone as 'bag' | 'secure', selected.index); controls.clear(); onChange(); }}><Utensils size={14}/>{ITEMS[selected.item].consume!.label}</button>}
     </ItemDetails>
     <p className="ex-inventory-hint"><span>拖动 / 点选空格摆放 · R 旋转 · 双击 / Ctrl 单击快速转移</span><span>ESC 关闭</span></p>
     <DragGhost controls={controls}/>

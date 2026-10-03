@@ -349,7 +349,7 @@ export default function ExtractionGame() {
       raid.input.sprint = keys.has('ShiftLeft') || keys.has('ShiftRight');
       raid.input.crouch = keys.has('KeyC');
       raid.update(dt);
-      for (const event of raid.events.splice(0)) audio.current.play(event);
+      for (const event of raid.events.splice(0)) audio.current.play(event, raid.loadout.weapon, raid.loadout.suppressor);
       if (raid.phase !== 'raid' && !settled) {
         settled = true;
         commit(settle(profileRef.current, raid.result()));
@@ -385,11 +385,13 @@ export default function ExtractionGame() {
               panel: panelRef.current,
               profile: profileRef.current,
               visual: bridge.visual,
+              audio: { state: audio.current.context?.state ?? 'locked', muted: audio.current.muted, played: audio.current.played },
               screen: {
                 player: bridge.project(raid.player.x, raid.player.z),
                 enemies: raid.enemies
                   .filter((e) => e.hp > 0)
                   .map((e) => ({ id: e.id, ...bridge.project(e.x, e.z) })),
+                bullets: raid.bullets.map(b => ({ id: b.id, ...bridge.project(b.x, b.z, b.enemy ? 1.25 : 1.46) })),
               },
             }
           : { mode: 'extraction', phase: 'base', profile: profileRef.current, visual: bridge.visual, operatorYaw },
@@ -1173,7 +1175,7 @@ export default function ExtractionGame() {
                     <p>
                       WASD 移动，鼠标瞄准，左键射击，右键精准瞄准，R 换弹。Shift
                       冲刺，C
-                      低姿降噪。红色射线是敌人的开火预警，移到掩体后躲避。
+                      低姿降噪。子弹从枪口飞出，远处目标需提前瞄准；红线是开火预警，橙红短线是敌人子弹，移到掩体后躲避。
                     </p>
                   </div>
                   <div>
@@ -1189,7 +1191,7 @@ export default function ExtractionGame() {
                     <h3>04 / 整备</h3>
                     <p>
                       H
-                      使用医疗包，移动或受击打断。带回物资可出售，换购护甲、枪械和消音器。没有枪时可以领取免费救援装备。ESC
+                      使用医疗包，移动或受击打断。背包中选中冰淇淋、牛肉干或柠檬柚可吃喝，补充生命和体力；流血仍需医疗包。带回物资可出售，换购护甲、枪械和消音器。没有枪时可以领取免费救援装备。ESC
                       暂停；背包和地图不暂停。
                     </p>
                   </div>

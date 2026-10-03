@@ -16,6 +16,9 @@ export const WEAPONS: Record<
     range: number;
     reload: number;
     spread: number;
+    bulletSpeed: number;
+    trail: number;
+    kick: number;
     description: string;
   }
 > = {
@@ -30,6 +33,9 @@ export const WEAPONS: Record<
     range: 26,
     reload: 1.8,
     spread: 0.045,
+    bulletSpeed: 72,
+    trail: 1.25,
+    kick: .55,
     description: '均衡 / 中距离控制 / 24 发弹匣',
   },
   shrike: {
@@ -43,6 +49,9 @@ export const WEAPONS: Record<
     range: 18,
     reload: 1.35,
     spread: 0.085,
+    bulletSpeed: 58,
+    trail: .95,
+    kick: .34,
     description: '近战压制 / 快速换弹 / 32 发弹匣',
   },
   heron: {
@@ -56,6 +65,9 @@ export const WEAPONS: Record<
     range: 38,
     reload: 2.4,
     spread: 0.014,
+    bulletSpeed: 96,
+    trail: 1.8,
+    kick: 1,
     description: '远距穿甲 / 高单发伤害 / 8 发弹匣',
   },
 };

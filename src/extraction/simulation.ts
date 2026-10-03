@@ -7,6 +7,7 @@ import {
   type Loadout,
   type Profile,
   type Settlement,
+  type WeaponId,
 } from './model';
 import {
   CRATES,
@@ -16,6 +17,8 @@ import {
   blocked,
   collides,
   distance,
+  bulletWallHit,
+  segmentCircleHit,
 } from './map';
 import { bagGrid, SECURE_GRID, normalizeInventory, containerInventory, planTransfer, arrange, occupiedCells, emptyInventory, findSpace, type GridInventory, type GridSize, type ItemPlacement } from './inventory';
 export type InventoryZone = 'bag' | 'secure' | 'crate';
@@ -46,6 +49,9 @@ export interface Enemy {
   targetX: number;
   targetZ: number;
   alert: number;
+  hurt: number;
+  lastShot: number;
+  killedAt: number;
 }
 export interface Crate {
   id: string;
@@ -63,24 +69,28 @@ function makeCrate(c: Pick<Crate, 'id' | 'name' | 'x' | 'z' | 'loot'>, known = f
   const inventory = containerInventory(c.loot, known);
   return { ...c, loot: inventory.items, grid: inventory.grid, lootLayout: inventory.slots, identified: inventory.known, revealed: known ? c.loot.length : 0, searched: 0 };
 }
-export interface Trace {
-  x: number;
-  z: number;
-  tx: number;
-  tz: number;
-  life: number;
-  enemy: boolean;
-}
 export interface Bullet {
+  id: number;
   x: number;
   z: number;
   vx: number;
   vz: number;
   life: number;
   damage: number;
+  enemy: boolean;
+  weapon: WeaponId;
+  travelled: number;
+  trail: number;
+  bornAt: number;
+}
+export interface Impact {
+  x: number; z: number; life: number; kind: 'wall' | 'flesh' | 'armor' | 'kill';
+}
+export interface Casing {
+  x: number; z: number; vx: number; vz: number; age: number;
 }
 export type SoundEvent =
-  'shot' | 'enemyShot' | 'hit' | 'hurt' | 'loot' | 'reload' | 'extract';
+  'shot' | 'enemyShot' | 'hit' | 'armorHit' | 'kill' | 'wallHit' | 'dryFire' | 'eat' | 'hurt' | 'loot' | 'reload' | 'extract';
 export class Raid {
   phase: 'raid' | 'won' | 'lost' = 'raid';
   elapsed = 0;
@@ -104,6 +114,10 @@ export class Raid {
   reload = 0;
   healing = 0;
   cooldown = 0;
+  lastShot = -99;
+  shotCount = 0;
+  recoil = 0;
+  hitFeedback: { x: number; z: number; life: number; kind: 'flesh' | 'armor' | 'kill'; damage: number } | null = null;
   bag: ItemId[] = [];
   bagLayout: ItemPlacement[] = [];
   secure: ItemId | null = null;
@@ -123,15 +137,17 @@ export class Raid {
   search: string | null = null;
   crates: Crate[];
   enemies: Enemy[];
-  traces: Trace[] = [];
   bullets: Bullet[] = [];
+  impacts: Impact[] = [];
+  casings: Casing[] = [];
   events: SoundEvent[] = [];
-  toast = '行动开始 · 前方码头有补给箱';
+  toast = '行动开始 · 前方码头冷藏箱有冰淇淋和零食';
   toastTime = 6;
   lost: Profile['lost'];
   seed: number;
   lastHit = -99;
   private dropSerial = 0;
+  private bulletSerial = 0;
   input: Input = {
     x: 0,
     z: 0,
@@ -152,12 +168,7 @@ export class Raid {
     this.grid = bagGrid(profile);
     this.lost = profile.lost ? structuredClone(profile.lost) : null;
     this.seed = (profile.raids + 1) * 739 + 13;
-    this.crates = CRATES.map(c => makeCrate({ ...c, loot: [...c.loot] }));
-    if (profile.raids % 2 === 0) {
-      const index = this.crates.findIndex(c => c.id === 'freight');
-      const c = this.crates[index];
-      this.crates[index] = makeCrate({ ...c, loot: ['gold', ...c.loot.slice(1)] });
-    }
+    this.crates = CRATES.map(c => makeCrate({ ...c, loot: [...c.loot, ...(c.bonus ? [c.bonus[Math.floor(this.random() * c.bonus.length)]] : [])] }));
     const points = [
       [-32, 14],
       [-13, 4],
@@ -186,6 +197,9 @@ export class Raid {
       targetX: x,
       targetZ: z,
       alert: 0,
+      hurt: 0,
+      lastShot: -99,
+      killedAt: -99,
     }));
   }
   random() {
@@ -336,6 +350,18 @@ export class Raid {
       loot: [item],
     }, true));
   }
+  consume(zone: 'bag' | 'secure', index: number): boolean {
+    if (this.paused || this.phase !== 'raid' || this.reload || this.healing || !Number.isInteger(index) || index < 0) return false;
+    const inventory = this.inventories[zone]!, item = inventory.items[index], effect = item && ITEMS[item].consume;
+    if (!effect) return false;
+    const hp = Math.min(effect.hp, 100 - this.player.hp), stamina = Math.min(effect.stamina, 100 - this.player.stamina);
+    if (hp <= 0 && stamina <= 0) { this.notify('现在不饿也不累 · 留着带回吧'); return false; }
+    if (zone === 'bag') { this.bag.splice(index, 1); this.bagLayout.splice(index, 1); }
+    else { this.secure = null; this.secureLayout = null; }
+    this.player.hp += hp; this.player.stamina += stamina;
+    this.events.push('eat'); this.notify(`${ITEMS[item].name} · 生命 +${Math.round(hp)} / 体力 +${Math.round(stamina)}`);
+    return true;
+  }
   startReload() {
     if (
       this.paused ||
@@ -376,72 +402,36 @@ export class Raid {
   }
   fire() {
     const w = WEAPONS[this.loadout.weapon];
-    if (this.cooldown || this.reload || this.healing) return;
+    if (this.paused || this.phase !== 'raid' || this.search || this.cooldown || this.reload || this.healing) return;
     if (this.mag <= 0) {
-      this.startReload();
+      if (this.ammo) this.startReload();
+      else { this.cooldown = .25; this.events.push('dryFire'); }
       return;
     }
     this.mag--;
     this.cooldown = w.interval;
     this.events.push('shot');
     const p = this.player,
-      spread = w.spread * (this.input.ads ? 0.25 : 1) * (p.moving ? 1.5 : 1);
-    const angle = p.angle + (this.random() - 0.5) * spread * 2,
+      spread = (w.spread + this.recoil * .015) * (this.input.ads ? 0.25 : 1) * (p.moving ? 1.5 : 1);
+    // The local muzzle matches the character's rifle. Converge toward the aim
+    // point from there, rather than sending a displaced barrel parallel to it.
+    const barrel = Math.min(this.loadout.suppressor ? 1.5 : this.loadout.weapon === 'heron' ? 1.41 : this.loadout.weapon === 'shrike' ? 1.32 : 1.36,
+      Math.max(.35, Math.hypot(this.input.aimX - p.x, this.input.aimZ - p.z) - .3));
+    const mx = p.x + Math.sin(p.angle) * barrel + Math.cos(p.angle) * .19;
+    const mz = p.z + Math.cos(p.angle) * barrel - Math.sin(p.angle) * .19;
+    const aim = Math.hypot(this.input.aimX - p.x, this.input.aimZ - p.z) > barrel + .3
+      ? Math.atan2(this.input.aimX - mx, this.input.aimZ - mz) : p.angle;
+    const angle = aim + (this.random() - 0.5) * spread * 2,
       dx = Math.sin(angle),
       dz = Math.cos(angle);
-    let length = w.range;
-    for (let t = 0.6; t < w.range; t += 0.25)
-      if (collides(p.x + dx * t, p.z + dz * t, 0)) {
-        length = t;
-        break;
-      }
-    let hit: Enemy | undefined;
-    for (const e of this.enemies) {
-      if (e.hp <= 0) continue;
-      const vx = e.x - p.x,
-        vz = e.z - p.z,
-        along = vx * dx + vz * dz,
-        side = Math.abs(vx * dz - vz * dx);
-      if (along > 0 && along < length && side < 0.72) {
-        length = along;
-        hit = e;
-      }
-    }
-    this.traces.push({
-      x: p.x,
-      z: p.z,
-      tx: p.x + dx * length,
-      tz: p.z + dz * length,
-      life: 0.1,
-      enemy: false,
-    });
-    if (hit) {
-      const absorbed = Math.min(
-        hit.armor,
-        w.damage * (this.loadout.weapon === 'heron' ? 0.15 : 0.5),
-      );
-      hit.armor -= absorbed;
-      hit.hp -= w.damage - absorbed;
-      hit.alert = 8;
-      hit.mode = 'engage';
-      this.events.push('hit');
-      if (hit.hp <= 0) {
-        this.kills++;
-        this.ammo += hit.elite ? 24 : 12;
-        this.crates.push(makeCrate({
-          id: `enemy-${hit.id}`,
-          name: hit.elite ? '守望者装备箱' : '巡逻兵物资',
-          x: hit.x,
-          z: hit.z,
-          loot: hit.elite ? ['gold', 'electronics'] : ['scrap', 'medicine'],
-        }));
-        this.notify(
-          hit.elite
-            ? '守望者已击破 · 雷达通路安全'
-            : '目标已击破 · 补充弹药 +12',
-        );
-      }
-    }
+    this.lastShot = this.elapsed; this.shotCount++;
+    this.recoil = Math.min(1.6, this.recoil + w.kick * (this.input.ads ? .65 : 1));
+    this.casings.push({ x: p.x + Math.cos(p.angle) * .35, z: p.z - Math.sin(p.angle) * .35,
+      vx: Math.cos(p.angle) * 3.2, vz: -Math.sin(p.angle) * 3.2, age: 0 });
+    const obstruction = bulletWallHit(p.x, p.z, mx, mz);
+    if (obstruction !== null) this.impact(p.x + (mx - p.x) * obstruction, p.z + (mz - p.z) * obstruction, 'wall');
+    else this.bullets.push({ id: ++this.bulletSerial, x: mx, z: mz, vx: dx * w.bulletSpeed, vz: dz * w.bulletSpeed,
+      life: (w.range - barrel) / w.bulletSpeed, damage: w.damage, enemy: false, weapon: this.loadout.weapon, travelled: 0, trail: w.trail, bornAt: this.elapsed });
     const radius = this.loadout.suppressor ? 9 : 26;
     this.noise = this.loadout.suppressor ? 0.5 : 1;
     for (const e of this.enemies)
@@ -451,6 +441,26 @@ export class Raid {
         e.targetZ = p.z;
         if (e.mode !== 'engage') e.mode = 'investigate';
       }
+  }
+  private impact(x: number, z: number, kind: Impact['kind']) {
+    this.impacts.push({ x, z, life: kind === 'kill' ? .3 : .18, kind });
+    if (kind === 'wall') this.events.push('wallHit');
+  }
+  private hitEnemy(e: Enemy, b: Bullet) {
+    const absorbed = Math.min(e.armor, b.damage * (b.weapon === 'heron' ? .15 : .5));
+    e.armor -= absorbed; e.hp = Math.max(0, e.hp - (b.damage - absorbed));
+    e.hurt = .22; e.alert = 8; e.mode = 'engage';
+    const kind = e.hp <= 0 ? 'kill' : absorbed > 0 ? 'armor' : 'flesh';
+    this.impact(b.x, b.z, kind);
+    this.hitFeedback = { x: b.x, z: b.z, life: kind === 'kill' ? .32 : .2, kind, damage: Math.round(b.damage - absorbed) };
+    this.events.push(kind === 'kill' ? 'kill' : kind === 'armor' ? 'armorHit' : 'hit');
+    if (e.hp <= 0) {
+      e.windup = 0; e.killedAt = this.elapsed; this.kills++;
+      this.ammo += e.elite ? 24 : 12;
+      this.crates.push(makeCrate({ id: `enemy-${e.id}`, name: e.elite ? '守望者随身箱' : '巡逻兵的口袋',
+        x: e.x, z: e.z, loot: e.elite ? ['cpu_9800x3d', 'gym_pass'] : [e.id % 2 ? 'sicily_lemon' : 'beef_jerky', e.id % 3 ? 'biscuit_note' : 'medicine'] }));
+      this.notify(e.elite ? '守望者已击破 · 雷达通路安全' : '目标已击破 · 补充弹药 +12');
+    }
   }
   hurt(damage: number) {
     const p = this.player,
@@ -490,7 +500,7 @@ export class Raid {
     };
   }
   update(dt: number) {
-    if (this.paused || this.phase !== 'raid') return;
+    if (this.paused || this.phase !== 'raid' || !Number.isFinite(dt) || dt <= 0) return;
     this.elapsed += dt;
     if (this.elapsed >= this.limit) {
       this.finish(false, '撤离窗口关闭 · 行动超时');
@@ -498,6 +508,13 @@ export class Raid {
     }
     const p = this.player,
       i = this.input;
+    const before = { x: p.x, z: p.z };
+    const enemyBefore = new Map(this.enemies.map(e => [e.id, { x: e.x, z: e.z }]));
+    this.impacts.forEach(f => f.life -= dt); this.impacts = this.impacts.filter(f => f.life > 0);
+    this.casings.forEach(c => { c.age += dt; c.x += c.vx * dt * Math.exp(-c.age * 3); c.z += c.vz * dt * Math.exp(-c.age * 3); });
+    this.casings = this.casings.filter(c => c.age < .65);
+    this.recoil = Math.max(0, this.recoil - dt * 5);
+    if (this.hitFeedback) { this.hitFeedback.life -= dt; if (this.hitFeedback.life <= 0) this.hitFeedback = null; }
     this.toastTime = Math.max(0, this.toastTime - dt);
     this.cooldown = Math.max(0, this.cooldown - dt);
     p.hurt = Math.max(0, p.hurt - dt);
@@ -599,6 +616,7 @@ export class Raid {
     }
     for (const e of this.enemies) {
       if (e.hp <= 0) continue;
+      e.hurt = Math.max(0, e.hurt - dt);
       const d = distance(e, p),
         visible =
           d < (i.crouch ? 8 : sprint ? 19 : 14) && !blocked(e.x, e.z, p.x, p.z);
@@ -622,14 +640,20 @@ export class Raid {
           const aim =
             Math.atan2(e.targetX - e.x, e.targetZ - e.z) +
             (this.random() - 0.5) * 0.1;
-          this.bullets.push({
-            x: e.x,
-            z: e.z,
-            vx: Math.sin(aim) * 18,
-            vz: Math.cos(aim) * 18,
-            life: 1.8,
+          const mx = e.x + Math.sin(aim) * 1.3, mz = e.z + Math.cos(aim) * 1.3;
+          const obstruction = bulletWallHit(e.x, e.z, mx, mz);
+          if (obstruction !== null) this.impact(e.x + (mx - e.x) * obstruction, e.z + (mz - e.z) * obstruction, 'wall');
+          else this.bullets.push({
+            id: ++this.bulletSerial,
+            x: mx,
+            z: mz,
+            vx: Math.sin(aim) * 30,
+            vz: Math.cos(aim) * 30,
+            life: 1,
             damage: e.elite ? 22 : 14,
+            enemy: true, weapon: e.elite ? 'heron' : 'kestrel', travelled: 0, trail: .95, bornAt: this.elapsed,
           });
+          e.lastShot = this.elapsed; e.angle = aim;
           e.cooldown = e.elite ? 0.95 : 1.65;
           this.events.push('enemyShot');
         }
@@ -655,20 +679,32 @@ export class Raid {
       }
     }
     for (const b of this.bullets) {
-      const nx = b.x + b.vx * dt,
-        nz = b.z + b.vz * dt;
-      if (blocked(b.x, b.z, nx, nz)) b.life = 0;
-      b.x = nx;
-      b.z = nz;
-      b.life -= dt;
-      if (b.life > 0 && distance(b, p) < 0.65) {
-        b.life = 0;
-        this.hurt(b.damage);
+      if (b.bornAt === this.elapsed) continue;
+      const duration = Math.min(dt, b.life), ax = b.x, az = b.z, nx = ax + b.vx * duration, nz = az + b.vz * duration;
+      let first = bulletWallHit(ax, az, nx, nz), victim: Enemy | 'player' | null = null;
+      const targetHit = (x: number, z: number, old: { x: number; z: number }, radius: number) =>
+        segmentCircleHit(ax - old.x, az - old.z, nx - x, nz - z, 0, 0, radius);
+      if (b.enemy) {
+        const t = targetHit(p.x, p.z, before, .65);
+        if (t !== null && (first === null || t < first)) { first = t; victim = 'player'; }
+      } else for (const e of this.enemies) {
+        if (e.hp <= 0) continue;
+        const t = targetHit(e.x, e.z, enemyBefore.get(e.id)!, .72);
+        if (t !== null && (first === null || t < first)) { first = t; victim = e; }
       }
+      const fraction = first ?? 1;
+      b.x = ax + (nx - ax) * fraction; b.z = az + (nz - az) * fraction;
+      b.travelled += Math.hypot(nx - ax, nz - az) * fraction; b.life -= duration;
+      if (first !== null) {
+        b.life = 0;
+        if (victim === 'player') { this.impact(b.x, b.z, p.armor > 0 ? 'armor' : 'flesh'); this.hurt(b.damage); }
+        else if (victim) this.hitEnemy(victim, b);
+        else this.impact(b.x, b.z, 'wall');
+      }
+      if (this.phase !== 'raid') break;
     }
     this.bullets = this.bullets.filter((b) => b.life > 0);
-    this.traces.forEach((t) => (t.life -= dt));
-    this.traces = this.traces.filter((t) => t.life > 0);
+    if (this.phase !== 'raid') return;
     const exit = EXITS.find(
       (e) => distance(e, p) < 3 && (!e.requiresPower || this.powered),
     );
@@ -708,6 +744,9 @@ export class Raid {
       weight: this.bagWeight,
       capacity: this.capacity,
       kills: this.kills,
+      ballistics: { shots: this.shotCount, lastShot: this.lastShot, recoil: this.recoil,
+        bullets: this.bullets.map(b => ({ ...b })), impacts: this.impacts.map(f => ({ ...f })),
+        hit: this.hitFeedback, casings: this.casings.length },
       nearby: this.nearby,
       search: this.search
         ? this.crates.find((c) => c.id === this.search)

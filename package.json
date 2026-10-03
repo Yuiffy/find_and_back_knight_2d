@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test:extraction": "node tests/extraction-rules.mjs && node tests/extraction-flow.mjs && node tests/extraction-aim.mjs && node tests/extraction-campaign.mjs && node tests/extraction-persistence.mjs && node tests/extraction-responsive.mjs",
     "test:inventory": "node tests/extraction-inventory.mjs && node tests/extraction-inventory-responsive.mjs",
+    "test:combat-loot": "node tests/extraction-rules.mjs && node tests/extraction-ballistics.mjs && node tests/extraction-life-loot.mjs && node tests/extraction-life-responsive.mjs",
     "test:lantern": "node tests/lantern-rules.mjs && node tests/lantern-guidance-flow.mjs && node tests/lantern-comfort-flow.mjs && node tests/lantern-flow.mjs && node tests/lantern-flow.mjs --optional && node tests/lantern-responsive.mjs",
     "test:flows": "node tests/engagement-loop-flow.mjs && node tests/interaction-selector-flow.mjs && node tests/v2-base-inventory.mjs && node tests/progression-pass-flow.mjs && node tests/directional-combat-flow.mjs && node tests/combat-polish-flow.mjs && node tests/raid-inventory-flow.mjs && node tests/pause-guard-flow.mjs && node tests/gate-transition-flow.mjs && node tests/extraction-settlement-flow.mjs && node tests/deep-flow.mjs && node tests/gameplay-overhaul-flow.mjs && node tests/outpost-raid-flow.mjs && node tests/lost-echo-flow.mjs && node tests/save-roundtrip.mjs && node tests/quick-buy-flow.mjs && node tests/collection-withdrawal-flow.mjs && node tests/responsive-visual-flow.mjs"
   },

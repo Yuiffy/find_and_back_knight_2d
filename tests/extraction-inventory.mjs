@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { launchExtractionBrowser } from './extraction-browser.mjs';
-import { SAVE_KEY } from '../src/extraction/model.ts';
+import { ITEMS, SAVE_KEY } from '../src/extraction/model.ts';
 
 const output = '.tmp/test-artifacts/extraction-inventory';
 fs.mkdirSync(output, { recursive: true });
@@ -37,9 +37,9 @@ async function dragTo(zone, item, target, x, y, capture) {
 }
 function validate(s) {
   assert.equal(s.bag.length, s.bagLayout.length);
-  const sizes = { scrap: [2,1], electronics: [2,2], medicine: [1,2], sample: [1,2], core: [2,3], gold: [1,1] }, occupied = new Set();
+  const occupied = new Set();
   s.bag.forEach((item, i) => {
-    const p = s.bagLayout[i], size = sizes[item], w = p.rotated ? size[1] : size[0], h = p.rotated ? size[0] : size[1];
+    const p = s.bagLayout[i], size = [ITEMS[item].width, ITEMS[item].height], w = p.rotated ? size[1] : size[0], h = p.rotated ? size[0] : size[1];
     assert(p.x >= 0 && p.y >= 0 && p.x + w <= s.bagGrid.columns && p.y + h <= s.bagGrid.rows);
     for (let y = p.y; y < p.y + h; y++) for (let x = p.x; x < p.x + w; x++) { const k = `${x},${y}`; assert(!occupied.has(k)); occupied.add(k); }
   });
@@ -56,48 +56,48 @@ try {
   await tick(460); assert.equal((await state()).search.revealed, 1);
   assert.equal(await grid('crate').locator('[data-item]').count(), 1);
   const progress = (await state()).search.searched;
-  await tile('crate', 'scrap').dblclick(); await tick(0);
-  assert.deepEqual((await state()).bag, ['scrap']); assert.equal((await state()).search.searched, progress);
-  await tick(660); await tile('crate', 'medicine').click({ modifiers: ['Control'] }); await tick(0);
+  await tile('crate', 'beef_jerky').dblclick(); await tick(0);
+  assert.deepEqual((await state()).bag, ['beef_jerky']); assert.equal((await state()).search.searched, progress);
+  await tick(660); await tile('crate', 'dq_pistachio').click({ modifiers: ['Control'] }); await tick(0);
   assert.equal((await state()).usedCells, 4);
   const partial = (await state()).search.searched;
   await page.keyboard.press('Escape'); await tick(300);
   await page.keyboard.press('KeyE'); await tick(0);
   assert.equal((await state()).search.searched, partial);
-  await tick(750); await tile('crate', 'electronics').dblclick(); await tick(0);
-  assert.equal((await state()).usedCells, 8); validate(await state());
+  await tick(750); await tile('crate', 'sicily_lemon').dblclick(); await tick(0);
+  assert.equal((await state()).usedCells, 6); validate(await state());
   await screenshot('02-revealed-and-stored');
 
   const beforeBad = (await state()).bagLayout;
-  const med = (await state()).bagLayout[(await state()).bag.indexOf('medicine')];
-  await dragTo('bag', 'scrap', 'bag', med.x, med.y, async () => {
+  const med = (await state()).bagLayout[(await state()).bag.indexOf('dq_pistachio')];
+  await dragTo('bag', 'beef_jerky', 'bag', med.x, med.y, async () => {
     assert.equal(await page.locator('.ex-grid-preview.is-invalid').count(), 1); await screenshot('03-collision-preview');
   });
   assert.deepEqual((await state()).bagLayout, beforeBad);
-  await dragTo('bag', 'medicine', 'bag', 4, 2, async () => {
+  await dragTo('bag', 'dq_pistachio', 'bag', 4, 2, async () => {
     assert.equal(await page.locator('.ex-grid-preview.is-valid').count(), 1);
   });
-  let s = await state(), index = s.bag.indexOf('medicine');
+  let s = await state(), index = s.bag.indexOf('dq_pistachio');
   assert.deepEqual(s.bagLayout[index], { x: 4, y: 2, rotated: false });
-  await tile('bag', 'medicine').click(); await page.keyboard.press('KeyR');
+  await tile('bag', 'dq_pistachio').click(); await page.keyboard.press('KeyR');
   await clickCell('bag', 0, 2);
-  s = await state(); index = s.bag.indexOf('medicine');
+  s = await state(); index = s.bag.indexOf('dq_pistachio');
   assert.deepEqual(s.bagLayout[index], { x: 0, y: 2, rotated: true });
   assert.equal(s.player.reload, 0, 'Inventory R must not start weapon reload');
-  await dragTo('bag', 'medicine', 'crate', 0, 0);
+  await dragTo('bag', 'dq_pistachio', 'crate', 0, 0);
   assert.equal((await state()).search.identified.at(-1), true);
-  await tile('crate', 'medicine').dblclick(); await tick(0);
+  await tile('crate', 'dq_pistachio').dblclick(); await tick(0);
   assert.equal((await state()).bag.length, 3); validate(await state());
 
-  await tile('bag', 'electronics').click(); await page.getByRole('button', { name: '保护精密电路', exact: true }).click(); await tick(0);
-  assert.equal((await state()).secure, 'electronics');
-  await tile('secure', 'electronics').click(); await page.getByRole('button', { name: '取回背包', exact: true }).click(); await tick(0);
+  await tile('bag', 'sicily_lemon').click(); await page.getByRole('button', { name: '保护西西里柠檬柚', exact: true }).click(); await tick(0);
+  assert.equal((await state()).secure, 'sicily_lemon');
+  await tile('secure', 'sicily_lemon').click(); await page.getByRole('button', { name: '取回背包', exact: true }).click(); await tick(0);
   assert.equal((await state()).secure, null);
-  await tile('bag', 'scrap').click(); await page.getByRole('button', { name: '丢弃工业合金', exact: true }).click(); await tick(0);
+  await tile('bag', 'beef_jerky').click(); await page.getByRole('button', { name: '丢弃风干牛肉干', exact: true }).click(); await tick(0);
   await page.keyboard.press('Escape'); await page.keyboard.press('KeyE'); await tick(0);
   assert((await state()).search.id.startsWith('drop-'));
   assert.equal((await state()).search.revealed, 1);
-  await tile('crate', 'scrap').dblclick(); await tick(0);
+  await tile('crate', 'beef_jerky').dblclick(); await tick(0);
   await page.getByRole('button', { name: '整理背包' }).click(); await tick(0); validate(await state());
   await screenshot('04-organized');
   await page.keyboard.press('Escape');
@@ -106,7 +106,7 @@ try {
   assert.equal(await page.locator('.ex-loot-summary svg').count(), 3);
   await screenshot('05-extracted');
   await page.getByRole('button', { name: '返回基地' }).click(); await page.getByRole('button', { name: '03 仓库 / 后勤' }).click();
-  await tile('stash', 'medicine').click(); await page.getByRole('button', { name: '旋转选中物资' }).click();
+  await tile('stash', 'dq_pistachio').click(); await page.getByRole('button', { name: '旋转选中物资' }).click();
   const stashBefore = (await state()).profile.stashLayout;
   await screenshot('06-stash');
   const downloadPromise = page.waitForEvent('download'); await page.getByRole('button', { name: '导出存档' }).click();

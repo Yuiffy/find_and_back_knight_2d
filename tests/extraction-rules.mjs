@@ -22,7 +22,7 @@ const {
 const { Raid } = await import('../.tmp/extraction-rules/simulation.mjs');
 const { ITEMS } = await import('../.tmp/extraction-rules/items.mjs');
 const { emptyInventory, normalizeInventory, fits, findSpace, planTransfer, arrange, occupiedCells, itemSize, bagGrid, stashGrid } = await import('../.tmp/extraction-rules/inventory.mjs');
-const { blocked, collides, OBSTACLES, POWER, RADAR } =
+const { blocked, collides, bulletWallHit, segmentCircleHit, CRATES, OBSTACLES, POWER, RADAR } =
   await import('../.tmp/extraction-rules/map.mjs');
 const kit = { weapon: 'kestrel', armor: true, meds: 2, suppressor: false };
 const tick = (r, seconds) => {
@@ -59,7 +59,7 @@ assert.equal(raid.search, 'dock');
 raid.takeAll();
 assert.equal(raid.bag.length, 3);
 raid.insure(2);
-assert.equal(raid.secure, 'electronics');
+assert.equal(raid.secure, 'sicily_lemon');
 assert.equal(raid.bag.length, 2);
 raid.take(999);
 assert.equal(raid.bag.length, 2);
@@ -305,15 +305,15 @@ assert(gridRaid.take(0));
 assert.equal(source.searched, partial, 'Taking one item must preserve the next scan progress');
 tick(gridRaid, .51);
 assert(source.identified[0]);
-assert.equal(source.loot[0], 'medicine');
+assert.equal(source.loot[0], 'dq_pistachio');
 assert(gridRaid.transfer('bag', 0, 'crate'));
 assert.equal(source.identified.at(-1), true, 'Returning a known item must not conceal it again');
 tick(gridRaid, 1);
 gridRaid.takeAll();
 assert.equal(gridRaid.bag.length, 3);
-assert.equal(gridRaid.usedCells, 8, 'Capacity counts the actual item rectangles');
+assert.equal(gridRaid.usedCells, 6, 'Capacity counts the actual item rectangles');
 validateGrid(gridRaid.inventories.bag);
-assert(gridRaid.insure(gridRaid.bag.indexOf('electronics')));
+assert(gridRaid.insure(gridRaid.bag.indexOf('sicily_lemon')));
 assert(gridRaid.transfer('secure', 0, 'bag'));
 assert.equal(gridRaid.secure, null);
 validateGrid(gridRaid.inventories.bag);
@@ -360,6 +360,88 @@ for (let n = 0; n < 120; n++) {
   assert.deepEqual([...first.items, ...second.items].sort(), owned);
 }
 console.log('Grid inventory: footprints, overlap, rotation, progressive search, reversible transfers, secure swap, sorting, legacy migration and conservation PASS');
+
+// A shot creates a moving bullet; it does not damage a target at fire time.
+function combatScenario() {
+  const r = new Raid(freshProfile(), kit);
+  r.player.angle = Math.PI; r.input.aimX = -32; r.input.aimZ = 10; r.input.ads = true;
+  const template = r.enemies[0];
+  const target = (id, z) => ({ ...template, id, x: -32, z, homeX: -32, homeZ: z, targetX: -32, targetZ: z, cooldown: 99, alert: 0 });
+  r.enemies = [target(1, 22), target(0, 29)];
+  return r;
+}
+let flight = combatScenario();
+flight.fire();
+assert.equal(flight.shotCount, 1); assert.equal(flight.mag, 23);
+assert.equal(flight.bullets.length, 1);
+assert(flight.enemies.every(e => e.hp === 78), 'No hitscan damage at emission');
+const emitted = { ...flight.bullets[0] };
+tick(flight, .03);
+assert(flight.bullets[0].z < emitted.z - 2, 'The bullet must travel across frames');
+assert(flight.enemies.every(e => e.hp === 78), 'Distant impact must be delayed');
+const frozenFlight = JSON.stringify(flight.text().ballistics); flight.paused = true; tick(flight, 1);
+assert.equal(JSON.stringify(flight.text().ballistics), frozenFlight, 'Pause freezes projectiles and effects');
+flight.paused = false; tick(flight, .2);
+assert.equal(flight.enemies.find(e => e.id === 0).hp, 52);
+assert.equal(flight.enemies.find(e => e.id === 1).hp, 78, 'Nearest target intercepts regardless of array order');
+assert.equal(flight.bullets.length, 0);
+
+flight = combatScenario(); flight.fire(); flight.enemies.find(e => e.id === 0).x = -29;
+flight.enemies = [flight.enemies.find(e => e.id === 0)]; tick(flight, .5);
+assert.equal(flight.enemies[0].hp, 78, 'A target that leaves the trajectory is not hit by an old shot');
+
+flight = combatScenario(); flight.player.x = -23; flight.player.z = 36; flight.input.aimX = -23; flight.input.aimZ = 20;
+flight.enemies = [{ ...flight.enemies[0], x: -23, z: 22, targetX: -23, homeX: -23 }];
+flight.fire(); flight.update(.3);
+assert.equal(flight.enemies[0].hp, 78, 'A large simulation step cannot tunnel through a container');
+assert(flight.impacts.some(f => f.kind === 'wall' && Math.abs(f.z - 30.035) < .01));
+assert.equal(bulletWallHit(-23, 36, -23, 22), (36 - 30.035) / 14);
+assert(segmentCircleHit(-10, 0, 10, 0, 0, 0, .65) < .5, 'Swept circle catches a crossing bullet even when endpoints miss');
+assert.equal(segmentCircleHit(-10, 2, 10, 2, 0, 0, .65), null);
+flight = combatScenario(); flight.enemies = [];
+flight.bullets.push({ id: 1, x: -42, z: 37, vx: 72, vz: 0, life: .5, damage: 14, enemy: true, weapon: 'kestrel', travelled: 0, trail: .95, bornAt: -1 });
+flight.update(.3);
+assert(Math.abs(flight.player.hp - 95.8) < .001, 'Enemy bullet crosses the player between endpoints and applies armour');
+assert.equal(flight.bullets.length, 0);
+flight = combatScenario(); flight.player.x = -23; flight.player.z = 22; flight.enemies = [];
+flight.bullets.push({ id: 1, x: -23, z: 36, vx: 0, vz: -96, life: .5, damage: 22, enemy: true, weapon: 'heron', travelled: 0, trail: 1, bornAt: -1 });
+flight.update(.3); assert.equal(flight.player.hp, 100, 'Cover intercepts an enemy bullet before a player behind it');
+
+flight = combatScenario(); flight.enemies = [{ ...flight.enemies[1], z: 36.2 }]; flight.input.aimZ = 36.2;
+flight.fire(); assert.equal(flight.enemies[0].hp, 78); tick(flight, .03);
+assert(flight.enemies[0].hp < 78, 'A target closer than the barrel still receives a delayed point-blank impact');
+
+// Every weapon has finite flight, recovery, armour mitigation and a single kill.
+for (const weapon of Object.keys(WEAPONS)) {
+  const r = new Raid(freshProfile(), { ...kit, weapon });
+  r.player.x = -43; r.player.z = 0; r.player.angle = 0; r.input.aimX = -43; r.input.aimZ = 40; r.input.ads = true;
+  r.enemies = []; r.fire(); const shot = r.bullets[0];
+  assert.equal(Math.round(Math.hypot(shot.vx, shot.vz)), WEAPONS[weapon].bulletSpeed);
+  assert(shot.trail < 2 && shot.life < .6); tick(r, .7); assert.equal(r.bullets.length, 0, 'Range exhaustion removes bullets');
+  assert.equal(r.recoil, 0);
+}
+flight = combatScenario(); flight.enemies = [flight.enemies[1]]; flight.enemies[0].hp = 15; flight.enemies[0].armor = 10;
+flight.fire(); tick(flight, .2);
+assert.equal(flight.kills, 1); assert.equal(flight.ammo, 132); assert.equal(flight.crates.filter(c => c.id === 'enemy-0').length, 1);
+assert(flight.hitFeedback?.kind === 'kill');
+
+// User-named items must appear in normal map sources, not just test fixtures.
+const namedLoot = ['dq_pistachio','beef_jerky','sicily_lemon','rtx_3050','rtx_5070ti','cpu_9800x3d','cat_food','cat_litter','swim_pass','gym_pass'];
+const sources = CRATES.flatMap(c => [...c.loot, ...(c.bonus ?? [])]);
+for (const id of namedLoot) { assert(sources.includes(id), `Missing map source: ${id}`); assert(ITEMS[id].description.length > 15); }
+const newAndOld = [...namedLoot, 'sample', 'core', 'electronics'];
+const mixedProfile = freshProfile(); mixedProfile.stash = newAndOld;
+const saved = normalizeProfile(mixedProfile);
+assert.deepEqual(saved.stash, newAndOld); assert.deepEqual(normalizeProfile(JSON.parse(JSON.stringify(saved))), saved);
+const snack = new Raid(freshProfile(), kit); snack.bag = ['beef_jerky', 'rtx_3050']; snack.player.hp = 70; snack.player.stamina = 50; snack.player.bleed = true;
+assert(snack.consume('bag', 0)); assert.equal(snack.player.hp, 82); assert.equal(snack.player.stamina, 70); assert(snack.player.bleed);
+assert.deepEqual(snack.bag, ['rtx_3050']); assert(!snack.consume('bag', 0));
+snack.secure = 'sicily_lemon'; assert(snack.consume('secure', 0)); assert.equal(snack.secure, null);
+snack.bag = ['dq_pistachio']; snack.bagLayout = []; snack.player.hp = 100; snack.player.stamina = 100;
+assert(!snack.consume('bag', 0)); assert.deepEqual(snack.bag, ['dq_pistachio'], 'Full status preserves food');
+snack.player.stamina = 0; snack.paused = true; assert(!snack.consume('bag', 0)); snack.paused = false;
+assert(snack.consume('bag', 0)); assert.equal(snack.player.stamina, 45); assert.equal(snack.bag.length, 0);
+console.log('Flying bullets: delayed hits, sweep, cover, nearest target, moving dodge, range, pause, recoil, kill; familiar loot and food conservation PASS');
 console.log(
   'Extraction rules: deployment, inventory, armour, healing, all weapons, cover, AI hearing, both exits, campaign ending, death recovery, persistence PASS',
 );

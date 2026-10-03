@@ -97,7 +97,7 @@
 .ex-loot-summary strong { display:block; font-size:11px; font-weight:400; color:#e1e4df; }
 .ex-loot-summary small { display:block; font:9px monospace; color:#9fb6c8; margin-top:5px; }
 .ex-result-loot { flex-wrap:wrap; }
-@keyframes ex-loot-reveal { from { opacity:0; filter:brightness(1.6); } to { opacity:1; filter:brightness(1); } }
+@keyframes ex-loot-reveal { from { filter:brightness(1.35); } to { filter:brightness(1); } }
 @keyframes ex-item-scan { from { transform:translateY(-35%); } to { transform:translateY(35%); } }
 @media(min-width:1600px) { .ex-modal-search,.ex-modal-bag { width:1200px; padding:30px 38px 20px; } .ex-inventory-workspace { gap:36px; } }
 @media(max-height:780px) and (min-width:901px) {
