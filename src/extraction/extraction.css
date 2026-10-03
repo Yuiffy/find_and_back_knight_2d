@@ -1,13 +1,13 @@
 .ex-app {
-  --ex-ink: #e8eddc;
-  --ex-muted: #a6b2a5;
-  --ex-lime: #dae995;
-  --ex-line: #c7d4b42b;
+  --ex-ink: #f3eee6;
+  --ex-muted: #aab8c8;
+  --ex-lime: #e9bda0;
+  --ex-line: #c8d4e32b;
   position: fixed;
   inset: 0;
   overflow: hidden;
   color: var(--ex-ink);
-  background: #172b27;
+  background: #111e30;
   font-family: 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, sans-serif;
   font-size: 14px;
   line-height: 1.5;
@@ -24,7 +24,7 @@
 .ex-app button,
 .ex-file {
   border: 1px solid var(--ex-line);
-  background: #182d29;
+  background: #17293c;
   color: var(--ex-ink);
   padding: 10px 15px;
   display: inline-flex;
@@ -38,7 +38,7 @@
     border-color 0.18s;
 }
 .ex-app button:hover {
-  background: #33473a;
+  background: #314459;
   border-color: #d4e0ad88;
 }
 .ex-app button:disabled {
@@ -69,13 +69,13 @@
   font-size: 11px;
 }
 .ex-app select {
-  background: #21382d;
-  color: #e5edda;
+  background: #25394f;
+  color: #e9e6e0;
   border: 1px solid var(--ex-line);
   padding: 7px;
 }
 .ex-app input {
-  accent-color: #d8e991;
+  accent-color: #e9bda0;
 }
 .ex-world {
   position: absolute;
@@ -121,7 +121,7 @@
   display: block;
   font-size: 9px;
   letter-spacing: 2px;
-  color: #b5c3a9;
+  color: #b2c0ce;
   margin-top: 3px;
 }
 .ex-brand-mark {
@@ -141,13 +141,13 @@
   font-size: 18px;
 }
 .ex-header-right button {
-  background: #1a342477;
+  background: #18283f77;
   padding: 10px;
 }
 .ex-online {
   font-size: 10px;
   letter-spacing: 1px;
-  color: #c8dab6;
+  color: #c3cdd9;
 }
 .ex-tabs {
   position: absolute;
@@ -161,15 +161,15 @@
   border-bottom: 2px solid transparent;
   background: none;
   padding: 12px 0;
-  color: #a9b9a5;
+  color: #a8b9cc;
   gap: 9px;
 }
 .ex-tabs button:hover {
   background: none;
 }
 .ex-tabs button.selected {
-  color: #e8eccd;
-  border-bottom-color: #dce8a6;
+  color: #f0e4d4;
+  border-bottom-color: #edc7a8;
 }
 .ex-tabs small {
   font-family: monospace;
@@ -188,7 +188,7 @@
 .ex-kicker {
   font: 10px/1.4 monospace;
   letter-spacing: 2px;
-  color: #bdcd9c;
+  color: #d8b99d;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -202,15 +202,15 @@
 }
 .ex-briefing h1 em {
   font-style: normal;
-  color: #dce8a6;
+  color: #edc7a8;
 }
 .ex-intro {
-  color: #abbba6;
+  color: #acbacb;
   font-size: 13px;
   line-height: 1.9;
 }
 .ex-mission {
-  border-left: 2px solid #c3d099;
+  border-left: 2px solid #daa98e;
   padding: 0 0 0 19px;
   margin: 28px 0 22px;
   max-width: 370px;
@@ -222,11 +222,11 @@
 }
 .ex-mission p {
   font-size: 12px;
-  color: #c0ccb7;
+  color: #b8c4d4;
   margin-bottom: 7px;
 }
 .ex-mission small {
-  color: #a6bc8c;
+  color: #bca99b;
   font-size: 10px;
 }
 .ex-brief-stats {
@@ -1018,7 +1018,7 @@
 .ex-result-overlay {
   position: absolute;
   inset: 0;
-  background: #10271de8;
+  background: #101e32ed;
   backdrop-filter: blur(9px);
   z-index: 25;
   display: flex;
@@ -1040,11 +1040,11 @@
   width: 70px;
   height: 70px;
   margin: 25px auto;
-  border: 1px solid #cfdfa788;
+  border: 1px solid #ceac9988;
   border-radius: 50%;
   display: grid;
   place-items: center;
-  color: #d5e6ae;
+  color: #e4c4b0;
 }
 .ex-result h1 {
   font-size: clamp(24px, 3vw, 43px);
@@ -1060,8 +1060,8 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #d9e9a6;
-  border: 1px solid #ccdf8e55;
+  color: #e9c7a8;
+  border: 1px solid #ceab9855;
   padding: 9px 16px;
   margin: 20px 0;
   font-size: 12px;

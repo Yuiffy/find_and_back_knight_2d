@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
-import { chromium } from 'playwright';
+import { launchExtractionBrowser } from './extraction-browser.mjs';
 import { freshProfile, SAVE_KEY } from '../src/extraction/model.ts';
 const out = '.tmp/test-artifacts/extraction-persistence';
 fs.mkdirSync(out, { recursive: true });
-const browser = await chromium.launch({ headless: true });
+const browser = await launchExtractionBrowser();
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
@@ -74,7 +74,7 @@ try {
   await page.getByRole('button', { name: '设置', exact: true }).click();
   await page.getByRole('button', { name: /音效/ }).click();
   await page.getByRole('button', { name: /画质/ }).click();
-  await page.getByRole('button', { name: /减少界面动态/ }).click();
+  await page.getByRole('button', { name: /减少.*动态/ }).click();
   await page.getByRole('button', { name: '关闭面板' }).click();
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: '导出存档' }).click();

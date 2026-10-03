@@ -47,7 +47,9 @@ import { Raid } from './simulation';
 import { EXITS, OBSTACLES, POWER, RADAR, SECTORS } from './map';
 import World, { type ViewBridge } from './World';
 import { FieldAudio } from './audio';
+import { WeaponArtwork } from './WeaponArtwork';
 import './extraction.css';
+import './visual.css';
 
 const time = (seconds: number) =>
   `${Math.floor(Math.max(0, seconds) / 60)
@@ -208,6 +210,7 @@ export default function ExtractionGame() {
   panelRef.current = panel;
   const [frame, redraw] = useState(0);
   const [notice, setNotice] = useState('');
+  const [operatorYaw, setOperatorYaw] = useState(-.18);
   const [confirmAbandon, setConfirmAbandon] = useState(false);
   const inputKeys = useRef(new Set<string>()),
     manualClock = useRef(false);
@@ -403,6 +406,7 @@ export default function ExtractionGame() {
               ...raid.text(),
               panel: panelRef.current,
               profile: profileRef.current,
+              visual: bridge.visual,
               screen: {
                 player: bridge.project(raid.player.x, raid.player.z),
                 enemies: raid.enemies
@@ -410,13 +414,13 @@ export default function ExtractionGame() {
                   .map((e) => ({ id: e.id, ...bridge.project(e.x, e.z) })),
               },
             }
-          : { mode: 'extraction', phase: 'base', profile: profileRef.current },
+          : { mode: 'extraction', phase: 'base', profile: profileRef.current, visual: bridge.visual, operatorYaw },
       );
     raf = requestAnimationFrame(loop);
     return () => {
       cancelAnimationFrame(raf);
     };
-  }, [raid, commit, updateUI, bridge]);
+  }, [raid, commit, updateUI, bridge, operatorYaw]);
   const touchRef = useRef({ move: false, aim: false });
   function start() {
     if (!canDeploy(profile, loadout) || warning) return;
@@ -532,6 +536,7 @@ export default function ExtractionGame() {
       className={`ex-app ${active ? 'is-raid' : 'is-base'} ${profile.settings.reducedMotion ? 'reduce-motion' : ''}`}
       onContextMenu={(e) => e.preventDefault()}
     >
+      {!raid && <div className="ex-base-backdrop" />}
       <div
         className="ex-world"
         onPointerMove={(e) => {
@@ -553,16 +558,20 @@ export default function ExtractionGame() {
           base={!raid}
           quality={profile.settings.quality}
           bridge={bridge}
+          loadout={raid?.loadout ?? loadout}
+          reducedMotion={profile.settings.reducedMotion}
+          baseRotation={operatorYaw}
         />
       </div>
+      <div className="ex-cinematic-edge" aria-hidden="true" />
       {!raid && (
         <>
           <div className="ex-base-shade" />
           <header className="ex-header">
             <a className="ex-brand" href={import.meta.env.BASE_URL}>
-              <span className="ex-brand-mark">回</span>
+              <span className="ex-brand-mark"><img src={`${import.meta.env.BASE_URL}assets/sui-bird.png`} alt="" /></span>
               <span>
-                雾港行动<small>FOGHARBOR / EXTRACTION</small>
+                岁己 · 雾港行动<small>FOGHARBOR / SUI'S RETURN</small>
               </span>
             </a>
             <div className="ex-header-right">
@@ -614,16 +623,16 @@ export default function ExtractionGame() {
           )}
           {tab === 'briefing' && (
             <section className="ex-briefing">
-              <span className="ex-kicker">OPERATION 07 / 岁己的归航频段</span>
+              <span className="ex-kicker"><Radio size={13} /> 归航频段 07 / SIGNAL LOST</span>
               <h1>
-                带着答案
+                岁己的
                 <br />
-                <em>活着回来。</em>
+                <em>雾港行动</em>
               </h1>
               <p className="ex-intro">
-                雾里的每件物资都有价值。
+                “饼干岁，收到请回话。”
                 <br />
-                但只有安全带回的，才真正属于你。
+                带回信号，找到回家的方向。
               </p>
               <div className="ex-mission">
                 <span className="ex-kicker">
@@ -668,15 +677,19 @@ export default function ExtractionGame() {
             </section>
           )}
           {tab === 'briefing' && (
-            <aside className="ex-location">
-              <span>31° 14′ N / 121° 29′ E</span>
-              <h2>雨蚀港区</h2>
-              <p>南岸登陆点 / 低威胁区域</p>
-              <div>
-                <i />
-                晴间薄雾 <span>单人 PVE</span>
-              </div>
-            </aside>
+            <>
+              <aside className="ex-operator-identity" aria-label="岁己角色展示">
+                <span className="ex-kicker">OPERATOR / 07</span>
+                <div><img src={`${import.meta.env.BASE_URL}assets/fogharbor/sui-portrait.webp`} alt="岁己红帽形象" /><span><strong>岁己 <em>SUI</em></strong><small>银喉长尾山雀 · 归航者</small></span></div>
+                <p>“等我回来，还要给你们直播呢。”</p>
+                <div className="ex-operator-turn">
+                  <button aria-label="向左旋转岁己" onClick={() => setOperatorYaw(y => y - Math.PI / 4)}><ArrowLeft size={14} /></button>
+                  <span>查看角色</span>
+                  <button aria-label="向右旋转岁己" onClick={() => setOperatorYaw(y => y + Math.PI / 4)}><ChevronRight size={14} /></button>
+                </div>
+              </aside>
+              <aside className="ex-location"><span>31° 14′ N / 121° 29′ E</span><p>雨蚀港区 · 南岸接应点</p><div><i /> 雨后晨雾 <span>单人 PVE</span></div></aside>
+            </>
           )}
           {tab === 'loadout' && (
             <section className="ex-base-panel ex-loadout">
@@ -707,7 +720,7 @@ export default function ExtractionGame() {
                           {WEAPONS[id].type}
                           <small>库存 {profile.guns[id]}</small>
                         </span>
-                        <span className={`ex-gun-shape gun-${id}`} />
+                        <WeaponArtwork weapon={id} />
                         <strong>{WEAPONS[id].name}</strong>
                         <small>{WEAPONS[id].description}</small>
                         <span className="ex-weapon-stats">
@@ -984,6 +997,7 @@ export default function ExtractionGame() {
             <span>M / 战术地图</span>
           </button>
           <div className="ex-status">
+            <div className="ex-sui-hud"><img src={`${import.meta.env.BASE_URL}assets/fogharbor/sui-portrait.webp`} alt="岁己" /><span>岁己 <b>SUI / 07</b></span></div>
             <div className="ex-health">
               <HeartPulse size={17} />
               <b>{Math.ceil(raid.player.hp)}</b>
@@ -1281,7 +1295,7 @@ export default function ExtractionGame() {
                       })
                     }
                   >
-                    减少界面动态{' '}
+                    减少环境与界面动态{' '}
                     <b>{profile.settings.reducedMotion ? '开启' : '关闭'}</b>
                   </button>
                 </div>
@@ -1466,6 +1480,7 @@ export default function ExtractionGame() {
               {profile.last.id.toString().padStart(3, '0')}
             </span>
             <div className="ex-result-icon">
+              <img src={`${import.meta.env.BASE_URL}assets/fogharbor/sui-portrait.webp`} alt="岁己" />
               {raid.phase === 'won' ? <Check size={34} /> : <Skull size={34} />}
             </div>
             <h1>

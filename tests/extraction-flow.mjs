@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
-import { chromium } from 'playwright';
+import { launchExtractionBrowser } from './extraction-browser.mjs';
 const output = '.tmp/test-artifacts/extraction';
 fs.mkdirSync(output, { recursive: true });
-const browser = await chromium.launch({ headless: true });
+const browser = await launchExtractionBrowser();
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));

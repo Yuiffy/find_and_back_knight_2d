@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
-import { chromium } from 'playwright';
+import { launchExtractionBrowser } from './extraction-browser.mjs';
 const out = '.tmp/test-artifacts/extraction-responsive';
 fs.mkdirSync(out, { recursive: true });
-const browser = await chromium.launch({ headless: true });
+const browser = await launchExtractionBrowser();
 const results = [];
 try {
   for (const [width, height] of [

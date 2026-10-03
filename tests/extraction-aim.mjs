@@ -1,6 +1,6 @@
-import { chromium } from 'playwright';
+import { launchExtractionBrowser } from './extraction-browser.mjs';
 import assert from 'node:assert/strict';
-const b = await chromium.launch({ headless: true });
+const b = await launchExtractionBrowser();
 const p = await b.newPage({ viewport: { width: 1440, height: 900 } });
 const errors = [];
 p.on('pageerror', (e) => errors.push(e.message));
